@@ -5,8 +5,8 @@ screenshot, a location, and route notes, produce a complete, installable AC trac
 real elevation, accurate lighting, and multiple layout variants — reproducible end-to-end from a
 single `track.config.json`.
 
-**First target:** a street loop in **Commerce City, Colorado** (`projects/commerce-city-loop/`).
-See [route-notes.md](../projects/commerce-city-loop/source/route-notes.md) for the marked layout.
+**First target:** **Sand Creek Raceway** — a street loop in Commerce City, Colorado (`projects/sand-creek-raceway/`).
+See [route-notes.md](../projects/sand-creek-raceway/source/route-notes.md) for the marked layout.
 
 ---
 
@@ -49,8 +49,8 @@ or rotations in code; derived values (e.g. `true_north_rotation_deg`) are writte
 ## 4. `track.config.json`
 
 The source of truth. Layouts are route variants that **share one kn5** and differ only in AC config
-(connectors, AI line). Current Commerce City values live in
-[track.config.json](../projects/commerce-city-loop/track.config.json).
+(connectors, AI line). Current Sand Creek Raceway values live in
+[track.config.json](../projects/sand-creek-raceway/track.config.json).
 
 ---
 

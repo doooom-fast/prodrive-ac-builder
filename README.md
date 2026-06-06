@@ -5,7 +5,7 @@ screenshot, a location, and route notes; get back a complete, installable AC tra
 geometry from OpenStreetMap, real elevation from USGS 3DEP, accurate sun/lighting, and multiple
 layout variants — all reproducible from a single `track.config.json`.
 
-First target: **a street loop in Commerce City, Colorado** (`projects/commerce-city-loop/`).
+First track: **Sand Creek Raceway** — a street loop in Commerce City, Colorado (`projects/sand-creek-raceway/`).
 
 > **First principle:** the screenshot is a *selection aid, not data*. Precise geometry comes from
 > OpenStreetMap via Overpass; hand-drawn KML is used only where the route leaves the real network.
@@ -55,7 +55,7 @@ pip install -e .          # geospatial deps (rasterio needs system GDAL)
 ## Build
 
 ```bash
-blender --background --python scripts/ac/build_kn5.py -- projects/commerce-city-loop
+blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
 ```
 
 ## Status

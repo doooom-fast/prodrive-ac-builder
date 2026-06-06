@@ -1,6 +1,6 @@
 {
-  "name": "Commerce City Loop",
-  "slug": "commerce_city_loop",
+  "name": "Sand Creek Raceway",
+  "slug": "sand_creek_raceway",
   "location": { "lat": 39.7839155, "lon": -104.9398905, "timezone": "America/Denver" },
   "source": { "type": "osm", "kml_overrides": [] },
   "loop": true,

@@ -4,7 +4,7 @@ Convert real-world road loops into playable Assetto Corsa (AC) tracks. Given a G
 screenshot, a location, and route notes, this project produces a complete, installable AC track
 folder — proper geometry, real elevation, accurate lighting, and multiple layout variants.
 
-First target: **a street loop in Commerce City, Colorado (US)**, with optional alternate routes.
+First target: **Sand Creek Raceway** — a street loop in Commerce City, Colorado (US), with optional alternate routes.
 
 ---
 
@@ -109,7 +109,7 @@ variants as separate AC configs over a single mesh — never rebuild the mesh pe
 ## Repo layout
 
 ```
-ac-track-builder/
+prodrive-ac-builder/
 ├── CLAUDE.md                  # this file — conventions & pipeline
 ├── README.md
 ├── pyproject.toml
@@ -121,7 +121,7 @@ ac-track-builder/
 │   ├── lighting/              # solar position, true-north orient, CSP config emit
 │   └── ac/                    # blender headless build, material json, track config gen
 └── projects/
-    └── commerce-city-loop/
+    └── sand-creek-raceway/
         ├── source/            # screenshot, any KML, route notes
         ├── data/              # centerline.geojson, dem.tif, heightfield.npy, splines
         ├── blender/           # working .blend
@@ -132,7 +132,7 @@ ac-track-builder/
 ## Headless Blender export
 
 ```bash
-blender --background --python scripts/ac/build_kn5.py -- projects/commerce-city-loop
+blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
 ```
 
 Requires **Blender 4.x** with the **AC Blender Tools** (kn5 export) addon installed.

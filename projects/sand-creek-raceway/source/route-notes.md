@@ -1,4 +1,4 @@
-# Commerce City Loop — route notes
+# Sand Creek Raceway — route notes
 
 > Per the project's first principle, **this screenshot is a selection aid, not data.** The
 > coordinates below pick the location and mark intent; the precise centerline comes from
@@ -40,12 +40,11 @@ Elemental Studios (infield S), Quality Restaurant Equipment (SW, near the pit sp
 
 ## Assets
 
-- `track-layout.png` — the marked Google Maps screenshot showing the red route + pitlane pin.
-  **(Not yet committed — drop the screenshot into this `source/` folder with that exact name.)**
+- `track-layout.png` — the marked Google Maps screenshot showing the red route + pitlane pin. ✓ committed.
 
 ## TODO
 
-- [ ] Commit `track-layout.png` into this folder.
+- [x] Commit `track-layout.png` into this folder.
 - [ ] Run `gps-extraction` to derive `data/centerline.geojson` from OSM/Overpass for this bbox.
 - [ ] Confirm the Ivy St spur as `connector_a`; tag it in the centerline.
 - [ ] Decide exact pit-spur road and place `AC_PIT_*` / pit lane there.
