@@ -1,0 +1,17 @@
+{
+  "name": "Commerce City Loop",
+  "slug": "commerce_city_loop",
+  "location": { "lat": 39.7839155, "lon": -104.9398905, "timezone": "America/Denver" },
+  "source": { "type": "osm", "kml_overrides": [] },
+  "loop": true,
+  "default_width_m": 9.0,
+  "width_overrides": [],
+  "origin": "centroid",
+  "true_north_rotation_deg": null,
+  "surfaces": { "road": "1ROAD", "grass": "GRASS", "kerb": "1KERB" },
+  "layouts": [
+    { "id": "full",  "ai": "ai/full",  "uses_connectors": [] },
+    { "id": "short", "ai": "ai/short", "uses_connectors": ["connector_a"] }
+  ],
+  "lighting": { "presets": ["morning", "noon", "golden_hour"] }
+}

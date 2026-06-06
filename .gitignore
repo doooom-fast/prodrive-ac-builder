@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+/build/
+/dist/
+.pytest_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+
+# --- Generated track artifacts -------------------------------------------------
+# Heavy, regenerable outputs. Keep track.config.json, source/ and route notes.
+*.tif
+*.npy
+*.blend
+*.blend1
+*.fbx
+*.kn5
+
+# Per-project working/output dirs (keep the folders via .gitkeep)
+projects/*/data/*
+projects/*/blender/*
+projects/*/build/*
+!projects/*/data/.gitkeep
+!projects/*/blender/.gitkeep
+!projects/*/build/.gitkeep
