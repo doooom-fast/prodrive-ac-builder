@@ -12,6 +12,9 @@ venv/
 # OS
 .DS_Store
 
+# Claude Code scratch
+.claude/worktrees/
+
 # --- Generated track artifacts -------------------------------------------------
 # Heavy, regenerable outputs. Keep track.config.json, source/ and route notes.
 *.tif
