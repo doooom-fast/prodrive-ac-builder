@@ -1,22 +1,66 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "location": { "lat": 39.7839155, "lon": -104.9398905, "timezone": "America/Denver" },
-  "source": { "type": "osm", "kml_overrides": [] },
+  "location": {
+    "lat": 39.7839155,
+    "lon": -104.9398905,
+    "timezone": "America/Denver"
+  },
+  "source": {
+    "type": "osm",
+    "kml_overrides": []
+  },
   "route": {
-    "bbox": [39.780, -104.943, 39.800, -104.898],
-    "roads": ["East 48th Avenue", "North Pontiac Street", "East 49th Avenue", "North Northfield Quebec Street", "North Quebec Street", "East 56th Avenue", "North Colorado Boulevard"],
-    "connectors": { "connector_a": ["North Ivy Street"] }
+    "bbox": [
+      39.78,
+      -104.943,
+      39.8,
+      -104.898
+    ],
+    "roads": [
+      "East 48th Avenue",
+      "North Pontiac Street",
+      "East 49th Avenue",
+      "North Northfield Quebec Street",
+      "North Quebec Street",
+      "East 56th Avenue",
+      "North Colorado Boulevard"
+    ],
+    "connectors": {
+      "connector_a": [
+        "North Ivy Street"
+      ]
+    }
   },
   "loop": true,
   "default_width_m": 9.0,
   "width_overrides": [],
   "origin": "centroid",
-  "true_north_rotation_deg": null,
-  "surfaces": { "road": "1ROAD", "grass": "GRASS", "kerb": "1KERB" },
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
   "layouts": [
-    { "id": "full",  "ai": "ai/full",  "uses_connectors": [] },
-    { "id": "short", "ai": "ai/short", "uses_connectors": ["connector_a"] }
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": []
+    },
+    {
+      "id": "short",
+      "ai": "ai/short",
+      "uses_connectors": [
+        "connector_a"
+      ]
+    }
   ],
-  "lighting": { "presets": ["morning", "noon", "golden_hour"] }
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ]
+  }
 }
