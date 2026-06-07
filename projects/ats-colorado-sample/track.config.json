@@ -1,0 +1,27 @@
+{
+  "name": "ATS Colorado Sample",
+  "slug": "ats_colorado_sample",
+  "location": { "lat": 39.7392, "lon": -104.9903, "timezone": "America/Denver" },
+  "source": {
+    "type": "scs",
+    "game": "ats",
+    "dlc": ["dlc_colorado"],
+    "map": "usa",
+    "region": { "bbox": [-58000.0, -45000.0, -54000.0, -41000.0] },
+    "scale_mode": "native",
+    "asset_mode": "extract",
+    "game_root": "REPLACE/with/path/to/American Truck Simulator",
+    "_note": "bbox is a placeholder in SCS world meters — fill from parse_map output; game_root is the user's licensed install and is never committed. location is used only for lighting/sun, not geometry."
+  },
+  "loop": false,
+  "default_width_m": 9.0,
+  "width_overrides": [],
+  "origin": "centroid",
+  "true_north_rotation_deg": null,
+  "surfaces": { "road": "1ROAD", "grass": "GRASS", "kerb": "1KERB" },
+  "layouts": [
+    { "id": "freeroam",  "ai": null,           "uses_connectors": [] },
+    { "id": "i70_west",  "ai": "ai/i70_west",  "uses_connectors": [] }
+  ],
+  "lighting": { "presets": ["morning", "noon", "golden_hour"] }
+}
