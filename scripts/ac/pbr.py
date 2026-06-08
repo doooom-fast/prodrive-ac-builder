@@ -19,6 +19,7 @@ TEXTURES = {
     "GRASS":   ("grass_diffuse.jpg",   "grass_normal.jpg",   0.95, (0.15, 0.33, 0.11, 1), 0.0, False),
     "HIGHWAY": ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.80, (0.34, 0.34, 0.36, 1), 0.0, False),
     "BUILDING": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.55, 0.52, 0.48, 1), 0.0, False),
+    "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.70, (0.72, 0.72, 0.70, 1), 0.0, False),
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.70, (0.40, 0.40, 0.42, 1), 0.10, False),
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
     "TREES":   ("tree_diffuse.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),
