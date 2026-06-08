@@ -73,19 +73,23 @@ def build(track_dir: Path) -> Path:
             if "kn5" in opname.lower() or "assetto" in opname.lower():
                 found.append((f"{modname}.{opname}", getattr(mod, opname)))
     found.sort(key=lambda x: ("export" not in x[0].lower(), x[0]))  # prefer export ops
-    if not found:
-        ops = [f"{m}.{o}" for m in dir(bpy.ops) for o in dir(getattr(bpy.ops, m)) if "export" in o.lower()]
-        raise SystemExit(
-            "No kn5 export operator found — enable an AC kn5 exporter add-on (AC Tools / "
-            f"moppius/blender-assetto-corsa-tools). Scene saved to blender/{slug}.blend.\n"
-            f"Available export operators: {ops}")
-    op_name, op = found[0]
-    print(f"[build_kn5] export operator: {op_name}  (candidates: {[f for f, _ in found]})")
-    try:
-        op(filepath=str(out_kn5))
-    except TypeError:
-        op()  # some exporters read the path from a panel/scene setting instead
-    return out_kn5
+    if found:
+        op_name, op = found[0]
+        print(f"[build_kn5] kn5 export operator: {op_name}")
+        try:
+            op(filepath=str(out_kn5))
+        except TypeError:
+            op()  # some exporters read the path from a panel/scene setting instead
+        return out_kn5
+
+    # No direct kn5 exporter on this Blender (AC Tools exports FBX; direct-kn5 add-ons need Blender 3.x).
+    # Fall back to an AC-standard FBX — convert to kn5 with Content Manager (import) or ksEditor.
+    out_fbx = track_dir / "build" / f"{slug}.fbx"
+    bpy.ops.export_scene.fbx(filepath=str(out_fbx), axis_forward="-Z", axis_up="Y",
+                             apply_unit_scale=True, use_mesh_modifiers=True, path_mode="COPY")
+    print(f"[build_kn5] no direct kn5 exporter found — wrote AC-standard FBX: {out_fbx}")
+    print("           convert to .kn5 via Content Manager (track import) or ksEditor.")
+    return out_fbx
 
 
 def main() -> None:
