@@ -30,8 +30,22 @@ def _args():
     rest = a[a.index("--") + 1:] if "--" in a else []
     pd = Path(rest[0]) if rest else None
     seconds = float(rest[1]) if len(rest) > 1 else 16.0
-    height = float(rest[2]) if len(rest) > 2 else 7.0
+    height = float(rest[2]) if len(rest) > 2 else 12.0
     return pd, seconds, height
+
+
+def _look_rot(eye, target):
+    """Euler for a camera at ``eye`` looking at ``target``, world-up locked to +Z (never rolls).
+    Built explicitly because ``Vector.to_track_quat(...).to_euler()`` flips the camera upside-down at
+    some headings when run headless."""
+    import mathutils
+    fwd = (target - eye)
+    fwd = fwd.normalized() if fwd.length > 1e-6 else mathutils.Vector((0, -1, 0))
+    up = mathutils.Vector((0, 0, 1))
+    right = fwd.cross(up)
+    right = right.normalized() if right.length > 1e-6 else mathutils.Vector((1, 0, 0))
+    tup = right.cross(fwd).normalized()
+    return mathutils.Matrix((right, tup, -fwd)).transposed().to_euler()  # cols X=right Y=up Z=-fwd
 
 
 def _assign_material(obj):
@@ -58,7 +72,7 @@ def main():
     pd, seconds, height = _args()
     fps = 30
     frames = max(2, int(seconds * fps))
-    look_ahead, look_back, look_up = 38.0, 16.0, 2.5  # metres
+    look_ahead, look_back, look_up = 22.0, 12.0, 0.0  # metres — aim at road level, fairly close
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     for obj_file in ("track.obj", "environment.obj"):
@@ -96,8 +110,8 @@ def main():
         a, b = pts[i - 1], pts[i]
         return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t)
 
-    def to_bl(p):  # OBJ (x, y-up, z) -> Blender (x, z, y-up); up_axis='Y' import swaps Y<->Z
-        return mathutils.Vector((p[0], p[2], p[1]))
+    def to_bl(p):  # OBJ (x, y-up, z-north) -> Blender (x, -z, y); up_axis='Y'+forward='-Z' sends +Z(north)->-Y
+        return mathutils.Vector((p[0], -p[2], p[1]))
 
     cam_data = bpy.data.cameras.new("Cam")
     cam_data.lens = 28
@@ -111,7 +125,7 @@ def main():
         cam_pos = to_bl(sample(s - look_back)) + mathutils.Vector((0, 0, height))
         target = to_bl(sample(s + look_ahead)) + mathutils.Vector((0, 0, look_up))
         cam.location = cam_pos
-        cam.rotation_euler = (target - cam_pos).to_track_quat("-Z", "Y").to_euler()
+        cam.rotation_euler = _look_rot(cam_pos, target)
         cam.keyframe_insert("location", frame=f + 1)
         cam.keyframe_insert("rotation_euler", frame=f + 1)
 
@@ -142,23 +156,20 @@ def main():
     except Exception:
         pass
     sc.view_settings.view_transform = "Standard"
-    sc.view_settings.exposure = -0.5
+    sc.view_settings.exposure = -0.7
     sc.render.resolution_x = 1280
     sc.render.resolution_y = 720
     sc.frame_start, sc.frame_end = 1, frames
     sc.render.fps = fps
-    sc.render.image_settings.file_format = "FFMPEG"
-    sc.render.ffmpeg.format = "MPEG4"
-    sc.render.ffmpeg.codec = "H264"
-    try:
-        sc.render.ffmpeg.constant_rate_factor = "MEDIUM"
-    except Exception:
-        pass
-    out = pd / "build" / "flythrough.mp4"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    sc.render.filepath = str(out)
+    # This Blender build ships without FFmpeg, so render a PNG sequence and let ffmpeg encode it after.
+    sc.render.image_settings.file_format = "PNG"
+    frames_dir = pd / "build" / "_frames"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    for old in frames_dir.glob("f_*.png"):
+        old.unlink()
+    sc.render.filepath = str(frames_dir / "f_")
     bpy.ops.render.render(animation=True)
-    print("FLYTHROUGH_RENDERED", out, frames, "frames")
+    print("FLYTHROUGH_FRAMES", frames_dir, frames, fps)
 
 
 main()
