@@ -69,3 +69,20 @@ def parse_region(source: dict[str, Any], asset_tree: Path, data_dir: Path) -> tu
 
     _ = (region_geojson, items_json, json, clip_features, region_bbox)  # interface placeholders
     return region_geojson, items_json
+
+
+def main() -> None:
+    import sys
+
+    from scripts.config import load_config
+
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: python -m scripts.scs.parse_map <project-dir>")
+    project = Path(sys.argv[1])
+    cfg = load_config(project)
+    region, items = parse_region(cfg.source, project / "data" / "extracted", project / "data")
+    print(f"wrote {region} and {items}")
+
+
+if __name__ == "__main__":
+    main()
