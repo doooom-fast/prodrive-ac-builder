@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from scripts.geometry import dummies as dummies_mod
-from scripts.geometry import ribbon
+from scripts.geometry import kerbs, ribbon
 from scripts.geometry.projection import _meters_per_degree
 
 Vertex = tuple[float, float, float]
@@ -76,7 +76,8 @@ def write_obj(path: Path, mtl_name: str, groups: list[tuple[str, str, dict]]) ->
 def write_mtl(path: Path) -> None:
     path.write_text(
         "newmtl road\nKd 0.20 0.20 0.23\nKa 0.05 0.05 0.05\n\n"
-        "newmtl grass\nKd 0.26 0.44 0.20\nKa 0.05 0.08 0.04\n",
+        "newmtl grass\nKd 0.26 0.44 0.20\nKa 0.05 0.08 0.04\n\n"
+        "newmtl kerb\nKd 0.80 0.20 0.18\nKa 0.10 0.03 0.03\n",
         encoding="utf-8",
     )
 
@@ -97,10 +98,12 @@ def build(project_dir: str | Path) -> dict:
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
+    kerb = kerbs.corner_kerbs(centerline, widths)
+    kerb["vertices"] = [(x, y + ROAD_LIFT_M + 0.02, z) for x, y, z in kerb["vertices"]]
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
     nv, nf = write_obj(data / "track.obj", "track.mtl",
-                       [("GRASS", "grass", grass), ("1ROAD_main", "road", road)])
+                       [("GRASS", "grass", grass), ("1ROAD_main", "road", road), ("1KERB_corners", "kerb", kerb)])
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
 
@@ -110,10 +113,11 @@ def build(project_dir: str | Path) -> dict:
     for a, b, c in road["tris"]:
         (ax, _, az), (bx, _, bz), (cx, _, cz) = rv[a], rv[b], rv[c]
         area += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2
-    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("road", (0.82, 0.83, 0.86), road)],
-               dummies, data / "track_render.svg")
+    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("road", (0.82, 0.83, 0.86), road),
+                ("kerb", (0.88, 0.24, 0.20), kerb)], dummies, data / "track_render.svg")
 
-    return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "grass_grid": f"{meta['nx']}x{meta['ny']}",
+    return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),
+            "grass_grid": f"{meta['nx']}x{meta['ny']}",
             "road_area_m2": round(area), "dummies": len(dummies)}
 
 
