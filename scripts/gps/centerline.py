@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -196,11 +197,44 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
     return out, stats
 
 
-def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = None) -> tuple[Path, dict]:
-    """Build the centerline directly from a hand-drawn KML/KMZ (e.g. Google My Maps export).
+def _wp_order(name: str | None) -> float:
+    """Sort key for named turn waypoints: start* first, last*/finish* last, else the embedded number."""
+    n = (name or "").lower()
+    if "start" in n:
+        return -1.0
+    if "last" in n or "finish" in n:
+        return 1e6
+    m = re.search(r"\d+", n)
+    return float(m.group()) if m else 5e5
 
-    The longest LineString is the main loop; any other lines become connectors; Points are reported
-    (e.g. the start marker). This is the precise path — the drawn line is the route, no road guessing.
+
+def _catmull_rom(pts: list[Vertex], *, closed: bool, samples: int = 12) -> list[Vertex]:
+    """Smooth curve that passes THROUGH each waypoint (so the track keeps your turns)."""
+    n = len(pts)
+    if n < 3:
+        return list(pts)
+
+    def comp(a, b, c, d, t):
+        t2, t3 = t * t, t * t * t
+        return 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+
+    out = []
+    for i in (range(n) if closed else range(n - 1)):
+        p0, p1, p2, p3 = pts[(i - 1) % n], pts[i], pts[(i + 1) % n], pts[(i + 2) % n]
+        for s in range(samples):
+            t = s / samples
+            out.append((comp(p0[0], p1[0], p2[0], p3[0], t), comp(p0[1], p1[1], p2[1], p3[1], t)))
+    if not closed:
+        out.append(pts[-1])
+    return out
+
+
+def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = None) -> tuple[Path, dict]:
+    """Build the centerline from a KML/KMZ (Google My Maps export) — a drawn line OR ordered turn points.
+
+    A LineString is used directly (longest = loop, others = connectors). If the KML is only Points
+    (named turns), they're ordered by name and splined through with Catmull-Rom. Precise — your route,
+    no road guessing.
     """
     project_dir = Path(project_dir)
     cfg = load_config(project_dir)
@@ -211,11 +245,17 @@ def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = N
     feats = kml.parse_kml(kml_path)
     lines = [f for f in feats if f["type"] == "line"]
     points = [f for f in feats if f["type"] == "point"]
-    if not lines:
-        raise SystemExit(f"no LineString found in {kml_path} (draw a line in My Maps, not just pins)")
+    if lines:
+        main = max(lines, key=lambda f: polyline_length(f["coords"]))
+        ring = list(main["coords"])
+        kml_name, source, extra = main["name"], "kml-line", [f for f in lines if f is not main]
+    elif points:
+        ordered = sorted(points, key=lambda f: _wp_order(f["name"]))
+        ring = _catmull_rom([f["coords"][0] for f in ordered], closed=cfg.loop, samples=12)
+        kml_name, source, extra = f"{len(ordered)} ordered turns", "kml-points", []
+    else:
+        raise SystemExit(f"no LineString or Points found in {kml_path}")
 
-    main = max(lines, key=lambda f: polyline_length(f["coords"]))
-    ring = list(main["coords"])
     if cfg.loop and _key(ring[0]) != _key(ring[-1]):
         ring.append(ring[0])
     ring = resample(ring, RESAMPLE_SPACING_M)
@@ -224,11 +264,9 @@ def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = N
                          {"closed": cfg.loop, "default_width_m": cfg.default_width_m,
                           "widths_m": [round(w, 2) for w in widths],
                           "length_m": round(polyline_length(ring), 1), "point_count": len(ring),
-                          "source": "kml", "kml_name": main["name"]})]
+                          "source": source, "kml_name": kml_name})]
     connectors = {}
-    for i, f in enumerate(lines):
-        if f is main:
-            continue
+    for i, f in enumerate(extra):
         line = resample(list(f["coords"]), RESAMPLE_SPACING_M)
         connectors[f["name"] or f"connector_{i}"] = line
         features.append(_feature(f["name"] or f"connector_{i}", "connector", line,
