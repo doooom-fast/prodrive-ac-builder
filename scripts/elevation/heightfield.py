@@ -22,8 +22,8 @@ Vertex = tuple[float, float]
 
 CENTERLINE_SPACING_M = 3.0   # Phase 1 resample spacing
 MEDIAN_WINDOW_M = 33.0       # median de-spike window (removes DEM notches: underpasses, bridges, trees)
-SMOOTH_WINDOW_M = 93.0       # mean smoothing window (gentle vertical curves, launch-free)
-SMOOTH_PASSES = 2            # mean passes (≈ Gaussian — bounds curvature without flattening real hills)
+SMOOTH_WINDOW_M = 39.0       # mean smoothing window — narrow on purpose: removes ±0.2 m DEM surface
+SMOOTH_PASSES = 2            # noise but PRESERVES real drops (a wider window flattens them; see notes)
 HF_SPACING_M = 40.0          # terrain grid resolution
 HF_MARGIN_M = 150.0          # grid margin around the loop
 
@@ -56,9 +56,15 @@ def smooth_profile(z: list[float], *, spacing_m: float, median_m: float = MEDIAN
 
     A plain moving average *smears* a sharp DEM artifact (e.g. the elevation notch where the route
     crosses under I-70, or a bridge/tree return) into a residual bump that still kicks the car. So
-    first a **median** filter to delete those spikes outright, then **mean** passes for gently-curved
-    grades. On Sand Creek this cuts max grade 18.7%→6.8% and the worst vertical kink 12.7→0.5 while
-    moving the profile only ~0.25 m from the real ground on average."""
+    first a **median** filter to delete those spikes outright (it removes V-notches but preserves
+    real *steps* — a genuine road descent survives it intact), then a **narrow** mean to scrub the
+    ±0.2 m DEM surface noise.
+
+    Window choice matters: the mean window must stay small. A wide one (≈90 m) spreads a real tight
+    drop over ~180 m and guts it (Sand Creek Drive's ~7 m drop fell to ~25%); ~39 m removes noise yet
+    keeps such drops at ~90–100% of their depth, at a drivable kink (~3 pts/3 m, no launch). The I-70
+    notch still dies because the median already deleted it. Don't widen this to chase a lower kink —
+    you'll flatten the features that make the track fun."""
     n = len(z)
     if n == 0:
         return []
