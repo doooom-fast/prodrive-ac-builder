@@ -112,7 +112,7 @@ def build(project_dir: str | Path) -> dict:
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
     kerb = kerbs.corner_kerbs(centerline, widths)
-    kerb["vertices"] = [(x, y + ROAD_LIFT_M + 0.02, z) for x, y, z in kerb["vertices"]]
+    kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # ridged kerb sits on the road
     marks = ribbon.road_markings(centerline, widths)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
     barr = kerbs.corner_barriers(centerline, widths)

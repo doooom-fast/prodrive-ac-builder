@@ -39,15 +39,44 @@ def _inside_normal(pts: list[Vertex], k: int, side: float) -> tuple[float, float
     return (-tz / tl * side, tx / tl * side)
 
 
+def _fine_stations(poly: list[Vertex], step: float) -> list[tuple[float, float, float, float, float, float]]:
+    """Resample a polyline to ~``step`` spacing; return (x, y, z, tx, tz, arc) with a unit X-Z tangent.
+    Kerbs are densified like this so the per-metre ridges can be modelled (the 3 m centreline is far
+    too coarse for that)."""
+    seg = [0.0]
+    for i in range(1, len(poly)):
+        seg.append(seg[-1] + math.hypot(poly[i][0] - poly[i - 1][0], poly[i][2] - poly[i - 1][2]))
+    total = seg[-1]
+    if total < 1e-6:
+        return []
+    steps = max(1, round(total / step))
+    out = []
+    si = 1
+    for s in range(steps + 1):
+        d = total * s / steps
+        while si < len(poly) - 1 and seg[si] < d:
+            si += 1
+        a, b = poly[si - 1], poly[si]
+        denom = (seg[si] - seg[si - 1]) or 1e-6
+        t = (d - seg[si - 1]) / denom
+        tx, tz = b[0] - a[0], b[2] - a[2]
+        tl = math.hypot(tx, tz) or 1e-6
+        out.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t,
+                    tx / tl, tz / tl, d))
+    return out
+
+
 def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.007,
-                 min_run: int = 5, kerb_w: float = 0.9, lift: float = 0.05, sharp: float = 0.05,
-                 apex_reach: float = 0.7, tile_m: float = 1.0) -> dict:
-    """Red/white kerbs at corners, on the TRACK side of the edge (a clipped rumble, not a strip out
-    in the grass). Two kinds, chosen by how tight the corner is:
-      • tight junctions (peak curvature >= ``sharp``) -> a single triangular apex kerb on the inside;
-      • high-speed sweepers (gentler, sustained)      -> kerb strips on BOTH the inside and outside.
-    The low ``thr`` catches the fast curves (Sand Creek / Colorado / 46th); build_mesh lifts the mesh
-    with the road. UVs: U across the 0->1 width, V along the run."""
+                 min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.10, ridge_period: float = 0.6,
+                 ridge_lo: float = 0.45, top_frac: float = 0.55, lift: float = 0.01,
+                 fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6) -> dict:
+    """Real 3D **ridged** kerbs on corners — a raised, serrated rumble strip, not a flat texture plane.
+    Each corner run is resampled fine (``fine_step``) and a cross-section is swept along it:
+        road-edge bottom -> raised top (with a vertical outer face) -> ramp back down to the track,
+    with the top height pulsing every ``ridge_period`` m (down to ``ridge_lo`` x height) to form the
+    ridges you feel. ``kerb_h`` is the kerb height — tune it freely. Sits on the TRACK side of the
+    edge; build_mesh raises the whole thing onto the road. Sweepers get inside+outside kerbs; tight
+    junctions get a short inside kerb hugging the apex. UVs: U across the profile, V along the run."""
     pts = centerline_m
     n = len(pts)
     rate = _smooth(_turn_rate(pts))
@@ -55,37 +84,29 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
 
-    def strip(run: list[int], side: float) -> None:
-        base = len(verts)
-        arc = 0.0
-        for idx, k in enumerate(run):
-            x, y, z = pts[k]
-            if idx > 0:
-                p = pts[run[idx - 1]]
-                arc += math.hypot(x - p[0], z - p[2])
-            inx, inz = _inside_normal(pts, k, side)
-            half = widths_m[k] / 2.0
-            verts.append((x + inx * half, y + lift, z + inz * half))                       # road edge
-            verts.append((x + inx * (half - kerb_w), y + lift, z + inz * (half - kerb_w)))  # onto track
-            uvs.append((0.0, arc / tile_m))
-            uvs.append((1.0, arc / tile_m))
-        for idx in range(len(run) - 1):
-            a0, a1 = base + 2 * idx, base + 2 * idx + 1
-            b0, b1 = base + 2 * (idx + 1), base + 2 * (idx + 1) + 1
-            tris.append((a0, a1, b1))
-            tris.append((a0, b1, b0))
-
-    def apex(run: list[int], side: float) -> None:  # one clean triangle at the inside of the junction
-        base = len(verts)
-        for k, inset, uv in ((run[0], 0.0, (0.0, 0.0)),
-                             (run[len(run) // 2], kerb_w + apex_reach, (0.5, 1.0)),
-                             (run[-1], 0.0, (1.0, 0.0))):
-            x, y, z = pts[k]
-            inx, inz = _inside_normal(pts, k, side)
-            half = widths_m[k] / 2.0
-            verts.append((x + inx * (half - inset), y + lift, z + inz * (half - inset)))
-            uvs.append(uv)
-        tris.append((base, base + 1, base + 2))
+    def sweep(run: list[int], side: float, half: float) -> None:
+        st = _fine_stations([pts[k] for k in run], fine_step)
+        if len(st) < 2:
+            return
+        rows = []
+        for x, y, z, tx, tz, arc in st:
+            nx, nz = -tz * side, tx * side                       # toward this side of the road
+            ph = (arc % ridge_period) / ridge_period             # triangle wave -> serrated ridges
+            h = kerb_h * (ridge_lo + (1.0 - ridge_lo) * (1.0 - abs(2.0 * ph - 1.0)))
+            edge, top, ramp = half, half - kerb_w * top_frac, half - kerb_w
+            r = len(verts)
+            verts.append((x + nx * edge, y + lift, z + nz * edge))            # 0 edge bottom
+            verts.append((x + nx * edge, y + lift + h, z + nz * edge))        # 1 edge top (vertical face)
+            verts.append((x + nx * top, y + lift + h, z + nz * top))          # 2 top inner
+            verts.append((x + nx * ramp, y + lift, z + nz * ramp))            # 3 ramp bottom (track side)
+            v = arc / tile_m
+            uvs.extend([(0.0, v), (0.15, v), (0.5, v), (1.0, v)])
+            rows.append(r)
+        for r in range(len(rows) - 1):
+            p, q = rows[r], rows[r + 1]
+            for u in (0, 1, 2):  # outer vertical face (0->1), top (1->2), ramp (2->3)
+                tris.append((p + u, p + u + 1, q + u + 1))
+                tris.append((p + u, q + u + 1, q + u))
 
     i = 0
     while i < n:
@@ -97,12 +118,13 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
             j += 1
         run = list(range(i, j))
         peak = max(abs(rate[k]) for k in run)
-        side = 1.0 if rate[run[len(run) // 2]] > 0 else -1.0  # inside of the turn
+        side = 1.0 if rate[run[len(run) // 2]] > 0 else -1.0
+        half = widths_m[run[len(run) // 2]] / 2.0
         if peak >= sharp and len(run) >= 2:
-            apex(run, side)         # tight junction -> triangular apex kerb
+            sweep(run, side, half)            # tight junction -> inside ridged kerb at the apex
         elif len(run) >= min_run:
-            strip(run, side)        # sweeper -> inside kerb ...
-            strip(run, -side)       # ... and outside kerb
+            sweep(run, side, half)            # sweeper -> inside ...
+            sweep(run, -side, half)           # ... and outside
         i = j
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
