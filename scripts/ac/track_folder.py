@@ -63,16 +63,18 @@ def _xz(local: dict) -> list[tuple[float, float]]:
     return [(p[0], p[2]) for p in local["points_xyz_m"]]  # (X east, Z north) metres
 
 
-def _map_params(xz, size: int = 900, margin: int = 20):
+def _map_params(xz, size: int = 900, margin: int = 28):
+    """Square, centered canvas so nothing clips and map.png matches map.ini exactly."""
     xs = [p[0] for p in xz]; zs = [p[1] for p in xz]
     minx, maxx, minz, maxz = min(xs), max(xs), min(zs), max(zs)
-    scale = (size - 2 * margin) / max(maxx - minx, maxz - minz)
-    W = round((maxx - minx) * scale + 2 * margin)
-    H = round((maxz - minz) * scale + 2 * margin)
-    # AC: pixel = (world + OFFSET) * SCALE_FACTOR  →  matches the png rendered below.
-    return {"WIDTH": W, "HEIGHT": H, "SCALE_FACTOR": round(scale, 6),
-            "X_OFFSET": round(margin / scale - minx, 3), "Z_OFFSET": round(margin / scale - minz, 3),
-            "MARGIN": margin, "DRAWING_SIZE": 10}, (minx, minz, scale, W, H)
+    rx, rz = maxx - minx, maxz - minz
+    scale = (size - 2 * margin) / max(rx, rz)
+    ox, oz = (size - rx * scale) / 2, (size - rz * scale) / 2  # centering offsets (px)
+    params = {"WIDTH": size, "HEIGHT": size, "SCALE_FACTOR": round(scale, 6),
+              "X_OFFSET": round(ox / scale - minx, 3), "Z_OFFSET": round(oz / scale - minz, 3),
+              "MARGIN": margin, "DRAWING_SIZE": 10}
+    geom = {"minx": minx, "minz": minz, "maxz": maxz, "scale": scale, "ox": ox, "oz": oz, "S": size}
+    return params, geom
 
 
 def map_ini(params: dict) -> str:
@@ -80,11 +82,16 @@ def map_ini(params: dict) -> str:
     return f"[PARAMETERS]\n{body}\n"
 
 
-def _track_svg(xz, geom, *, stroke: str, width: float, bg: str | None) -> str:
-    minx, minz, scale, W, H = geom
-    pts = " ".join(f"{round((x - minx) * scale + 20, 1)},{round((z - minz) * scale + 20, 1)}" for x, z in xz)
+def _track_svg(xz, geom, *, stroke: str, width: float, bg: str | None, flip_y: bool = False) -> str:
+    minx, minz, maxz, scale, ox, oz, S = (geom[k] for k in ("minx", "minz", "maxz", "scale", "ox", "oz", "S"))
+
+    def px(x, z):
+        py = ((maxz - z) if flip_y else (z - minz)) * scale + oz  # flip_y=True → north up (UI); else AC HUD
+        return round((x - minx) * scale + ox, 1), round(py, 1)
+
+    pts = " ".join(f"{a},{b}" for a, b in (px(x, z) for x, z in xz))
     rect = f'<rect width="100%" height="100%" fill="{bg}"/>' if bg else ""
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}">'
             f'{rect}<polyline points="{pts}" fill="none" stroke="{stroke}" stroke-width="{width}" '
             f'stroke-linejoin="round" stroke-linecap="round"/></svg>')
 
@@ -125,8 +132,13 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     xz = _xz(local)
     params, geom = _map_params(xz)
     (out / "data" / "map.ini").write_text(map_ini(params), encoding="utf-8")
-    _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None),
+    # HUD minimap — white track, transparent, AC convention (consistent with map.ini)
+    _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None, flip_y=False),
                out / "map.png", params["WIDTH"])
+    # preview — reuse the Phase-4 3D render (a real view of the track) if present
+    render_svg = project_dir / "data" / "track_render.svg"
+    preview_src = render_svg.read_text(encoding="utf-8") if render_svg.exists() else \
+        _track_svg(xz, geom, stroke="#ff3b30", width=5, bg="#0c1116", flip_y=True)
 
     layouts = [lo["id"] for lo in cfg.layouts]
     for layout in layouts:
@@ -135,8 +147,8 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         uid.mkdir(parents=True, exist_ok=True)
         (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, n_pits), indent=2),
                                            encoding="utf-8")
-        _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#10151b"), uid / "outline.png", params["WIDTH"])
-        _rasterize(_track_svg(xz, geom, stroke="#ff3b30", width=4, bg="#0c1116"), uid / "preview.png", 600)
+        _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True), uid / "outline.png", params["WIDTH"])
+        _rasterize(preview_src, uid / "preview.png", 600)
         aid = out / "ai" / layout
         aid.mkdir(parents=True, exist_ok=True)
         (aid / "README.txt").write_text(
