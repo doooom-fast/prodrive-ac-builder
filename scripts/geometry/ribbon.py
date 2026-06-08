@@ -156,3 +156,49 @@ def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0) -> dict:
             tris.append((a, b, c))
             tris.append((a, c, d))
     return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
+def road_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: float = 0.14,
+                  edge_inset: float = 0.4, lift: float = 0.0, dash_on: float = 3.0,
+                  dash_gap: float = 4.5, tile_m: float = 1.0) -> dict:
+    """Thin white lane lines along the road: solid edge lines (inset from the kerb) + a dashed centre.
+    Visual-only (no ``1`` prefix). Sits ``lift`` above the road — build_mesh raises it with the ribbon."""
+    pts = centerline_m
+    n = len(pts)
+    closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
+    m = n - 1 if closed else n
+    stations = []
+    arc = 0.0
+    for i in range(m):
+        if i > 0:
+            arc += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+        x, y, z = pts[i]
+        tx, tz = _horiz_tangent(pts, i, closed)
+        stations.append((x, y, z, -tz, tx, widths_m[i] / 2.0, arc))  # x,y,z, leftnormal nx,nz, half, arc
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+
+    def add_line(offset_of, dashed):
+        for i in range(m):
+            j = (i + 1) % m
+            if not closed and j == 0:
+                break
+            s0, s1 = stations[i], stations[j]
+            if dashed and (s0[6] % (dash_on + dash_gap)) > dash_on:
+                continue
+            b = len(verts)
+            for s in (s0, s1):
+                x, y, z, nx, nz, half, a = s
+                o = offset_of(s)
+                for sign in (-1, 1):
+                    off = o + sign * line_w / 2
+                    verts.append((x + nx * off, y + lift, z + nz * off))
+                    uvs.append(((sign + 1) / 2, a / tile_m))
+            tris.append((b, b + 1, b + 3))
+            tris.append((b, b + 3, b + 2))
+
+    add_line(lambda s: 0.0, True)                    # centre line, dashed
+    add_line(lambda s: s[5] - edge_inset, False)     # left edge, solid
+    add_line(lambda s: -(s[5] - edge_inset), False)  # right edge, solid
+    return {"vertices": verts, "uvs": uvs, "tris": tris}

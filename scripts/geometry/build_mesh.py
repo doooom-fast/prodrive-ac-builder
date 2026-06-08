@@ -113,10 +113,13 @@ def build(project_dir: str | Path) -> dict:
     grass = ribbon.grass_terrain(grid_xyz)
     kerb = kerbs.corner_kerbs(centerline, widths)
     kerb["vertices"] = [(x, y + ROAD_LIFT_M + 0.02, z) for x, y, z in kerb["vertices"]]
+    marks = ribbon.road_markings(centerline, widths)
+    marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
     nv, nf = write_obj(data / "track.obj", "track.mtl",
-                       [("GRASS", "grass", grass), ("1ROAD_main", "road", road), ("1KERB_corners", "kerb", kerb)])
+                       [("GRASS", "grass", grass), ("1ROAD_main", "road", road),
+                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks)])
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
 
@@ -127,7 +130,8 @@ def build(project_dir: str | Path) -> dict:
         (ax, _, az), (bx, _, bz), (cx, _, cz) = rv[a], rv[b], rv[c]
         area += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("road", (0.82, 0.83, 0.86), road),
-                ("kerb", (0.88, 0.24, 0.20), kerb)], dummies, data / "track_render.svg")
+                ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks)],
+               dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),
             "grass_grid": f"{meta['nx']}x{meta['ny']}",
