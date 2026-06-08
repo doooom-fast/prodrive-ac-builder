@@ -104,9 +104,13 @@ def _pip(x, z, poly):  # ray-cast point-in-polygon (poly = [(x,z)...])
     return inside
 
 
-def _billboard(x, y, z, h=6.0, w=3.0):  # crude upright tree card (two tris)
-    return {"vertices": [(x - w / 2, y, z), (x + w / 2, y, z), (x + w / 2, y + h, z), (x - w / 2, y + h, z)],
-            "tris": [(0, 1, 2), (0, 2, 3)]}
+def _billboard(x, y, z, h=7.0, w=5.5):  # crossed tree billboards (two perpendicular cards) + UVs
+    hw = w / 2
+    verts = [(x - hw, y, z), (x + hw, y, z), (x + hw, y + h, z), (x - hw, y + h, z),   # card along X
+             (x, y, z - hw), (x, y, z + hw), (x, y + h, z + hw), (x, y + h, z - hw)]   # card along Z
+    uvs = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0), (1, 0), (1, 1), (0, 1)]  # V=0 trunk → V=1 canopy
+    tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
 def _post(x, y, z, h=9.0, r=0.25):  # streetlight post (thin quad)

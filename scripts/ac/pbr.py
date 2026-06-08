@@ -20,9 +20,12 @@ TEXTURES = {
     "BUILDING": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.55, 0.52, 0.48, 1), 0.0, False),
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.70, (0.40, 0.40, 0.42, 1), 0.10, False),
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
-    "TREES":   (None, None, 0.90, (0.09, 0.25, 0.08, 1), 0.0, False),
+    "TREES":   ("tree_diffuse.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
 }
+
+# materials drawn as alpha-cutout billboards — wire the texture alpha + clip the transparent bg
+BILLBOARD = {"TREES"}
 
 
 def texture_dir() -> Path:
@@ -48,6 +51,14 @@ def setup_material(bpy, obj, tex_dir: Path | None = None):
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = bpy.data.images.load(str(dpath))
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        if key in BILLBOARD:  # cutout billboard: wire alpha + clip the transparent background
+            nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+            for attr, val in (("blend_method", "CLIP"), ("shadow_method", "CLIP"),
+                              ("surface_render_method", "DITHERED")):
+                try:
+                    setattr(mat, attr, val)
+                except Exception:
+                    pass
     else:
         bsdf.inputs["Base Color"].default_value = color
     bsdf.inputs["Roughness"].default_value = 0.05 if water else rough
