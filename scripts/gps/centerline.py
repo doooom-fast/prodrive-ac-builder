@@ -124,7 +124,13 @@ def resample(pl: list[Vertex], spacing_m: float = RESAMPLE_SPACING_M) -> list[Ve
         carried += d
         prev = b
     if out[-1] != pl[-1]:
-        out.append(pl[-1])
+        # Avoid a tiny closing "stub" segment: if the leftover tail is much shorter than the spacing,
+        # snap the last sample onto the endpoint instead of appending a near-duplicate. Otherwise a
+        # normal ΔY across a 0.3 m stub reads as a huge fake grade — a bump at the start/finish line.
+        if len(out) > 1 and haversine(out[-1], pl[-1]) < spacing_m * 0.5:
+            out[-1] = pl[-1]
+        else:
+            out.append(pl[-1])
     return out
 
 
