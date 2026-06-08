@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 from scripts.config import load_config
+from scripts.ac import ext_config
 
 
 # --- AC config files -----------------------------------------------------------
@@ -164,6 +165,7 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         f"  - ai/<layout>/fast_lane.ai: record in-game (Windows).\n"
         f"Install: copy this folder to <AC>/content/tracks/{cfg.slug}/. Validate in Content Manager.\n",
         encoding="utf-8")
+    ext_config.generate(project_dir)  # extension/ext_config.ini — CSP GrassFX / water shader / lights
     return {"out": str(out), "layouts": layouts, "length_m": length_m, "n_pits": n_pits,
             "map_px": f"{params['WIDTH']}x{params['HEIGHT']}", "kn5": kn5_name}
 
