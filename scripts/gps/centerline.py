@@ -229,7 +229,8 @@ def _catmull_rom(pts: list[Vertex], *, closed: bool, samples: int = 12) -> list[
     return out
 
 
-def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = None) -> tuple[Path, dict]:
+def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = None, *,
+                        snap_connectors: bool = False) -> tuple[Path, dict]:
     """Build the centerline from a KML/KMZ (Google My Maps export) — a drawn line OR ordered turn points.
 
     A LineString is used directly (longest = loop, others = connectors). If the KML is only Points
@@ -262,7 +263,12 @@ def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = N
         kml_name, source = f"{len(ordered)} ordered turns", "kml-points"
         if conn_pts:
             co = sorted(conn_pts, key=lambda f: _wp_order(f["name"]))
-            kml_connectors["connector_a"] = _catmull_rom([f["coords"][0] for f in co], closed=False, samples=10)
+            cpts = [f["coords"][0] for f in co]
+            if snap_connectors:
+                from scripts.gps import road_route  # lazy: needs network/OSM
+                kml_connectors["connector_a"] = road_route.route_waypoints(cpts)
+            else:
+                kml_connectors["connector_a"] = _catmull_rom(cpts, closed=False, samples=10)
     else:
         raise SystemExit(f"no LineString or Points found in {kml_path}")
 
