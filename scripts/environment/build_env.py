@@ -109,6 +109,7 @@ def build(project_dir: str | Path) -> dict:
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text())
+    grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m so grading hugs the road cleanly
     y_at = _grid_sampler(grid, meta, elev0)
     m_lon, m_lat = _meters_per_degree(origin[1])
 
@@ -120,7 +121,7 @@ def build(project_dir: str | Path) -> dict:
 
     # --- track + interior connector ---
     grid_xyz = project_grid(grid, meta, origin, elev0)
-    ribbon.conform_terrain_to_road(grid_xyz, loop)  # grade terrain to the road (no dipping)
+    ribbon.conform_terrain_to_road(grid_xyz, loop, widths)  # grade terrain to the road (no dipping)
     grass = ribbon.grass_terrain(grid_xyz)
     road = ribbon.road_ribbon(loop, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
