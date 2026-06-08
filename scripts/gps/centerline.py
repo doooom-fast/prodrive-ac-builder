@@ -245,14 +245,24 @@ def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = N
     feats = kml.parse_kml(kml_path)
     lines = [f for f in feats if f["type"] == "line"]
     points = [f for f in feats if f["type"] == "point"]
+    kml_connectors: dict[str, list[Vertex]] = {}  # name -> raw coords
     if lines:
         main = max(lines, key=lambda f: polyline_length(f["coords"]))
         ring = list(main["coords"])
-        kml_name, source, extra = main["name"], "kml-line", [f for f in lines if f is not main]
+        kml_name, source = main["name"], "kml-line"
+        for i, f in enumerate(g for g in lines if g is not main):
+            kml_connectors[f["name"] or f"connector_{i}"] = f["coords"]
     elif points:
-        ordered = sorted(points, key=lambda f: _wp_order(f["name"]))
+        # My Maps default-named pins ("Point NN") = interior junctions → a connector; the rest = loop.
+        conn_re = re.compile(r"^\s*point\s*\d+", re.I)
+        main_pts = [f for f in points if not conn_re.match(f["name"] or "")]
+        conn_pts = [f for f in points if conn_re.match(f["name"] or "")]
+        ordered = sorted(main_pts, key=lambda f: _wp_order(f["name"]))
         ring = _catmull_rom([f["coords"][0] for f in ordered], closed=cfg.loop, samples=12)
-        kml_name, source, extra = f"{len(ordered)} ordered turns", "kml-points", []
+        kml_name, source = f"{len(ordered)} ordered turns", "kml-points"
+        if conn_pts:
+            co = sorted(conn_pts, key=lambda f: _wp_order(f["name"]))
+            kml_connectors["connector_a"] = _catmull_rom([f["coords"][0] for f in co], closed=False, samples=10)
     else:
         raise SystemExit(f"no LineString or Points found in {kml_path}")
 
@@ -266,10 +276,10 @@ def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = N
                           "length_m": round(polyline_length(ring), 1), "point_count": len(ring),
                           "source": source, "kml_name": kml_name})]
     connectors = {}
-    for i, f in enumerate(extra):
-        line = resample(list(f["coords"]), RESAMPLE_SPACING_M)
-        connectors[f["name"] or f"connector_{i}"] = line
-        features.append(_feature(f["name"] or f"connector_{i}", "connector", line,
+    for name, coords in kml_connectors.items():
+        line = resample(list(coords), RESAMPLE_SPACING_M)
+        connectors[name] = line
+        features.append(_feature(name, "connector", line,
                                  {"length_m": round(polyline_length(line), 1), "point_count": len(line)}))
 
     out = project_dir / "data" / "centerline.geojson"
