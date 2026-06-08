@@ -28,7 +28,8 @@ SCS_TO_AC_SHADER: dict[str, str] = {
 }
 _DEFAULT_AC_SHADER = "ksPerPixel"
 
-_TOKEN_RE = re.compile(r'(\w[\w.]*)\s*:\s*"?([^"\n]+?)"?\s*$', re.MULTILINE)
+# key : value  (value optionally quoted; tolerate a trailing "{" as on SCS unit-opening lines)
+_TOKEN_RE = re.compile(r'(\w[\w.]*)\s*:\s*"?([^"\n{]+?)"?\s*\{?\s*$', re.MULTILINE)
 
 
 def map_shader(scs_shader: str) -> str:

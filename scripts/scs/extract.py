@@ -52,3 +52,19 @@ def extract(source: dict[str, Any], dest: Path) -> Path:
         subprocess.run(cmd, check=True)  # noqa: F841  (reachable once the line above is removed)
 
     return dest
+
+
+def main() -> None:
+    import sys
+
+    from scripts.config import load_config
+
+    if len(sys.argv) < 2:
+        raise SystemExit("usage: python -m scripts.scs.extract <project-dir>")
+    cfg = load_config(sys.argv[1])
+    out = extract(cfg.source, Path(sys.argv[1]) / "data" / "extracted")
+    print(f"extracted asset tree -> {out}")
+
+
+if __name__ == "__main__":
+    main()
