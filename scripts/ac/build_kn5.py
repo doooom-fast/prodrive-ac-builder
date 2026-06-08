@@ -26,12 +26,53 @@ def _track_dir_from_argv(argv: list[str]) -> Path:
 
 def build(track_dir: Path) -> Path:
     """Build the Blender scene from the project data and export the kn5. Returns the kn5 path."""
-    import bpy  # noqa: F401  — only available inside Blender
+    import json
 
-    raise NotImplementedError(
-        "Reset scene; import centerline/heightfield; build 1ROAD ribbon + GRASS + dummies; "
-        "apply materials.py assignments; invoke AC Blender Tools kn5 export to build/<slug>.kn5."
-    )
+    import bpy  # only available inside Blender
+
+    data = track_dir / "data"
+    slug = json.loads((track_dir / "track.config.json").read_text())["slug"]
+    out_kn5 = track_dir / "build" / f"{slug}.kn5"
+    out_kn5.parent.mkdir(parents=True, exist_ok=True)
+    (track_dir / "blender").mkdir(parents=True, exist_ok=True)
+
+    # 1. empty scene
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+    # 2. import the pre-built mesh (Phase 4 track.obj is Y-up; groups GRASS / 1ROAD_main)
+    bpy.ops.wm.obj_import(filepath=str(data / "track.obj"), up_axis="Y", forward_axis="NEGATIVE_Z")
+
+    # 3. AC dummy empties from dummies.json (ENU X-east / Y-up / Z-north metres)
+    dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}
+    for name, (x, y, z) in dummies.items():
+        empty = bpy.data.objects.new(name, None)
+        empty.empty_display_type = "ARROWS"
+        empty.empty_display_size = 3.0
+        empty.location = (x, y, z)
+        bpy.context.scene.collection.objects.link(empty)
+
+    # 4. assign an AC shader per object by mesh-name prefix (materials.json from scripts.ac.materials)
+    mat_file = data / "materials.json"
+    mats = json.loads(mat_file.read_text())["materials"] if mat_file.exists() else {}
+    for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
+        prefix = next((p for p in mats if ob.name.upper().startswith(p.upper())), None)
+        if prefix:
+            mat = bpy.data.materials.new(prefix)
+            mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools
+            ob.data.materials.clear()
+            ob.data.materials.append(mat)
+
+    bpy.ops.wm.save_as_mainfile(filepath=str(track_dir / "blender" / f"{slug}.blend"))
+
+    # 5. export kn5 via the AC Blender Tools addon. The operator name depends on the installed
+    #    addon (assettoCorsa / ac-crew) — adjust if yours differs. Common: bpy.ops.exporter.kn5.
+    exporter = getattr(getattr(bpy.ops, "exporter", None), "kn5", None)
+    if exporter is None:
+        raise SystemExit(
+            "AC Blender Tools kn5 exporter not found. Install the addon (Blender 4.x) and check its "
+            "operator name. The scene was built and saved to blender/%s.blend." % slug)
+    exporter(filepath=str(out_kn5))
+    return out_kn5
 
 
 def main() -> None:
