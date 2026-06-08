@@ -22,7 +22,7 @@ from scripts.geometry import kerbs, ribbon
 from scripts.geometry.projection import _meters_per_degree
 
 Vertex = tuple[float, float, float]
-ROAD_LIFT_M = 0.25  # lift the road slightly above terrain so it reads clearly / avoids z-fight
+ROAD_LIFT_M = 0.4  # lift the road above the graded terrain (covers residual coarse-grid poke-through)
 
 
 def read_npy(path: Path) -> list[list[float]]:
@@ -94,6 +94,7 @@ def build(project_dir: str | Path) -> dict:
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
     grid_xyz = project_grid(grid, meta, origin, elev0)
+    ribbon.conform_terrain_to_road(grid_xyz, centerline)  # grade terrain to the road (no dipping)
 
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]

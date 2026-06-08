@@ -46,6 +46,38 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float]) -> dict:
     return {"vertices": verts, "tris": tris}
 
 
+def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
+                            *, corridor: float = 12.0, blend: float = 30.0) -> None:
+    """Grade the terrain grid to the road: within ``corridor`` m of the centerline, pull each grid
+    node's Y to the road elevation; blend back to natural terrain over ``blend`` m. Mutates grid_xyz
+    in place so the road sits flush (no terrain poking through where the ground slopes)."""
+    from collections import defaultdict
+    cell = corridor + blend
+    cl = centerline_m[::2] if len(centerline_m) > 1500 else centerline_m
+    buckets: dict[tuple[int, int], list[Vertex]] = defaultdict(list)
+    for x, y, z in cl:
+        buckets[(int(x // cell), int(z // cell))].append((x, y, z))
+    for row in grid_xyz:
+        for k in range(len(row)):
+            gx, gy, gz = row[k]
+            ci, cj = int(gx // cell), int(gz // cell)
+            best_d2, road_y = 1e18, None
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    for cx, cy, cz in buckets.get((ci + di, cj + dj), ()):
+                        d2 = (gx - cx) ** 2 + (gz - cz) ** 2
+                        if d2 < best_d2:
+                            best_d2, road_y = d2, cy
+            if road_y is None:
+                continue
+            d = math.sqrt(best_d2)
+            if d <= corridor:
+                row[k] = (gx, road_y, gz)
+            elif d <= cell:
+                t = (d - corridor) / blend
+                row[k] = (gx, road_y * (1 - t) + gy * t, gz)
+
+
 def grass_terrain(grid_xyz: list[list[Vertex]]) -> dict:
     """Triangulate the projected terrain grid (ny rows × nx cols of (x,y,z)) into the GRASS mesh."""
     ny = len(grid_xyz)

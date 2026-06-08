@@ -119,7 +119,9 @@ def build(project_dir: str | Path) -> dict:
     gj = json.loads((data / "centerline.geojson").read_text())["features"]
 
     # --- track + interior connector ---
-    grass = ribbon.grass_terrain(project_grid(grid, meta, origin, elev0))
+    grid_xyz = project_grid(grid, meta, origin, elev0)
+    ribbon.conform_terrain_to_road(grid_xyz, loop)  # grade terrain to the road (no dipping)
+    grass = ribbon.grass_terrain(grid_xyz)
     road = ribbon.road_ribbon(loop, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     kerb = kerbs.corner_kerbs(loop, widths)
