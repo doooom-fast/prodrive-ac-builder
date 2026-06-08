@@ -176,7 +176,7 @@ def build(project_dir: str | Path) -> dict:
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
               [("WATER", "grass", water), ("HIGHWAY_visual", "road", highways),
-               ("1ROAD_connector", "road", connector)])
+               ("1ROAD_connector", "road", connector), ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("highway", (0.40, 0.40, 0.44), highways), ("road", (0.82, 0.83, 0.86), road),

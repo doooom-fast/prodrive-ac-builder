@@ -39,8 +39,11 @@ def build(track_dir: Path) -> Path:
     # 1. empty scene
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # 2. import the pre-built mesh (Phase 4 track.obj is Y-up; groups GRASS / 1ROAD_main)
-    bpy.ops.wm.obj_import(filepath=str(data / "track.obj"), up_axis="Y", forward_axis="NEGATIVE_Z")
+    # 2. import the pre-built meshes (Y-up): the track + the dressed environment if present
+    for obj_file in ("track.obj", "environment.obj"):
+        p = data / obj_file
+        if p.exists():
+            bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
 
     # 3. AC dummy empties from dummies.json (ENU X-east / Y-up / Z-north metres)
     dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}
