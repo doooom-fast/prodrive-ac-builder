@@ -55,18 +55,29 @@ def project_grid(grid: list[list[float]], meta: dict, origin: tuple[float, float
 
 
 def write_obj(path: Path, mtl_name: str, groups: list[tuple[str, str, dict]]) -> tuple[int, int]:
-    """Write an OBJ with named objects/materials. groups: (object_name, material, mesh)."""
+    """Write an OBJ with named objects/materials. groups: (object_name, material, mesh). Emits per-
+    vertex UVs (``vt`` + ``f v/vt``) for any mesh carrying a parallel ``uvs`` list; v and vt use
+    independent global offsets so textured and untextured groups can share one file."""
     lines = [f"mtllib {mtl_name}"]
-    offset = 0
+    voff = vtoff = 0
     nv = nf = 0
     for name, mat, mesh in groups:
         lines.append(f"o {name}")
         lines.append(f"usemtl {mat}")
         for x, y, z in mesh["vertices"]:
             lines.append(f"v {x:.3f} {y:.3f} {z:.3f}")
+        uvs = mesh.get("uvs")
+        if uvs:
+            for u, v in uvs:
+                lines.append(f"vt {u:.4f} {v:.4f}")
         for a, b, c in mesh["tris"]:
-            lines.append(f"f {a + 1 + offset} {b + 1 + offset} {c + 1 + offset}")
-        offset += len(mesh["vertices"])
+            if uvs:
+                lines.append(f"f {a+1+voff}/{a+1+vtoff} {b+1+voff}/{b+1+vtoff} {c+1+voff}/{c+1+vtoff}")
+            else:
+                lines.append(f"f {a + 1 + voff} {b + 1 + voff} {c + 1 + voff}")
+        voff += len(mesh["vertices"])
+        if uvs:
+            vtoff += len(uvs)
         nv += len(mesh["vertices"])
         nf += len(mesh["tris"])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

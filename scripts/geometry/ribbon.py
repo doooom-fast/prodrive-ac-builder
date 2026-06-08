@@ -22,20 +22,30 @@ def _horiz_tangent(pts: list[Vertex], i: int, closed: bool) -> tuple[float, floa
     return dx / L, dz / L
 
 
-def road_ribbon(centerline_m: list[Vertex], widths_m: list[float]) -> dict:
-    """Sweep a drivable ribbon (1ROAD) along the centerline, offsetting ±width/2 per vertex."""
+def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: float = 4.0) -> dict:
+    """Sweep a drivable ribbon (1ROAD) along the centerline, offsetting ±width/2 per vertex.
+
+    Also emits per-vertex UVs (parallel to vertices) in metres/``tile_m``: U across the width
+    (±half/tile), V along the lap (cumulative arc/tile) — so a seamless asphalt tiles correctly down
+    the road and a detail/markings layer can key off the same coordinates."""
     pts = centerline_m
     n = len(pts)
     closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
     m = n - 1 if closed else n  # unique cross-sections (drop the duplicate closing vertex)
     verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    arc = 0.0
     for i in range(m):
+        if i > 0:
+            arc += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
         x, y, z = pts[i]
         tx, tz = _horiz_tangent(pts, i, closed)
         nx, nz = -tz, tx  # left normal (tangent rotated +90° in X-Z)
         half = widths_m[i] / 2.0
         verts.append((x + nx * half, y, z + nz * half))  # left  -> 2i
         verts.append((x - nx * half, y, z - nz * half))  # right -> 2i+1
+        uvs.append((half / tile_m, arc / tile_m))        # left
+        uvs.append((-half / tile_m, arc / tile_m))       # right
     tris: list[tuple[int, int, int]] = []
     last = m if closed else m - 1
     for i in range(last):
@@ -43,7 +53,7 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float]) -> dict:
         l0, r0, l1, r1 = 2 * i, 2 * i + 1, 2 * j, 2 * j + 1
         tris.append((l0, r0, r1))
         tris.append((l0, r1, l1))
-    return {"vertices": verts, "tris": tris}
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
 def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | None):
@@ -132,15 +142,17 @@ def upsample_grid(grid: list[list[float]], meta: dict, factor: int) -> tuple[lis
     return out, meta2
 
 
-def grass_terrain(grid_xyz: list[list[Vertex]]) -> dict:
-    """Triangulate the projected terrain grid (ny rows × nx cols of (x,y,z)) into the GRASS mesh."""
+def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0) -> dict:
+    """Triangulate the projected terrain grid (ny rows × nx cols of (x,y,z)) into the GRASS mesh.
+    UVs are world-planar (x/tile, z/tile) so the grass texture tiles seamlessly over any terrain."""
     ny = len(grid_xyz)
     nx = len(grid_xyz[0])
     verts = [grid_xyz[j][i] for j in range(ny) for i in range(nx)]
+    uvs = [(grid_xyz[j][i][0] / tile_m, grid_xyz[j][i][2] / tile_m) for j in range(ny) for i in range(nx)]
     tris: list[tuple[int, int, int]] = []
     for j in range(ny - 1):
         for i in range(nx - 1):
             a, b, c, d = j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i
             tris.append((a, b, c))
             tris.append((a, c, d))
-    return {"vertices": verts, "tris": tris}
+    return {"vertices": verts, "uvs": uvs, "tris": tris}

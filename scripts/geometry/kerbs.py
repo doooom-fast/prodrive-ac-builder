@@ -30,12 +30,16 @@ def _smooth(a: list[float], k: int = 3) -> list[float]:
 
 
 def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *,
-                 thr: float = 0.018, min_run: int = 6, kerb_w: float = 1.3, lift: float = 0.08) -> dict:
-    """Return a single merged kerb mesh ({'vertices','tris'}) covering all detected corners."""
+                 thr: float = 0.018, min_run: int = 6, kerb_w: float = 1.3, lift: float = 0.08,
+                 tile_m: float = 1.0) -> dict:
+    """Return a single merged kerb mesh ({'vertices','uvs','tris'}) covering all detected corners.
+    UVs run U across the strip (0 road-edge → 1 outer) and V along the run (distance/``tile_m``) so a
+    red/white kerb texture stripes correctly along each corner."""
     pts = centerline_m
     n = len(pts)
     rate = _smooth(_turn_rate(pts))
     verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
 
     i = 0
@@ -50,8 +54,12 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *,
             side = 1.0 if rate[(i + j) // 2] > 0 else -1.0  # inside of the turn
             base = len(verts)
             run = list(range(i, j))
-            for k in run:
+            d = 0.0
+            for idx, k in enumerate(run):
                 x, y, z = pts[k]
+                if idx > 0:
+                    p = pts[run[idx - 1]]
+                    d += math.hypot(x - p[0], z - p[2])
                 # tangent → left normal (nx, nz)
                 a = pts[max(0, k - 1)]; b = pts[min(n - 1, k + 1)]
                 tx, tz = b[0] - a[0], b[2] - a[2]
@@ -62,10 +70,12 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *,
                 outer = (x + nx * (half + kerb_w) * side, y + lift, z + nz * (half + kerb_w) * side)
                 verts.append(inner)
                 verts.append(outer)
+                uvs.append((0.0, d / tile_m))
+                uvs.append((1.0, d / tile_m))
             for m in range(len(run) - 1):
                 a0, a1 = base + 2 * m, base + 2 * m + 1
                 b0, b1 = base + 2 * (m + 1), base + 2 * (m + 1) + 1
                 tris.append((a0, a1, b1))
                 tris.append((a0, b1, b0))
         i = j
-    return {"vertices": verts, "tris": tris}
+    return {"vertices": verts, "uvs": uvs, "tris": tris}

@@ -1,0 +1,9 @@
+Texture sources — all CC0 (public domain); credited as good practice.
+
+  asphalt_diffuse.jpg / asphalt_normal.jpg   ambientCG "Asphalt026C"  https://ambientcg.com/view?id=Asphalt026C
+  grass_diffuse.jpg   / grass_normal.jpg     ambientCG "Grass001"     https://ambientcg.com/view?id=Grass001
+  kerb_diffuse.png                            generated (red/white stripe, scripts pipeline)
+
+Normal maps are OpenGL convention (ambientCG "NormalGL").
+1K JPG resolution — bump to 2K from ambientCG if you want sharper close-ups.
+Tiling is controlled by the UV scale in the geometry pass (road 4 m, grass 6 m, kerb 1 m).

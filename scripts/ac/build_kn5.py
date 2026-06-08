@@ -54,16 +54,18 @@ def build(track_dir: Path) -> Path:
         empty.location = (x, y, z)
         bpy.context.scene.collection.objects.link(empty)
 
-    # 4. assign an AC shader per object by mesh-name prefix (materials.json from scripts.ac.materials)
+    # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
+    #    stamp the AC shader name from materials.json — the FBX carries the textures (path_mode=COPY)
+    #    AND the kn5 gets the right shader.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import pbr
     mat_file = data / "materials.json"
     mats = json.loads(mat_file.read_text())["materials"] if mat_file.exists() else {}
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
+        mat = pbr.setup_material(bpy, ob)
         prefix = next((p for p in mats if ob.name.upper().startswith(p.upper())), None)
         if prefix:
-            mat = bpy.data.materials.new(prefix)
             mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools
-            ob.data.materials.clear()
-            ob.data.materials.append(mat)
 
     bpy.ops.wm.save_as_mainfile(filepath=str(track_dir / "blender" / f"{slug}.blend"))
 

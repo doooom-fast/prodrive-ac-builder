@@ -13,16 +13,8 @@ import math
 import sys
 from pathlib import Path
 
-# object-name prefix -> (base color rgba, roughness, metallic, water?)
-MATERIALS = {
-    "GRASS": ((0.15, 0.33, 0.11, 1), 0.95, 0.0, False),
-    "1ROAD": ((0.06, 0.06, 0.07, 1), 0.65, 0.0, False),
-    "1KERB": ((0.62, 0.08, 0.06, 1), 0.55, 0.0, False),
-    "WATER": ((0.02, 0.10, 0.20, 1), 0.04, 0.0, True),
-    "HIGHWAY": ((0.34, 0.34, 0.36, 1), 0.8, 0.0, False),
-    "TREES": ((0.09, 0.25, 0.08, 1), 0.9, 0.0, False),
-    "LIGHTS": ((0.95, 0.82, 0.42, 1), 0.4, 0.4, False),
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # so Blender's python finds pbr.py (same dir)
+import pbr  # noqa: E402  (must follow the sys.path tweak)
 
 
 def _args():
@@ -50,20 +42,7 @@ def _look_rot(eye, target):
 
 def _assign_material(obj):
     import bpy
-    name = obj.name.upper()
-    key = next((k for k in MATERIALS if name.startswith(k) or k in name), None)
-    col, rough, metal, water = MATERIALS.get(key, ((0.5, 0.5, 0.5, 1), 0.8, 0.0, False))
-    mat = bpy.data.materials.new(obj.name + "_mat")
-    mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    if bsdf:
-        bsdf.inputs["Base Color"].default_value = col
-        bsdf.inputs["Roughness"].default_value = 0.05 if water else rough
-        bsdf.inputs["Metallic"].default_value = metal
-        if water and "Transmission Weight" in bsdf.inputs:
-            bsdf.inputs["Transmission Weight"].default_value = 0.4
-    obj.data.materials.clear()
-    obj.data.materials.append(mat)
+    pbr.setup_material(bpy, obj)
 
 
 def main():
