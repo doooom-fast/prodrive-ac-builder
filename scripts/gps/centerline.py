@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 from scripts.config import load_config
-from scripts.gps import overpass
+from scripts.gps import kml, overpass
 
 RESAMPLE_SPACING_M = 3.0  # target even spacing along the route (spec: ~2–5 m)
 
@@ -194,6 +194,53 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
         "bbox": bbox,
     }
     return out, stats
+
+
+def centerline_from_kml(project_dir: str | Path, kml_path: str | Path | None = None) -> tuple[Path, dict]:
+    """Build the centerline directly from a hand-drawn KML/KMZ (e.g. Google My Maps export).
+
+    The longest LineString is the main loop; any other lines become connectors; Points are reported
+    (e.g. the start marker). This is the precise path — the drawn line is the route, no road guessing.
+    """
+    project_dir = Path(project_dir)
+    cfg = load_config(project_dir)
+    if kml_path is None:
+        kml_path = next((p for p in sorted((project_dir / "source").glob("*.km*"))), None)
+        if kml_path is None:
+            raise SystemExit("no .kml/.kmz found in source/")
+    feats = kml.parse_kml(kml_path)
+    lines = [f for f in feats if f["type"] == "line"]
+    points = [f for f in feats if f["type"] == "point"]
+    if not lines:
+        raise SystemExit(f"no LineString found in {kml_path} (draw a line in My Maps, not just pins)")
+
+    main = max(lines, key=lambda f: polyline_length(f["coords"]))
+    ring = list(main["coords"])
+    if cfg.loop and _key(ring[0]) != _key(ring[-1]):
+        ring.append(ring[0])
+    ring = resample(ring, RESAMPLE_SPACING_M)
+    widths = [cfg.default_width_m] * len(ring)
+    features = [_feature("centerline", "full", ring,
+                         {"closed": cfg.loop, "default_width_m": cfg.default_width_m,
+                          "widths_m": [round(w, 2) for w in widths],
+                          "length_m": round(polyline_length(ring), 1), "point_count": len(ring),
+                          "source": "kml", "kml_name": main["name"]})]
+    connectors = {}
+    for i, f in enumerate(lines):
+        if f is main:
+            continue
+        line = resample(list(f["coords"]), RESAMPLE_SPACING_M)
+        connectors[f["name"] or f"connector_{i}"] = line
+        features.append(_feature(f["name"] or f"connector_{i}", "connector", line,
+                                 {"length_m": round(polyline_length(line), 1), "point_count": len(line)}))
+
+    out = project_dir / "data" / "centerline.geojson"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"type": "FeatureCollection", "features": features}), encoding="utf-8")
+    write_preview_svg(ring, connectors, project_dir / "data" / "centerline_preview.svg")
+    return out, {"length_km": round(polyline_length(ring) / 1000, 2), "points": len(ring),
+                 "lines_in_kml": len(lines), "points_in_kml": len(points), "closed": cfg.loop,
+                 "connectors": list(connectors)}
 
 
 def write_preview_svg(ring: list[Vertex], connectors: dict[str, list[Vertex]], path: Path, size: int = 900) -> None:
