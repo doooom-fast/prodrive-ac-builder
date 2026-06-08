@@ -64,14 +64,27 @@ def build(track_dir: Path) -> Path:
 
     bpy.ops.wm.save_as_mainfile(filepath=str(track_dir / "blender" / f"{slug}.blend"))
 
-    # 5. export kn5 via the AC Blender Tools addon. The operator name depends on the installed
-    #    addon (assettoCorsa / ac-crew) — adjust if yours differs. Common: bpy.ops.exporter.kn5.
-    exporter = getattr(getattr(bpy.ops, "exporter", None), "kn5", None)
-    if exporter is None:
+    # 5. export kn5. Auto-detect whichever export operator the installed AC add-on registered
+    #    (AC Tools, moppius/blender-assetto-corsa-tools, io_import_accsv, …) — no hardcoded name.
+    found = []
+    for modname in dir(bpy.ops):
+        mod = getattr(bpy.ops, modname)
+        for opname in dir(mod):
+            if "kn5" in opname.lower() or "assetto" in opname.lower():
+                found.append((f"{modname}.{opname}", getattr(mod, opname)))
+    found.sort(key=lambda x: ("export" not in x[0].lower(), x[0]))  # prefer export ops
+    if not found:
+        ops = [f"{m}.{o}" for m in dir(bpy.ops) for o in dir(getattr(bpy.ops, m)) if "export" in o.lower()]
         raise SystemExit(
-            "AC Blender Tools kn5 exporter not found. Install the addon (Blender 4.x) and check its "
-            "operator name. The scene was built and saved to blender/%s.blend." % slug)
-    exporter(filepath=str(out_kn5))
+            "No kn5 export operator found — enable an AC kn5 exporter add-on (AC Tools / "
+            f"moppius/blender-assetto-corsa-tools). Scene saved to blender/{slug}.blend.\n"
+            f"Available export operators: {ops}")
+    op_name, op = found[0]
+    print(f"[build_kn5] export operator: {op_name}  (candidates: {[f for f, _ in found]})")
+    try:
+        op(filepath=str(out_kn5))
+    except TypeError:
+        op()  # some exporters read the path from a panel/scene setting instead
     return out_kn5
 
 
