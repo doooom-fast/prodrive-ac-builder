@@ -29,12 +29,23 @@ SCS assets are copyrighted. Converting for your own rig is the safe zone; **do n
 share a track that contains extracted SCS assets.** Use `asset_mode: "substitute"` for anything
 you intend to distribute.
 
-## Build (once the adapter is implemented)
+## Build
+
+Works today (code-only — once `data/region.geojson` exists):
 
 ```bash
-# S1–S2: extract + parse the region → data/centerline.geojson + data/items.json
-python -m scripts.scs.extract    projects/ats-colorado-sample
-python -m scripts.scs.parse_map  projects/ats-colorado-sample
-# S3–S5: reuse the existing geometry → Blender → kn5 back-half
+# S3: region.geojson + road_looks → centerline.local.json (+ a quick road OBJ)
+python -m scripts.scs.centerline projects/ats-colorado-sample
+# S3→S4: full track mesh (1ROAD + GRASS + AC dummies), reusing the geometry back-half
+python -m scripts.scs.build      projects/ats-colorado-sample
+```
+
+Still pending a licensed install + external binaries (see `scripts/scs/README.md`):
+
+```bash
+# S1–S2: extract + parse the region → data/region.geojson + data/items.json
+python -m scripts.scs.extract    projects/ats-colorado-sample   # needs SCS_EXTRACTOR_BIN
+python -m scripts.scs.parse_map  projects/ats-colorado-sample   # needs SCS_MAP_PARSER_BIN
+# S5: headless Blender → kn5
 blender --background --python scripts/ac/build_kn5.py -- projects/ats-colorado-sample
 ```
