@@ -28,6 +28,11 @@ class TrackConfig:
     lighting: dict[str, Any]
     width_overrides: list[dict[str, Any]] = field(default_factory=list)
     true_north_rotation_deg: float | None = None
+    # Track identity for ui_track.json — versioned per track, independent of the builder
+    # package version (pyproject.toml). Bump these when you re-release a track.
+    version: str = "0.1"
+    author: str = "prodrive-ac-builder"
+    year: int = 2026
     path: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -72,6 +77,9 @@ def load_config(project_dir: str | Path) -> TrackConfig:
         lighting=raw["lighting"],
         width_overrides=raw.get("width_overrides", []),
         true_north_rotation_deg=raw.get("true_north_rotation_deg"),
+        version=str(raw.get("version", "0.1")),
+        author=str(raw.get("author", "prodrive-ac-builder")),
+        year=int(raw.get("year", 2026)),
         path=cfg_path,
         raw=raw,
     )

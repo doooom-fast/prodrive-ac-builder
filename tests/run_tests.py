@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free runner for the SCS adapter tests (pytest not required in this env).
+"""Dependency-free runner for the test suite (pytest not required in this env).
 
 The test files are plain ``test_*`` functions using ``tempfile`` (no pytest fixtures), so they run
 both here and under pytest in the project's 3.11 dev env.
@@ -27,7 +27,7 @@ def _load(path: Path):
 
 def main() -> None:
     passed = failed = 0
-    for f in sorted((ROOT / "tests" / "scs").glob("test_*.py")):
+    for f in sorted((ROOT / "tests").rglob("test_*.py")):
         mod = _load(f)
         for name in sorted(n for n in dir(mod) if n.startswith("test_")):
             fn = getattr(mod, name)

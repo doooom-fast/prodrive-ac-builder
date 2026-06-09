@@ -43,6 +43,22 @@ Requires Blender 4.x with the AC Blender Tools (kn5 export) addon.
 - `ai/` — AI fast line per layout (recorded on Windows)
 - `outline.png`, `preview.png` — UI imagery
 
+> The kn5 is emitted as a **sibling** of the folder (`build/<slug>.kn5`), not inside it. The
+> installer drops it into the installed folder, where `models_<layout>.ini` references it.
+
+## Install (optional, phase 6)
+
+`scripts/ac/install.py` copies a built track into a local AC `content/tracks`. It locates the folder
+automatically — env (`AC_TRACKS_DIR`/`AC_ROOT`) → Steam (Windows registry + `libraryfolders.vdf`
+across libraries, macOS, Linux/Proton/Flatpak) — and **prompts for the path if it can't find one**.
+Each built track is an optional item: no argument → choose from all built tracks; an argument →
+just that one. Flags: `--tracks-dir`, `--list`, `--yes`, `--force`, `--dry-run`, `--allow-missing-model`.
+
+```bash
+python -m scripts.ac.install                       # interactive: pick tracks + confirm dest
+python -m scripts.ac.install projects/<slug> --yes
+```
+
 ## Scope boundary
 
 Documents what it **can't own**: **AI line recording and in-game testing require the Windows GUI**
@@ -51,4 +67,5 @@ Documents what it **can't own**: **AI line recording and in-game testing require
 ## Scripts
 
 `scripts/ac/` — `build_kn5.py` (headless Blender entry), `materials.py` (material JSON / addon settings),
-`track_folder.py` (emit models/surfaces/ui/map/ai layout files).
+`track_folder.py` (emit models/surfaces/ui/map/ai layout files), `install.py` (optional install into
+a local AC `content/tracks`, with auto-detect + prompt).
