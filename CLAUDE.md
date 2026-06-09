@@ -84,7 +84,7 @@ expect mild grades, not big elevation.
 | 3 | Project lat/lon/elev → local meters, set origin + true north | Mac | `geometry` / `lighting` |
 | 4 | Road ribbon (`1ROAD`) + grass heightfield (`GRASS`) + dummies | Mac | `geometry` / `ac` |
 | 5 | Material JSON → headless Blender → kn5 + track config | Mac | `ac` / `lighting` |
-| 6 | Install, drive, record AI lines, QA | **Windows** | `ac` |
+| 6 | Install (`scripts.ac.install` — optional, auto-finds AC tracks dir), drive, record AI lines, QA | **Windows** | `ac` |
 | 7+ | Objects: barriers, kerbs, trees, buildings — iterative passes | Mac → Win | `ac` |
 
 Phases 1–5 are fully code-driven. Phase 6 is the manual loop on Windows.

@@ -50,7 +50,7 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
         "country": "United States", "city": "Commerce City",
         "length": str(round(length_m)), "width": str(round(cfg.default_width_m)),
         "pitboxes": str(n_pits), "run": "clockwise",
-        "author": "prodrive-ac-builder", "version": "0.1", "year": 2026,
+        "author": cfg.author, "version": str(cfg.version), "year": cfg.year,
     }
 
 
@@ -163,7 +163,8 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         f"  - {kn5_name}: build with Blender 4.x + AC Blender Tools — `blender --background "
         f"--python scripts/ac/build_kn5.py -- {project_dir}`\n"
         f"  - ai/<layout>/fast_lane.ai: record in-game (Windows).\n"
-        f"Install: copy this folder to <AC>/content/tracks/{cfg.slug}/. Validate in Content Manager.\n",
+        f"Install: `python -m scripts.ac.install {project_dir}` (auto-finds AC, asks if it can't), "
+        f"or copy this folder to <AC>/content/tracks/{cfg.slug}/. Validate in Content Manager.\n",
         encoding="utf-8")
     ext_config.generate(project_dir)  # extension/ext_config.ini — CSP GrassFX / water shader / lights
     return {"out": str(out), "layouts": layouts, "length_m": length_m, "n_pits": n_pits,
@@ -171,13 +172,25 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        raise SystemExit("usage: python -m scripts.ac.track_folder <project-dir>")
-    info = generate(sys.argv[1])
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="scripts.ac.track_folder",
+                                 description="Generate the installable AC track folder.")
+    ap.add_argument("project_dir", help="projects/<slug>")
+    ap.add_argument("--install", action="store_true",
+                    help="after generating, install into a local AC content/tracks folder "
+                         "(auto-detects it, asks if it can't find it)")
+    args = ap.parse_args()
+
+    info = generate(args.project_dir)
     print(f"wrote track folder → {info['out']}")
     for k, v in info.items():
         if k != "out":
             print(f"  {k}: {v}")
+
+    if args.install:
+        from scripts.ac import install
+        raise SystemExit(install.main([args.project_dir]))
 
 
 if __name__ == "__main__":

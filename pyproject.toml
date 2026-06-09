@@ -24,6 +24,10 @@ dependencies = [
   "astral>=3.2",      # solar azimuth/elevation for lighting
 ]
 
+[project.scripts]
+# Optional phase-6 step: install a built track into a local Assetto Corsa content/tracks folder.
+prodrive-ac-install = "scripts.ac.install:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.5"]
 

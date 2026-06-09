@@ -20,7 +20,7 @@ First track: **Sand Creek Raceway** — a street loop in Commerce City, Colorado
 | 3 | Project lat/lon/elev → local meters, set origin + true north | Mac | `geometry` / `lighting` |
 | 4 | Road ribbon (`1ROAD`) + grass heightfield (`GRASS`) + dummies | Mac | `geometry` / `ac` |
 | 5 | Material JSON → headless Blender → kn5 + track config | Mac | `ac` / `lighting` |
-| 6 | Install, drive, record AI lines, QA | **Windows** | `ac` |
+| 6 | Install (`scripts.ac.install`, optional), drive, record AI lines, QA | **Windows** | `ac` |
 | 7+ | Objects: barriers, kerbs, trees, buildings — iterative | Mac → Win | `ac` |
 
 Phases 1–5 run headless on macOS; phase 6 is the manual loop on Windows (AC + Content Manager + CSP).
@@ -57,6 +57,22 @@ pip install -e .          # geospatial deps (rasterio needs system GDAL)
 ```bash
 blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
 ```
+
+## Install (optional, phase 6 — Windows)
+
+Drop a built track into your local Assetto Corsa `content/tracks`. It auto-detects the AC folder
+(Steam library scan on Windows/macOS/Linux) and **asks where tracks are if it can't find them**:
+
+```bash
+python -m scripts.ac.install                          # pick from all built tracks (interactive)
+python -m scripts.ac.install projects/sand-creek-raceway
+python -m scripts.ac.install --list                   # show what's built
+python -m scripts.ac.install --tracks-dir "D:/SteamLibrary" --yes   # explicit path, no prompts
+```
+
+Each built track is an optional item you choose from; the installer copies the folder and drops the
+`.kn5` inside it (where `models_<layout>.ini` expects it). Building can install in one step with
+`python -m scripts.ac.track_folder projects/<slug> --install`. Override detection with `AC_TRACKS_DIR`.
 
 ## Status
 
