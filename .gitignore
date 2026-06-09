@@ -31,3 +31,6 @@ projects/*/build/*
 !projects/*/data/.gitkeep
 !projects/*/blender/.gitkeep
 !projects/*/build/.gitkeep
+
+# GPL kn5 exporter (auto-cloned by scripts/ac/kn5_native.py — not vendored)
+vendor/

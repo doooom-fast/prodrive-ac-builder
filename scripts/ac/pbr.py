@@ -51,7 +51,7 @@ def setup_material(bpy, obj, tex_dir: Path | None = None):
     dpath = tex_dir / diff if diff else None
     if dpath and dpath.exists():
         tex = nt.nodes.new("ShaderNodeTexImage")
-        tex.image = bpy.data.images.load(str(dpath))
+        tex.image = bpy.data.images.load(str(dpath), check_existing=True)
         nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
         if key in BILLBOARD:  # cutout billboard: wire alpha + clip the transparent background
             nt.links.new(tex.outputs["Alpha"], bsdf.inputs["Alpha"])
@@ -71,7 +71,7 @@ def setup_material(bpy, obj, tex_dir: Path | None = None):
     npath = tex_dir / norm if norm else None
     if npath and npath.exists():
         ntex = nt.nodes.new("ShaderNodeTexImage")
-        nimg = bpy.data.images.load(str(npath))
+        nimg = bpy.data.images.load(str(npath), check_existing=True)
         nimg.colorspace_settings.name = "Non-Color"
         ntex.image = nimg
         nmap = nt.nodes.new("ShaderNodeNormalMap")
