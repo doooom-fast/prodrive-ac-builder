@@ -93,6 +93,25 @@ def write_mtl(path: Path) -> None:
     )
 
 
+def orient_up(mesh: dict) -> dict:
+    """Flip any triangle whose geometric normal faces down so every face points +Y (up).
+
+    AC track collision is **one-sided**: a ground/drivable surface whose faces point down lets the
+    car drop straight through from above (and renders backface-culled). The ribbon/terrain/kerb
+    generators wind their quads downward, so re-orient them up before export. Mutates and returns
+    the mesh. Only safe for near-horizontal surfaces — don't apply to vertical geometry (barriers)."""
+    V = mesh["vertices"]
+    out = []
+    for a, b, c in mesh["tris"]:
+        ax, _, az = V[a]
+        bx, _, bz = V[b]
+        cx, _, cz = V[c]
+        ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)  # y-component of (b-a)×(c-a)
+        out.append((a, c, b) if ny < 0.0 else (a, b, c))
+    mesh["tris"] = out
+    return mesh
+
+
 def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
@@ -117,10 +136,19 @@ def build(project_dir: str | Path) -> dict:
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
     barr = kerbs.corner_barriers(centerline, widths)
     barr["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barr["vertices"]]
+
+    # AC track collision is one-sided — every ground/drivable surface must face up or the car
+    # falls straight through. The ribbon/terrain/kerb/markings generators wind their quads
+    # downward, so re-orient them up. Barriers (vertical walls) keep their winding.
+    for surface in (road, grass, kerb, marks):
+        orient_up(surface)
+
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
+    # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
+    # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     nv, nf = write_obj(data / "track.obj", "track.mtl",
-                       [("GRASS", "grass", grass), ("1ROAD_main", "road", road),
+                       [("1GRASS", "grass", grass), ("1ROAD_main", "road", road),
                         ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
                         ("BARRIER", "kerb", barr)])
     write_mtl(data / "track.mtl")
