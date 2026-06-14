@@ -78,13 +78,53 @@ def fetch_buildings(bbox: tuple[float, float, float, float], *, retries: int = 3
     return out
 
 
+def classify(b: dict, area_m2: float, zone: str | None = None) -> str:
+    """Facade family for a building. The OSM zone polygon it sits in (industrial / commercial /
+    residential, from environment.geojson) decides first; size/height heuristics fill the gaps."""
+    h = b.get("height_m", 6.5)
+    if h >= 9.5:
+        return "off"
+    if zone == "industrial":
+        return "ind"
+    if zone == "commercial":
+        return "com"
+    if zone == "residential":
+        return "res" if area_m2 < 280 else "com"
+    return "ind" if area_m2 >= 850 else ("res" if area_m2 < 160 else "com")
+
+
+# facade UV strategy per family: (u_tile metres, v mode) — "span" maps base→texture bottom and
+# textureheight world metres up (doors/storefronts stay at grade); "floor" tiles every storey.
+FACADE_UV = {
+    "ind": {"u_tile": 8.0, "v": ("span", 8.5)},
+    "com": {"u_tile": 8.0, "v": ("span", 6.5)},
+    "off": {"u_tile": 10.0, "v": ("span", 12.0)},
+    "res": {"u_tile": 7.0, "v": ("span", 5.5)},
+}
+
+
 def extrude(footprint_xz: list[tuple[float, float]], base_y: float, height: float,
-            *, wall_tile: float = 4.0, roof_tile: float = 8.0) -> dict:
-    """Extrude a local-metre footprint (list of (x,z)) into a box: returns separate ``walls`` and
-    ``roof`` meshes (each {'vertices','uvs','tris'}) so they can take different materials."""
+            *, variant: str = "ind", roof_tile: float = 8.0, parapet: float = 0.45) -> dict:
+    """Extrude a local-metre footprint into walls + a parapet-sunken flat roof. Wall UVs follow
+    the variant's facade mapping so doors/windows sit at grade and don't repeat vertically."""
     pts = footprint_xz[:-1] if footprint_xz[0] == footprint_xz[-1] else list(footprint_xz)
+    # normalise winding so the roof fan faces up (AC culls one-sided; OSM rings are either-handed).
+    # In the Y-up frame an up-facing fan needs the ring clockwise in maths-(x,z) terms, i.e.
+    # negative shoelace sum — reverse when it comes out positive.
+    if sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+           for i in range(len(pts))) > 0:
+        pts = pts[::-1]
     n = len(pts)
-    top = base_y + height
+    uvm = FACADE_UV.get(variant, FACADE_UV["ind"])
+    u_tile = uvm["u_tile"]
+    vmode, vparam = uvm["v"]
+    wall_top = base_y + height + parapet
+
+    def v_of(y: float) -> float:
+        if vmode == "floor":
+            return (y - base_y) / vparam
+        return (y - base_y) / max(vparam, height + parapet)
+
     wv: list = []
     wu: list = []
     wt: list = []
@@ -94,12 +134,15 @@ def extrude(footprint_xz: list[tuple[float, float]], base_y: float, height: floa
         x1, z1 = pts[(i + 1) % n]
         seg = math.hypot(x1 - x0, z1 - z0)
         b = len(wv)
-        wv += [(x0, base_y, z0), (x1, base_y, z1), (x1, top, z1), (x0, top, z0)]
-        wu += [(perim / wall_tile, 0.0), ((perim + seg) / wall_tile, 0.0),
-               ((perim + seg) / wall_tile, height / wall_tile), (perim / wall_tile, height / wall_tile)]
+        wv += [(x0, base_y, z0), (x1, base_y, z1), (x1, wall_top, z1), (x0, wall_top, z0)]
+        wu += [(perim / u_tile, v_of(base_y)), ((perim + seg) / u_tile, v_of(base_y)),
+               ((perim + seg) / u_tile, v_of(wall_top)), (perim / u_tile, v_of(wall_top))]
         wt += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+        # inward-facing copy so walls read from above/inside too (cheap; footprints are small)
+        wt += [(b, b + 2, b + 1), (b, b + 3, b + 2)]
         perim += seg
-    rv = [(x, top, z) for x, z in pts]  # roof fan (fine for simple footprints)
+    top = base_y + height
+    rv = [(x, top, z) for x, z in pts]  # roof fan (fine for simple footprints), behind the parapet
     ru = [(x / roof_tile, z / roof_tile) for x, z in pts]
     rt = [(0, i, i + 1) for i in range(1, n - 1)]
     return {"walls": {"vertices": wv, "uvs": wu, "tris": wt},

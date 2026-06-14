@@ -34,3 +34,5 @@ projects/*/build/*
 
 # GPL kn5 exporter (auto-cloned by scripts/ac/kn5_native.py — not vendored)
 vendor/
+assets/textures/generated/
+assets/textures/downloads/

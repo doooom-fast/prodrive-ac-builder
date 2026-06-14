@@ -22,6 +22,7 @@
       "East 48th Avenue",
       "North Pontiac Street",
       "East 49th Avenue",
+      "Sand Creek Drive South",
       "North Northfield Quebec Street",
       "North Quebec Street",
       "East 56th Avenue",
@@ -42,6 +43,15 @@
     "road": "1ROAD",
     "grass": "GRASS",
     "kerb": "1KERB"
+  },
+  "environment": {
+    "seed": 10,
+    "tree_cap": 2400,
+    "bush_cap": 900,
+    "light_spacing_m": 48.0,
+    "building_radius_m": 330.0,
+    "horizon_radius_m": 3200.0,
+    "deck_height_m": 6.2
   },
   "layouts": [
     {

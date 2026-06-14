@@ -27,9 +27,9 @@ Phases 1–5 run headless on macOS; phase 6 is the manual loop on Windows (AC + 
 
 ## Tech stack
 
-- **Python 3.11+** — pipeline engine (Overpass, projection, sampling, mesh prep)
-- **Blender 4.x** + **AC Blender Tools** addon — mesh build & `.kn5` export
-- Geospatial: `requests`, `pyproj`, `shapely`, `numpy`, `scipy`, `rasterio`, `trimesh`, `astral`
+- **Python 3.9+ stdlib** — the geometry/environment pipeline is deliberately dependency-free
+- **Blender 4.x/5.x** — texture generation (its bundled numpy) and the headless `.kn5` export
+  (leBluem's GPL exporter, auto-cloned into `vendor/` and patched by `scripts/ac/kn5_native.py`)
 - **Windows** for driving/QA: Assetto Corsa, Content Manager, Custom Shaders Patch
 
 ## Layout
@@ -55,7 +55,14 @@ pip install -e .          # geospatial deps (rasterio needs system GDAL)
 ## Build
 
 ```bash
-blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
+P=projects/sand-creek-raceway
+python3 -m scripts.ac.fetch_textures                         # pinned CC0 building scans (optional)
+blender --background --python scripts/ac/texgen.py -- $P     # texture suite (seeded, composites scans)
+python3 -m scripts.geometry.build_mesh $P                    # 1ROAD/1GRASS/1KERB + paint + wear
+python3 -m scripts.environment.build_env $P                  # buildings/signs/trees/walls/freeways…
+blender --background --python scripts/ac/kn5_native.py -- $P # kn5 with embedded textures
+python3 -m scripts.ac.track_folder $P                        # installable folder + CSP ext_config
+python3 -m scripts.ac.kn5_inspect $P                         # static QA of the kn5
 ```
 
 ## Install (optional, phase 6 — Windows)
@@ -76,4 +83,8 @@ Each built track is an optional item you choose from; the installer copies the f
 
 ## Status
 
-🚧 Early scaffold. Pipeline modules are stubbed (`NotImplementedError`) and tracked per skill.
+✅ Phases 1–5 fully code-driven: centerline → elevation → mesh → **full scenery layer** (buildings
+with facade variants, street signage with real road names, streetlights with CSP night lighting,
+power lines, fences, collidable jersey walls, elevated freeways with piers + sign gantries,
+storage tanks, railways, creek water, riparian trees, mountain horizon) → textured kn5 + track
+folder. Phase 6 (drive, AI line, in-game QA) remains the manual Windows loop.

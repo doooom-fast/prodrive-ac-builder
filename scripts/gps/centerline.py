@@ -103,6 +103,73 @@ def build_ring(road_lines: list[list[Vertex]]) -> tuple[list[Vertex], list[float
     return ring, corner_gaps
 
 
+def fillet_corners(pl: list[Vertex], *, radius_m: float = 9.0, angle_thr_deg: float = 18.0,
+                   closed: bool = True) -> list[Vertex]:
+    """Round sharp vertices with an arc of ``radius_m`` — the curb-return radius of a real street
+    corner. Street-true rings meet at near-90° nodes; un-filleted, the road ribbon folds over
+    itself at the apex. Works in a local metre frame around each corner; tangent backoff is
+    clamped to half of each adjacent leg so short segments stay sane."""
+    n = len(pl)
+    if n < 3:
+        return list(pl)
+    ring = pl[:-1] if closed and _key(pl[0]) == _key(pl[-1]) else list(pl)
+    m = len(ring)
+    midlat = sum(p[1] for p in ring) / m
+    kx = 111_132.0 * math.cos(math.radians(midlat))
+    ky = 111_132.0
+
+    def to_m(p):
+        return (p[0] * kx, p[1] * ky)
+
+    def to_ll(q):
+        return (q[0] / kx, q[1] / ky)
+
+    out: list[Vertex] = []
+    for i in range(m):
+        if not closed and (i == 0 or i == m - 1):
+            out.append(ring[i])
+            continue
+        a, b, c = to_m(ring[(i - 1) % m]), to_m(ring[i]), to_m(ring[(i + 1) % m])
+        v1 = (b[0] - a[0], b[1] - a[1])
+        v2 = (c[0] - b[0], c[1] - b[1])
+        l1, l2 = math.hypot(*v1), math.hypot(*v2)
+        if l1 < 1e-6 or l2 < 1e-6:
+            continue
+        u1 = (v1[0] / l1, v1[1] / l1)
+        u2 = (v2[0] / l2, v2[1] / l2)
+        dot = max(-1.0, min(1.0, u1[0] * u2[0] + u1[1] * u2[1]))
+        turn = math.acos(dot)
+        if math.degrees(turn) < angle_thr_deg:
+            out.append(ring[i])
+            continue
+        t = min(radius_m * math.tan(turn / 2), l1 * 0.5, l2 * 0.5)
+        p_in = (b[0] - u1[0] * t, b[1] - u1[1] * t)
+        p_out = (b[0] + u2[0] * t, b[1] + u2[1] * t)
+        # quadratic-bezier arc approximation through the corner (control point = the vertex)
+        steps = max(3, int(turn * radius_m / 1.5))
+        for s in range(steps + 1):
+            tt = s / steps
+            x = (1 - tt) ** 2 * p_in[0] + 2 * (1 - tt) * tt * b[0] + tt ** 2 * p_out[0]
+            y = (1 - tt) ** 2 * p_in[1] + 2 * (1 - tt) * tt * b[1] + tt ** 2 * p_out[1]
+            out.append(to_ll((x, y)))
+    if closed and out:
+        out.append(out[0])
+    return out
+
+
+def trim_connector(line: list[Vertex], ring: list[Vertex], *, touch_m: float = 14.0) -> list[Vertex]:
+    """Clip a connector street to the span between its junctions with the loop — the named street
+    runs far beyond the circuit in both directions (merge_ways returns the whole street)."""
+    if len(line) < 2 or not ring:
+        return list(line)
+    dists = [min(haversine(p, q) for q in ring[::3]) for p in line]
+    touching = [i for i, d in enumerate(dists) if d < touch_m]
+    if len(touching) < 2:
+        return list(line)
+    i0, i1 = touching[0], touching[-1]
+    return list(line[i0:i1 + 1]) if i1 > i0 + 1 else list(line)
+
+
 def resample(pl: list[Vertex], spacing_m: float = RESAMPLE_SPACING_M) -> list[Vertex]:
     """Resample a polyline to even ``spacing_m`` spacing (linear interp; fine at metre scale)."""
     if len(pl) < 2:
@@ -164,13 +231,22 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
     ring, corner_gaps = build_ring(road_lines)
     if cfg.loop and ring and _key(ring[0]) != _key(ring[-1]):
         ring.append(ring[0])
+    fillet_m = float(route.get("corner_fillet_m", 9.0))
+    if fillet_m > 0:
+        ring = fillet_corners(ring, radius_m=fillet_m, closed=cfg.loop)
     ring = resample(ring, RESAMPLE_SPACING_M)
     widths = [cfg.default_width_m] * len(ring)
 
     connectors: dict[str, list[Vertex]] = {}
     for cname, rnames in connectors_cfg.items():
         merged = merge_ways([w for rn in rnames for w in fetched.get(rn, [])])
-        connectors[cname] = resample(merged, RESAMPLE_SPACING_M) if merged else []
+        if merged:
+            merged = trim_connector(merged, ring)
+            if fillet_m > 0:
+                merged = fillet_corners(merged, radius_m=fillet_m, closed=False)
+            connectors[cname] = resample(merged, RESAMPLE_SPACING_M)
+        else:
+            connectors[cname] = []
 
     length_m = polyline_length(ring)
     features = [

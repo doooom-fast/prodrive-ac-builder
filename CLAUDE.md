@@ -15,6 +15,17 @@ First target: **Sand Creek Raceway** — a street loop in Commerce City, Colorad
 Precise geometry derives from **OpenStreetMap via the Overpass API**. Hand-drawn **KML** is used
 *only* where the intended route deliberately leaves the real road network (shortcuts, private land,
 connectors). A map screenshot tells us *which* roads to grab — it is never traced for coordinates.
+The track shape comes from `route.roads` (the ordered named streets), filleted at the corners and
+trimmed at the junctions; a drawn line that wanders off the pavement is intent, not geometry.
+
+> **Nothing stands on the racing surface.**
+
+`scripts/geometry/clearance.py: RoadClearance` indexes every drivable surface (the loop **and** the
+connectors, width-aware). Every trackside generator — kerbs, jersey walls, signs, streetlights,
+tanks, freeway piers, buildings, vegetation — must pass `clearance.clear(x, z, margin)` before it
+emits, so a building footprint, a barrier sweep, or a kerb at a junction can never become an
+obstruction the car launches off. Corner runs split at curvature **sign flips** (an S-complex is two
+corners, not one) so the "outside" side is always correct.
 
 ## Reproducibility
 
@@ -117,9 +128,12 @@ prodrive-ac-builder/
 ├── scripts/
 │   ├── gps/                   # overpass query, kml parse, resample, width tagging
 │   ├── elevation/             # USGS 3DEP fetch, sample-along-path, heightfield, smooth
-│   ├── geometry/              # projection, road ribbon mesh, grass heightfield, dummies
+│   ├── geometry/              # projection, road ribbon, grass heightfield, kerbs, paint, dummies
+│   ├── environment/           # zones+scenery OSM fetch, buildings, signs/lights/fences/walls/
+│   │                          #   highways/tanks/rail/vegetation/horizon (build_env orchestrates)
 │   ├── lighting/              # solar position, true-north orient, CSP config emit
-│   └── ac/                    # blender headless build, material json, track config gen
+│   └── ac/                    # texgen (procedural textures), pbr (material DB), kn5 export,
+│                              #   kn5_inspect, preview/flythrough/qa_shots, track folder gen
 └── projects/
     └── sand-creek-raceway/
         ├── source/            # screenshot, any KML, route notes
@@ -129,10 +143,21 @@ prodrive-ac-builder/
         └── track.config.json  # source of truth
 ```
 
-## Headless Blender export
+## Headless build & export
 
 ```bash
-blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
+python3 -m scripts.ac.fetch_textures                                                   # pinned CC0 scan bases (optional; cached)
+blender --background --python scripts/ac/texgen.py -- projects/sand-creek-raceway      # textures (numpy via Blender's python)
+python3 -m scripts.geometry.build_mesh projects/sand-creek-raceway                     # track.obj (road/grass/kerbs/paint/wear)
+python3 -m scripts.environment.build_env projects/sand-creek-raceway                   # environment.obj (full scenery)
+blender --background --python scripts/ac/kn5_native.py -- projects/sand-creek-raceway  # kn5 with embedded textures
+python3 -m scripts.ac.track_folder projects/sand-creek-raceway                         # installable folder + ext_config
+python3 -m scripts.ac.kn5_inspect projects/sand-creek-raceway                          # static QA (textures/materials/meshes)
 ```
 
-Requires **Blender 4.x** with the **AC Blender Tools** (kn5 export) addon installed.
+The kn5 export auto-clones leBluem's GPL exporter into `vendor/` (gitignored) and patches three
+upstream bugs — Windows-only texture path, unconverted normals, unconverted tangents — see
+`kn5_native.py`. Textures are **procedural** (`texgen.py`, seeded from `track.config.json`);
+`assets/textures/generated/` is a build product. The material database `scripts/ac/pbr.py: MATS`
+is the single source of truth mapping mesh-name prefixes → textures + AC shader + properties,
+consumed by both the Blender preview renders and the kn5 settings.

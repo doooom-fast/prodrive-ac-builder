@@ -30,6 +30,8 @@ def surfaces_ini() -> str:
         ("KERB",  dict(FRICTION=0.92, DAMPING=0, IS_VALID_TRACK=1, DIRT_ADDITIVE=0, IS_PITLANE=0,
                        VIBRATION_GAIN=1.0, VIBRATION_LENGTH=1.5)),
         ("GRASS", dict(FRICTION=0.60, DAMPING=0.1, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0)),
+        # 1WALL_* jersey barriers — collidable, off the valid racing surface
+        ("WALL",  dict(FRICTION=0.85, DAMPING=0, IS_VALID_TRACK=0, DIRT_ADDITIVE=0, IS_PITLANE=0)),
     ]
     out = []
     for i, (key, p) in enumerate(blocks):

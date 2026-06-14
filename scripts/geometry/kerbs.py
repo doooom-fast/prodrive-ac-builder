@@ -66,7 +66,8 @@ def _fine_stations(poly: list[Vertex], step: float) -> list[tuple[float, float, 
     return out
 
 
-def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.007,
+def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], clearance=None, *,
+                 thr: float = 0.007,
                  min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.10, ridge_period: float = 0.6,
                  ridge_lo: float = 0.45, top_frac: float = 0.55, lift: float = 0.01,
                  fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6) -> dict:
@@ -88,6 +89,14 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
         st = _fine_stations([pts[k] for k in run], fine_step)
         if len(st) < 2:
             return
+        # a kerb lives on its OWN road's edge; the negative margin tolerates that while rejecting
+        # stations that stray onto another road (junction mouths, the connector) — the broken
+        # "kerb snake across the junction" came from sweeping blindly through those
+        if clearance is not None:
+            st = [s for s in st if clearance.clear(s[0] + (-s[4] * side) * (half - kerb_w / 2),
+                                                   s[2] + (s[3] * side) * (half - kerb_w / 2), -1.4)]
+            if len(st) < 2:
+                return
         rows = []
         for x, y, z, tx, tz, arc in st:
             nx, nz = -tz * side, tx * side                       # toward this side of the road
@@ -113,18 +122,20 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
         if abs(rate[i]) <= thr:
             i += 1
             continue
+        # a run ends when curvature drops OR the turn direction flips — an S-complex is two
+        # corners with their own sides (one shared run put half the kerb across the road)
         j = i
-        while j < n and abs(rate[j]) > thr:
+        s0 = 1.0 if rate[i] > 0 else -1.0
+        while j < n and abs(rate[j]) > thr and (rate[j] > 0) == (s0 > 0):
             j += 1
         run = list(range(i, j))
         peak = max(abs(rate[k]) for k in run)
-        side = 1.0 if rate[run[len(run) // 2]] > 0 else -1.0
         half = widths_m[run[len(run) // 2]] / 2.0
         if peak >= sharp and len(run) >= 2:
-            sweep(run, side, half)            # tight junction -> inside ridged kerb at the apex
+            sweep(run, s0, half)              # tight junction -> inside ridged kerb at the apex
         elif len(run) >= min_run:
-            sweep(run, side, half)            # sweeper -> inside ...
-            sweep(run, -side, half)           # ... and outside
+            sweep(run, s0, half)              # sweeper -> inside ...
+            sweep(run, -s0, half)             # ... and outside
         i = j
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 

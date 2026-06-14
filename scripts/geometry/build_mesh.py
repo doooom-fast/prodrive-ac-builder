@@ -127,20 +127,37 @@ def build(project_dir: str | Path) -> dict:
     grid_xyz = project_grid(grid, meta, origin, elev0)
     ribbon.conform_terrain_to_road(grid_xyz, centerline, widths)  # grade terrain to the road (no dipping)
 
+    # clearance over every drivable surface — kerb sweeps must not cross the connector or the
+    # far side of a junction (they hug their own edge; negative margin in kerbs.py allows that)
+    from scripts.geometry.clearance import RoadClearance
+    clearance = RoadClearance()
+    clearance.add_polyline(centerline, [w / 2 for w in widths])
+    gj_path = data / "centerline.geojson"
+    if gj_path.exists():
+        m_lon, m_lat = _meters_per_degree(origin[1])
+        for f in json.loads(gj_path.read_text(encoding="utf-8"))["features"]:
+            if f["properties"].get("kind") == "connector":
+                conn = [((lo - origin[0]) * m_lon, 0.0, (la - origin[1]) * m_lat)
+                        for lo, la in f["geometry"]["coordinates"]]
+                clearance.add_polyline(conn, (widths[0] if widths else 9.0) / 2)
+
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
-    kerb = kerbs.corner_kerbs(centerline, widths)
+    kerb = kerbs.corner_kerbs(centerline, widths, clearance)
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # ridged kerb sits on the road
-    marks = ribbon.road_markings(centerline, widths)
-    marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
-    barr = kerbs.corner_barriers(centerline, widths)
-    barr["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barr["vertices"]]
+    paint = ribbon.road_markings(centerline, widths)
+    marks_w, marks_y = paint["white"], paint["yellow"]
+    for mk in (marks_w, marks_y):  # paint just above the road
+        mk["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in mk["vertices"]]
+    wear = ribbon.wear_strips(centerline, widths)
+    wear["vertices"] = [(x, y + ROAD_LIFT_M + 0.008, z) for x, y, z in wear["vertices"]]
 
     # AC track collision is one-sided — every ground/drivable surface must face up or the car
-    # falls straight through. The ribbon/terrain/kerb/markings generators wind their quads
-    # downward, so re-orient them up. Barriers (vertical walls) keep their winding.
-    for surface in (road, grass, kerb, marks):
+    # falls straight through. The ribbon/terrain/kerb/paint generators wind their quads
+    # downward, so re-orient them up. (Corner walls are now real 1WALL jersey barriers, built
+    # double-sided in the environment pass.)
+    for surface in (road, grass, kerb, marks_w, marks_y, wear):
         orient_up(surface)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
@@ -149,8 +166,8 @@ def build(project_dir: str | Path) -> dict:
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     nv, nf = write_obj(data / "track.obj", "track.mtl",
                        [("1GRASS", "grass", grass), ("1ROAD_main", "road", road),
-                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
-                        ("BARRIER", "kerb", barr)])
+                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks_w),
+                        ("MARKYELLOW", "kerb", marks_y), ("WEAR", "road", wear)])
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
 
@@ -161,8 +178,8 @@ def build(project_dir: str | Path) -> dict:
         (ax, _, az), (bx, _, bz), (cx, _, cz) = rv[a], rv[b], rv[c]
         area += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("road", (0.82, 0.83, 0.86), road),
-                ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks),
-                ("barrier", (0.72, 0.72, 0.70), barr)], dummies, data / "track_render.svg")
+                ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks_w),
+                ("marks_y", (0.92, 0.78, 0.18), marks_y)], dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),
             "grass_grid": f"{meta['nx']}x{meta['ny']}",

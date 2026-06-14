@@ -9,3 +9,18 @@ Texture sources — all CC0 (public domain); credited as good practice.
 Normal maps are OpenGL convention (ambientCG "NormalGL").
 1K JPG resolution — bump to 2K from ambientCG if you want sharper close-ups.
 Tiling is controlled by the UV scale in the geometry pass (road 4 m, grass 6 m, kerb 1 m).
+
+--- generated/ (June 2026 texture & objects pass) ---
+Everything under generated/ is PROCEDURAL — built by scripts/ac/texgen.py from seeded numpy
+noise + a bitmap sign font; no external assets. Reproducible from track.config.json
+(environment.seed); street-blade signs pull real road names from route.roads. The legacy JPGs
+above are superseded by the generated suite (pbr.py now references generated/ only).
+Normal maps are DirectX convention (green = down).
+
+--- downloads/ (building asset pass) ---
+Pinned CC0 scan set fetched by scripts/ac/fetch_textures.py from ambientCG
+(https://docs.ambientcg.com/license/): CorrugatedSteel002/005/006A/007A, Concrete034/046,
+Bricks051/060/097, PaintedPlaster006/017, Facade001/006/018A — Color + NormalDX at 1K.
+texgen.py composites these with procedural docks/storefronts/sign-bands into the
+fac_ind_*/fac_com_*/fac_off_*/fac_res_* facade variant library (gitignored build inputs;
+texgen falls back to fully-procedural bases when absent).
