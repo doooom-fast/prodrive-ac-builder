@@ -93,13 +93,18 @@ def write_mtl(path: Path) -> None:
     )
 
 
-def orient_up(mesh: dict) -> dict:
-    """Flip any triangle whose geometric normal faces down so every face points +Y (up).
+def orient_for_ac(mesh: dict) -> dict:
+    """Wind every drivable face CLOCKWISE as seen from above (geometric normal -Y) to match AC.
 
-    AC track collision is **one-sided**: a ground/drivable surface whose faces point down lets the
-    car drop straight through from above (and renders backface-culled). The ribbon/terrain/kerb
-    generators wind their quads downward, so re-orient them up before export. Mutates and returns
-    the mesh. Only safe for near-horizontal surfaces — don't apply to vertical geometry (barriers)."""
+    Assetto Corsa renders (DirectX) and collides on a **single side**, keyed to triangle winding:
+    the visible + drivable side is the one wound clockwise from above. A surface wound the other way
+    is backface-culled (invisible from above) AND has no collision from above, so the car sees sky
+    through it and drops straight through. The flat surfaces that already render correctly in this
+    kn5 — environment.obj's HIGHWAY_visual / WATER, verified in-binary at normal.y<0, winding gy<0 —
+    are wound this way; the ribbon/terrain/kerb/markings generators wind the opposite way, so flip
+    them to match. (An earlier version oriented these +Y/up on a right-handed assumption — that is
+    backwards for AC and is exactly what made the ground invisible and non-collidable.) Mutates and
+    returns the mesh. Near-horizontal surfaces only — never apply to vertical geometry (barriers)."""
     V = mesh["vertices"]
     out = []
     for a, b, c in mesh["tris"]:
@@ -107,7 +112,7 @@ def orient_up(mesh: dict) -> dict:
         bx, _, bz = V[b]
         cx, _, cz = V[c]
         ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)  # y-component of (b-a)×(c-a)
-        out.append((a, c, b) if ny < 0.0 else (a, b, c))
+        out.append((a, c, b) if ny > 0.0 else (a, b, c))    # force normal -Y: CW from above (AC front)
     mesh["tris"] = out
     return mesh
 
@@ -137,11 +142,12 @@ def build(project_dir: str | Path) -> dict:
     barr = kerbs.corner_barriers(centerline, widths)
     barr["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barr["vertices"]]
 
-    # AC track collision is one-sided — every ground/drivable surface must face up or the car
-    # falls straight through. The ribbon/terrain/kerb/markings generators wind their quads
-    # downward, so re-orient them up. Barriers (vertical walls) keep their winding.
+    # AC renders + collides on one side, keyed to winding: drivable surfaces must be wound clockwise
+    # from above (geometric normal -Y) to match the scenery that already works, or the car sees sky
+    # through them and falls through. The generators wind them the other way, so flip to match.
+    # Barriers (vertical walls) keep their winding.
     for surface in (road, grass, kerb, marks):
-        orient_up(surface)
+        orient_for_ac(surface)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
