@@ -16,7 +16,7 @@ TEXTURES = {
     "1ROAD":   ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.72, (0.08, 0.08, 0.09, 1), 0.0, False),
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
     "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines (shape = geometry)
-    "GRASS":   ("grass_diffuse.jpg",   "grass_normal.jpg",   0.95, (0.15, 0.33, 0.11, 1), 0.0, False),
+    "1GRASS":  ("grass_diffuse.jpg",   "grass_normal.jpg",   0.95, (0.15, 0.33, 0.11, 1), 0.0, False),
     "HIGHWAY": ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.80, (0.34, 0.34, 0.36, 1), 0.0, False),
     "BUILDING": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.55, 0.52, 0.48, 1), 0.0, False),
     "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.70, (0.72, 0.72, 0.70, 1), 0.0, False),

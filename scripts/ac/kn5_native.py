@@ -16,6 +16,7 @@ choices are sensible defaults (tune per material in CM if desired).
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -29,7 +30,26 @@ def _ensure_exporter(repo_root: Path) -> Path:
         vendor.parent.mkdir(parents=True, exist_ok=True)
         print(f"[kn5_native] fetching GPL exporter -> {vendor}")
         subprocess.run(["git", "clone", "--depth", "1", EXPORTER_REPO, str(vendor)], check=True)
+    _patch_exporter(vendor)
     return vendor
+
+
+def _patch_exporter(vendor: Path) -> None:
+    """Idempotently fix the vendored exporter so textures embed off-Windows.
+
+    Upstream hardcodes ``basedir = os.path.dirname(filepath) + '\\texture\\'`` (Windows separators),
+    so on macOS the on-disk texture lookup never resolves and the kn5 ships with ZERO embedded
+    textures — drivable but the ground renders flat/black. Rewrite it to a real ``texture/`` path with
+    ``os.sep``. The vendor dir is gitignored / re-cloned, so we patch at run time (no-op once applied)."""
+    ek = vendor / "export_kn5.py"
+    src = ek.read_text(encoding="utf-8")
+    broken = "basedir = os.path.dirname(filepath) + '\\\\texture\\\\'"
+    fixed = "basedir = os.path.join(os.path.dirname(filepath), 'texture') + os.sep"
+    if broken in src:
+        ek.write_text(src.replace(broken, fixed), encoding="utf-8")
+        print("[kn5_native] patched export_kn5.py texture path (Windows -> portable)")
+    elif fixed not in src:
+        print("[kn5_native] WARNING: texture-path anchor not found in export_kn5.py — upstream changed?")
 
 
 def _shader_and_textures(pbr, obj_name: str):
@@ -107,6 +127,21 @@ def main() -> None:
             "textures": tx,
         }
     (out / "settings.json").write_text(json.dumps(settings, indent=1))
+
+    # Stage every referenced texture where the (patched) exporter embeds from: build/texture/.
+    # The exporter reads image files off disk by the textureName in settings.json (not from Blender's
+    # loaded image nodes), so the files must exist there or the kn5 ships untextured.
+    tex_src = pbr.texture_dir()
+    tex_dst = out / "texture"
+    tex_dst.mkdir(parents=True, exist_ok=True)
+    needed = {t["textureName"] for m in settings["materials"].values() for t in m["textures"].values()}
+    missing = [n for n in sorted(needed) if not (tex_src / n).exists()]
+    for name in sorted(needed):
+        if (tex_src / name).exists():
+            shutil.copyfile(tex_src / name, tex_dst / name)
+    print(f"[kn5_native] staged {len(needed) - len(missing)}/{len(needed)} textures -> {tex_dst}")
+    if missing:
+        print(f"[kn5_native] WARNING: textures not found in {tex_src}: {', '.join(missing)}")
 
     import export_kn5
     for ob in bpy.data.objects:
