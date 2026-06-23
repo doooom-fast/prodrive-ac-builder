@@ -45,13 +45,31 @@ def build(track_dir: Path) -> Path:
         if p.exists():
             bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
 
-    # 3. AC dummy empties from dummies.json (ENU X-east / Y-up / Z-north metres)
+    # 2b. Weld coincident vertices. The geometry generators emit UNWELDED triangles (3 verts each),
+    #     so 1GRASS lands at ~283k verts — over AC/ksEditor's hard 65,535-per-mesh limit (16-bit
+    #     indices). Merging by a sub-mm distance collapses the terrain grid back to its ~48k shared
+    #     grid points (and shrinks every mesh) without changing the surface, then warns if anything
+    #     is somehow still over the limit.
+    import bmesh
+    for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+        bm.to_mesh(ob.data)
+        bm.free()
+        ob.data.update()
+        if len(ob.data.vertices) > 65535:
+            print(f"[build_kn5] WARNING: '{ob.name}' still has {len(ob.data.vertices)} verts after "
+                  f"welding (> 65535 AC limit) — reduce that mesh's density before re-export.")
+
+    # 3. AC dummy empties from dummies.json (AC Y-up metres). The meshes import Y-up -> Blender Z-up,
+    #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
     dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}
     for name, (x, y, z) in dummies.items():
         empty = bpy.data.objects.new(name, None)
         empty.empty_display_type = "ARROWS"
         empty.empty_display_size = 3.0
-        empty.location = (x, y, z)
+        empty.location = (x, -z, y)
         bpy.context.scene.collection.objects.link(empty)
 
     # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
