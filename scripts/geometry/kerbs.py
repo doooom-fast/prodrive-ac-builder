@@ -72,11 +72,11 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
                  fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6) -> dict:
     """Real 3D **ridged** kerbs on corners — a raised, serrated rumble strip, not a flat texture plane.
     Each corner run is resampled fine (``fine_step``) and a cross-section is swept along it:
-        road-edge bottom -> raised top (with a vertical outer face) -> ramp back down to the track,
+        road-edge lip (vertical, flush at the lane edge) -> raised top -> ramp back down on the verge,
     with the top height pulsing every ``ridge_period`` m (down to ``ridge_lo`` x height) to form the
-    ridges you feel. ``kerb_h`` is the kerb height — tune it freely. Sits on the TRACK side of the
-    edge; build_mesh raises the whole thing onto the road. Sweepers get inside+outside kerbs; tight
-    junctions get a short inside kerb hugging the apex. UVs: U across the profile, V along the run."""
+    ridges you feel. ``kerb_h`` is the kerb height — tune it freely. Sits OUTSIDE the lane edge (on
+    the verge), never on the racing surface. Sweepers get both-edge kerbs; tight junctions get a short
+    kerb hugging the apex edge. UVs: U across the profile, V along the run."""
     pts = centerline_m
     n = len(pts)
     rate = _smooth(_turn_rate(pts))
@@ -93,12 +93,15 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
             nx, nz = -tz * side, tx * side                       # toward this side of the road
             ph = (arc % ridge_period) / ridge_period             # triangle wave -> serrated ridges
             h = kerb_h * (ridge_lo + (1.0 - ridge_lo) * (1.0 - abs(2.0 * ph - 1.0)))
-            edge, top, ramp = half, half - kerb_w * top_frac, half - kerb_w
+            # Kerb sits OUTSIDE the racing surface: the vertical lip is flush at the road edge
+            # (``half``) and the raised body + ramp extend OUTWARD onto the verge (``half + kerb_w``),
+            # so it never eats into the drivable lane — you clip it running wide, you don't drive over it.
+            edge, top, ramp = half, half + kerb_w * top_frac, half + kerb_w
             r = len(verts)
-            verts.append((x + nx * edge, y + lift, z + nz * edge))            # 0 edge bottom
-            verts.append((x + nx * edge, y + lift + h, z + nz * edge))        # 1 edge top (vertical face)
-            verts.append((x + nx * top, y + lift + h, z + nz * top))          # 2 top inner
-            verts.append((x + nx * ramp, y + lift, z + nz * ramp))            # 3 ramp bottom (track side)
+            verts.append((x + nx * edge, y + lift, z + nz * edge))            # 0 edge bottom (road edge)
+            verts.append((x + nx * edge, y + lift + h, z + nz * edge))        # 1 edge top (vertical lip, track side)
+            verts.append((x + nx * top, y + lift + h, z + nz * top))          # 2 top (outward)
+            verts.append((x + nx * ramp, y + lift, z + nz * ramp))            # 3 ramp bottom (verge side)
             v = arc / tile_m
             uvs.extend([(0.0, v), (0.15, v), (0.5, v), (1.0, v)])
             rows.append(r)
@@ -121,10 +124,13 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
         side = 1.0 if rate[run[len(run) // 2]] > 0 else -1.0
         half = widths_m[run[len(run) // 2]] / 2.0
         if peak >= sharp and len(run) >= 2:
-            sweep(run, side, half)            # tight junction -> inside ridged kerb at the apex
+            # Tight street junction (~90°): an inside apex kerb would (a) be unrealistic on a street
+            # corner and (b) pinch/self-intersect onto the lane as the inner offset curve collapses.
+            # Put the kerb on the OUTSIDE (runoff) only — the outer offset curve expands, never crosses.
+            sweep(run, -side, half)
         elif len(run) >= min_run:
-            sweep(run, side, half)            # sweeper -> inside ...
-            sweep(run, -side, half)           # ... and outside
+            sweep(run, side, half)            # sweeper -> inside apex ...
+            sweep(run, -side, half)           # ... and outside exit
         i = j
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 

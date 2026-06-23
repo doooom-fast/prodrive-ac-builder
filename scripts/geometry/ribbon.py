@@ -56,6 +56,45 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
+def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
+                  verge_w: float = 2.5, tile_m: float = 4.0) -> dict:
+    """A soft graded **verge** that ramps each road edge down to the grass, so the road reads like a
+    real shouldered road instead of a ribbon floating on a hard edge. Inner lip sits at the road edge
+    and road height (``lift`` above the graded terrain); the outer lip is ``verge_w`` m out, at grass
+    height. Built as a physical surface (``1GRASS_*`` in build_mesh) so there is no gap to drop into
+    between the road and the terrain. UVs: U across the verge, V along the road (metres/``tile_m``)."""
+    pts = centerline_m
+    n = len(pts)
+    closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
+    m = n - 1 if closed else n
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    for side in (1.0, -1.0):
+        rows: list[int] = []
+        arc = 0.0
+        for i in range(m):
+            if i > 0:
+                arc += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+            x, y, z = pts[i]
+            tx, tz = _horiz_tangent(pts, i, closed)
+            nx, nz = -tz * side, tx * side  # outward normal on this side
+            half = widths_m[i] / 2.0
+            r = len(verts)
+            verts.append((x + nx * half, y + lift, z + nz * half))                       # inner lip (road edge)
+            verts.append((x + nx * (half + verge_w), y, z + nz * (half + verge_w)))       # outer lip (grass)
+            uvs.append((0.0, arc / tile_m))
+            uvs.append((1.0, arc / tile_m))
+            rows.append(r)
+        last = m if closed else m - 1
+        for k in range(last):
+            p = rows[k]
+            q = rows[(k + 1) % m]
+            tris.append((p, p + 1, q + 1))
+            tris.append((p, q + 1, q))
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | None):
     """Centre + both edge points per station (flat cross-section), each tagged with its lap index.
     Grading to these — not just the centreline — makes the terrain meet the road at its real edges."""
@@ -142,9 +181,13 @@ def upsample_grid(grid: list[list[float]], meta: dict, factor: int) -> tuple[lis
     return out, meta2
 
 
-def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0) -> dict:
+def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0, skirt_m: float = 500.0) -> dict:
     """Triangulate the projected terrain grid (ny rows × nx cols of (x,y,z)) into the GRASS mesh.
-    UVs are world-planar (x/tile, z/tile) so the grass texture tiles seamlessly over any terrain."""
+    UVs are world-planar (x/tile, z/tile) so the grass texture tiles seamlessly over any terrain.
+
+    A flat **skirt** (``skirt_m`` m) is extruded outward from every grid border at the border height,
+    so the physical ground extends far past the loop — run wide onto the grass and you stay on a
+    surface instead of dropping off the edge of the world."""
     ny = len(grid_xyz)
     nx = len(grid_xyz[0])
     verts = [grid_xyz[j][i] for j in range(ny) for i in range(nx)]
@@ -153,6 +196,39 @@ def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0) -> dict:
     for j in range(ny - 1):
         for i in range(nx - 1):
             a, b, c, d = j * nx + i, j * nx + i + 1, (j + 1) * nx + i + 1, (j + 1) * nx + i
+            tris.append((a, b, c))
+            tris.append((a, c, d))
+
+    if skirt_m > 0.0:
+        def add(p: Vertex) -> int:
+            verts.append(p)
+            uvs.append((p[0] / tile_m, p[2] / tile_m))
+            return len(verts) - 1
+
+        def strip(border: list[Vertex], ox: float, oz: float) -> None:
+            outer = [add((x + ox, y, z + oz)) for (x, y, z) in border]
+            inner = [add((x, y, z)) for (x, y, z) in border]  # coincident copies keep winding simple
+            for k in range(len(border) - 1):
+                tris.append((inner[k], outer[k], outer[k + 1]))
+                tris.append((inner[k], outer[k + 1], inner[k + 1]))
+
+        north = [grid_xyz[0][i] for i in range(nx)]          # j=0  (max z)
+        south = [grid_xyz[ny - 1][i] for i in range(nx)]     # j=ny-1 (min z)
+        west = [grid_xyz[j][0] for j in range(ny)]           # i=0  (min x)
+        east = [grid_xyz[j][nx - 1] for j in range(ny)]      # i=nx-1 (max x)
+        strip(north, 0.0, +skirt_m)
+        strip(south, 0.0, -skirt_m)
+        strip(west, -skirt_m, 0.0)
+        strip(east, +skirt_m, 0.0)
+        # four corner quads so the apron has no diagonal gaps
+        nw, ne = grid_xyz[0][0], grid_xyz[0][nx - 1]
+        sw, se = grid_xyz[ny - 1][0], grid_xyz[ny - 1][nx - 1]
+        for (cx, cy, cz), dx, dz in ((ne, +skirt_m, +skirt_m), (nw, -skirt_m, +skirt_m),
+                                     (se, +skirt_m, -skirt_m), (sw, -skirt_m, -skirt_m)):
+            a = add((cx, cy, cz))
+            b = add((cx + dx, cy, cz))
+            c = add((cx + dx, cy, cz + dz))
+            d = add((cx, cy, cz + dz))
             tris.append((a, b, c))
             tris.append((a, c, d))
     return {"vertices": verts, "uvs": uvs, "tris": tris}

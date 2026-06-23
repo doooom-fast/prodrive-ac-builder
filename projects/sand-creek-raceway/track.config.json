@@ -1,35 +1,27 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.1.2",
+  "version": "0.4.0",
   "location": {
     "lat": 39.7839155,
     "lon": -104.9398905,
     "timezone": "America/Denver"
   },
   "source": {
-    "type": "osm",
+    "type": "kml",
+    "kml": "source/Sand Creek Raceway Drive.kml",
     "kml_overrides": []
   },
   "route": {
     "bbox": [
-      39.78,
-      -104.943,
-      39.8,
-      -104.898
-    ],
-    "roads": [
-      "East 48th Avenue",
-      "North Pontiac Street",
-      "East 49th Avenue",
-      "North Northfield Quebec Street",
-      "North Quebec Street",
-      "East 56th Avenue",
-      "North Colorado Boulevard"
+      39.773,
+      -104.945,
+      39.802,
+      -104.893
     ],
     "connectors": {
-      "connector_a": [
-        "North Ivy Street"
+      "cut_48th": [
+        "East 48th Avenue"
       ]
     }
   },
@@ -53,7 +45,7 @@
       "id": "short",
       "ai": "ai/short",
       "uses_connectors": [
-        "connector_a"
+        "cut_48th"
       ]
     }
   ],

@@ -22,7 +22,7 @@ from scripts.geometry import kerbs, ribbon
 from scripts.geometry.projection import _meters_per_degree
 
 Vertex = tuple[float, float, float]
-ROAD_LIFT_M = 0.3  # lift the road above the graded terrain (small margin; grading guarantees clearance)
+ROAD_LIFT_M = 0.1  # small crown above the graded terrain (a real road sits ~0.1 m proud, not floating)
 
 
 def read_npy(path: Path) -> list[list[float]]:
@@ -130,17 +130,18 @@ def build(project_dir: str | Path) -> dict:
     road = ribbon.road_ribbon(centerline, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
+    # Soft verge that ramps the road edge down to the grass (kills the floating-ribbon hard edge).
+    # Built with the road's own lift baked in, so its inner lip meets the road edge exactly.
+    verge = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M)
     kerb = kerbs.corner_kerbs(centerline, widths)
-    kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # ridged kerb sits on the road
+    kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     marks = ribbon.road_markings(centerline, widths)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
-    barr = kerbs.corner_barriers(centerline, widths)
-    barr["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barr["vertices"]]
 
     # AC track collision is one-sided — every ground/drivable surface must face up or the car
-    # falls straight through. The ribbon/terrain/kerb/markings generators wind their quads
-    # downward, so re-orient them up. Barriers (vertical walls) keep their winding.
-    for surface in (road, grass, kerb, marks):
+    # falls straight through. The ribbon/terrain/kerb/verge/markings generators wind their quads
+    # downward, so re-orient them up. (No barriers any more — corners run off onto open grass.)
+    for surface in (road, grass, verge, kerb, marks):
         orient_up(surface)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
@@ -148,9 +149,9 @@ def build(project_dir: str | Path) -> dict:
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     nv, nf = write_obj(data / "track.obj", "track.mtl",
-                       [("1GRASS", "grass", grass), ("1ROAD_main", "road", road),
-                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
-                        ("BARRIER", "kerb", barr)])
+                       [("1GRASS", "grass", grass), ("1GRASS_verge", "grass", verge),
+                        ("1ROAD_main", "road", road),
+                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks)])
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
 
@@ -160,12 +161,12 @@ def build(project_dir: str | Path) -> dict:
     for a, b, c in road["tris"]:
         (ax, _, az), (bx, _, bz), (cx, _, cz) = rv[a], rv[b], rv[c]
         area += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2
-    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("road", (0.82, 0.83, 0.86), road),
-                ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks),
-                ("barrier", (0.72, 0.72, 0.70), barr)], dummies, data / "track_render.svg")
+    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("verge", (0.34, 0.42, 0.24), verge),
+                ("road", (0.82, 0.83, 0.86), road), ("kerb", (0.88, 0.24, 0.20), kerb),
+                ("marks", (0.95, 0.95, 0.92), marks)], dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),
-            "grass_grid": f"{meta['nx']}x{meta['ny']}",
+            "verge_verts": len(verge["vertices"]), "grass_grid": f"{meta['nx']}x{meta['ny']}",
             "road_area_m2": round(area), "dummies": len(dummies)}
 
 

@@ -76,12 +76,30 @@ def build(track_dir: Path) -> Path:
 
     # 3. AC dummy empties from dummies.json (AC Y-up metres). The meshes import Y-up -> Blender Z-up,
     #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
+    import math
+
+    # Spawn/pit FACING: AC points the car along the AC_START node's local +Y (-> AC -Z after the
+    # add-on's convert). An un-rotated empty therefore faces AC -Z (south here) — 180° backwards —
+    # so the lap drives in reverse and every right-hander reads as a left. Yaw the start/pit/hotlap
+    # empties to the centerline travel direction: local +Y -> +tangent needs yaw = atan2(-tx, -tz).
+    start_yaw = 0.0
+    cl_path = data / "centerline.local.json"
+    if cl_path.exists():
+        pts = json.loads(cl_path.read_text()).get("points_xyz_m", [])
+        if len(pts) >= 2:
+            tx, tz = pts[1][0] - pts[0][0], pts[1][2] - pts[0][2]
+            L = math.hypot(tx, tz) or 1.0
+            start_yaw = math.atan2(-tx / L, -tz / L)
+
+    FACING = ("AC_START", "AC_PIT", "AC_HOTLAP")
     dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}
     for name, (x, y, z) in dummies.items():
         empty = bpy.data.objects.new(name, None)
         empty.empty_display_type = "ARROWS"
         empty.empty_display_size = 3.0
         empty.location = (x, -z, y)
+        if any(name.startswith(p) for p in FACING):
+            empty.rotation_euler = (0.0, 0.0, start_yaw)
         bpy.context.scene.collection.objects.link(empty)
 
     # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
