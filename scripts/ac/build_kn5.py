@@ -58,9 +58,21 @@ def build(track_dir: Path) -> Path:
         bm.to_mesh(ob.data)
         bm.free()
         ob.data.update()
+        # ksEditor/AC count RENDER vertices (unique position+normal+uv), NOT welded positions. A
+        # FLAT-shaded mesh keeps 3 verts per triangle on export, so 1GRASS exported at ~246k even
+        # after welding to ~48k positions. Smooth-shading shares normals across the continuous
+        # terrain UV, collapsing render verts back to the position count. Only smooth meshes big
+        # enough to risk the 65,535 limit (len(loops) is the flat-shaded upper bound) — buildings
+        # etc. stay flat so their hard edges don't round off.
+        if len(ob.data.loops) > 65535:
+            for poly in ob.data.polygons:
+                poly.use_smooth = True
+            ob.data.update()
+            print(f"[build_kn5] smooth-shaded '{ob.name}' ({len(ob.data.vertices)} positions) to fit "
+                  f"the 65,535 render-vertex limit")
         if len(ob.data.vertices) > 65535:
-            print(f"[build_kn5] WARNING: '{ob.name}' still has {len(ob.data.vertices)} verts after "
-                  f"welding (> 65535 AC limit) — reduce that mesh's density before re-export.")
+            print(f"[build_kn5] WARNING: '{ob.name}' has {len(ob.data.vertices)} positions (> 65535) "
+                  f"— needs splitting or decimation before re-export.")
 
     # 3. AC dummy empties from dummies.json (AC Y-up metres). The meshes import Y-up -> Blender Z-up,
     #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
