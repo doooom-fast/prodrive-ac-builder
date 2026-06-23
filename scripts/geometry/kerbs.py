@@ -135,6 +135,62 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
+def corner_runoff(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.008,
+                  min_run: int = 5, gap: float = 2.5, runoff_w: float = 9.0, pad: int = 5,
+                  taper: int = 5, tile_m: float = 8.0) -> dict:
+    """A wide **paved tarmac apron** on the OUTSIDE of each corner — where the car runs wide — instead
+    of grass. Replaces the old corner barriers: open, forgiving asphalt runoff rather than a wall.
+
+    Starts at ``gap`` m off the lane edge (just past the paved shoulder) and extends ``runoff_w`` m out,
+    tapering to nothing over ``taper`` stations at each end so it blends in. Flat at the graded terrain
+    height (the conform corridor keeps the terrain near road level here, so it sits flush). Named
+    ``1RUNOFF_*`` in build_mesh -> a drivable, slightly-low-grip, off-track surface. UVs: U across the
+    apron, V along the run (metres/``tile_m``)."""
+    pts = centerline_m
+    n = len(pts)
+    rate = _smooth(_turn_rate(pts))
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    i = 0
+    while i < n:
+        if abs(rate[i]) <= thr:
+            i += 1
+            continue
+        j = i
+        while j < n and abs(rate[j]) > thr:
+            j += 1
+        if j - i >= min_run:
+            side = -1.0 if rate[(i + j) // 2] > 0 else 1.0  # OUTSIDE of the turn (cars run wide here)
+            run = list(range(max(0, i - pad), min(n, j + pad)))
+            arc = 0.0
+            rows = []
+            for idx, k in enumerate(run):
+                x, y, z = pts[k]
+                if idx > 0:
+                    p = pts[run[idx - 1]]
+                    arc += math.hypot(x - p[0], z - p[2])
+                a, b = pts[max(0, k - 1)], pts[min(n - 1, k + 1)]
+                tx, tz = b[0] - a[0], b[2] - a[2]
+                tl = math.hypot(tx, tz) or 1e-6
+                nx, nz = -tz / tl * side, tx / tl * side
+                w = runoff_w * min(1.0, idx / taper, (len(run) - 1 - idx) / taper)  # taper ends
+                half = widths_m[k] / 2.0
+                inner, outer = half + gap, half + gap + w
+                r = len(verts)
+                verts.append((x + nx * inner, y, z + nz * inner))
+                verts.append((x + nx * outer, y, z + nz * outer))
+                uvs.append((0.0, arc / tile_m))
+                uvs.append((max(w, 0.1) / tile_m, arc / tile_m))
+                rows.append(r)
+            for idx in range(len(rows) - 1):
+                p, q = rows[idx], rows[idx + 1]
+                tris.append((p, p + 1, q + 1))
+                tris.append((p, q + 1, q))
+        i = j
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def corner_barriers(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.013,
                     min_run: int = 7, off: float = 1.6, base_lift: float = -0.4, height: float = 1.2,
                     pad: int = 4, tile_m: float = 2.0) -> dict:

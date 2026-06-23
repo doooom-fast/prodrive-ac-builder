@@ -14,6 +14,7 @@ from pathlib import Path
 # name-prefix -> (diffuse, normal, roughness, fallback_rgba, metallic, water)
 TEXTURES = {
     "1ROAD":   ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.72, (0.08, 0.08, 0.09, 1), 0.0, False),
+    "1RUNOFF": ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.82, (0.16, 0.15, 0.14, 1), 0.0, False),  # paved corner run-off (dustier)
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
     "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines (shape = geometry)
     "1GRASS":  ("grass_diffuse.jpg",   "grass_normal.jpg",   0.95, (0.15, 0.33, 0.11, 1), 0.0, False),

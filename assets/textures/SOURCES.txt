@@ -1,11 +1,13 @@
-Texture sources — all CC0 (public domain); credited as good practice.
+Texture sources — all CC0 (public domain); credited as good practice. (machine-readable: ../licenses.json)
 
-  asphalt_diffuse.jpg / asphalt_normal.jpg   ambientCG "Asphalt026C"  https://ambientcg.com/view?id=Asphalt026C
-  grass_diffuse.jpg   / grass_normal.jpg     ambientCG "Grass001"     https://ambientcg.com/view?id=Grass001
-  kerb_diffuse.png                            generated (red/white stripe, scripts pipeline)
-  building_diffuse.jpg / building_normal.jpg  ambientCG "Concrete034"        https://ambientcg.com/view?id=Concrete034
-  roof_diffuse.jpg    / roof_normal.jpg       ambientCG "CorrugatedSteel002" https://ambientcg.com/view?id=CorrugatedSteel002
+  asphalt_diffuse.jpg / asphalt_normal.jpg   Poly Haven "aerial_asphalt_01" (2K)  https://polyhaven.com/a/aerial_asphalt_01
+                                             ~30 m aerial asphalt — large real-world scale kills the
+                                             close-up tiling. Road UV tile is 15 m (build_mesh.py).
+  grass_diffuse.jpg   / grass_normal.jpg     ambientCG "Grass001" (2K)            https://ambientcg.com/view?id=Grass001
+  kerb_diffuse.png                           generated (red/white stripe, scripts pipeline)
+  building_diffuse.jpg / building_normal.jpg  ambientCG "Concrete034" (2K)        https://ambientcg.com/view?id=Concrete034
+  roof_diffuse.jpg    / roof_normal.jpg       ambientCG "CorrugatedSteel002"      https://ambientcg.com/view?id=CorrugatedSteel002
+  tree_diffuse.png                            REPLACE-ME (billboard placeholder; swap for a CC0 atlas)
 
-Normal maps are OpenGL convention (ambientCG "NormalGL").
-1K JPG resolution — bump to 2K from ambientCG if you want sharper close-ups.
-Tiling is controlled by the UV scale in the geometry pass (road 4 m, grass 6 m, kerb 1 m).
+Normal maps are OpenGL convention (Poly Haven "nor_gl" / ambientCG "NormalGL").
+2K JPG resolution. Tiling is controlled by the UV scale in the geometry pass (road 15 m, grass 6 m, kerb 1 m).

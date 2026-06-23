@@ -1,0 +1,20 @@
+{
+  "_comment": "Single source of truth for every bundled asset's license. scripts/ac/credits.py renders CREDITS.txt + LICENSES.md from this into each track folder. Bundle ONLY genuinely CC0/PD assets.",
+  "track": {
+    "name": "Sand Creek Raceway",
+    "builder": "prodrive-ac-builder",
+    "data_sources": [
+      {"name": "OpenStreetMap road geometry", "license": "ODbL-1.0", "url": "https://www.openstreetmap.org/copyright", "attribution_required": true},
+      {"name": "USGS 3DEP 1 m elevation", "license": "Public Domain (US Gov)", "url": "https://www.usgs.gov/3d-elevation-program", "attribution_required": false}
+    ]
+  },
+  "bundled_assets": [
+    {"name": "aerial_asphalt_01", "files": ["asphalt_diffuse.jpg", "asphalt_normal.jpg"], "source": "Poly Haven", "license": "CC0-1.0", "url": "https://polyhaven.com/a/aerial_asphalt_01"},
+    {"name": "Grass001", "files": ["grass_diffuse.jpg", "grass_normal.jpg"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=Grass001"},
+    {"name": "Concrete034", "files": ["building_diffuse.jpg", "building_normal.jpg"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=Concrete034"},
+    {"name": "CorrugatedSteel002", "files": ["roof_diffuse.jpg", "roof_normal.jpg"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=CorrugatedSteel002"},
+    {"name": "Procedural kerb stripe", "files": ["kerb_diffuse.png"], "source": "prodrive-ac-builder (generated)", "license": "CC0-1.0", "url": ""},
+    {"name": "Tree billboard (PLACEHOLDER)", "files": ["tree_diffuse.png"], "source": "placeholder — not a verified CC0 asset yet; replaced in the v0.6.0 props pass", "license": "UNVERIFIED", "url": ""}
+  ],
+  "stock_audio_note": "Surface scrub/rumble (data/surfaces.ini WAV=) references the player's own stock Assetto Corsa sounds (content/sfx). No audio is bundled or redistributed."
+}

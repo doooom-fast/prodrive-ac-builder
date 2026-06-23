@@ -127,21 +127,27 @@ def build(project_dir: str | Path) -> dict:
     grid_xyz = project_grid(grid, meta, origin, elev0)
     ribbon.conform_terrain_to_road(grid_xyz, centerline, widths)  # grade terrain to the road (no dipping)
 
-    road = ribbon.road_ribbon(centerline, widths)
+    # tile_m=15 matches the Poly Haven aerial_asphalt_01 (~30 m) real-world scale — kills the 4 m
+    # tiling repeat that read as obvious stripes with the old close-up asphalt.
+    road = ribbon.road_ribbon(centerline, widths, tile_m=15.0)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
-    # Soft verge that ramps the road edge down to the grass (kills the floating-ribbon hard edge).
-    # Built with the road's own lift baked in, so its inner lip meets the road edge exactly.
-    verge = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M)
+    # Paved asphalt SHOULDER that ramps the lane edge down to the terrain (kills the floating-ribbon
+    # hard edge AND gives a tarmac border instead of grass right at the edge). Lift baked in so its
+    # inner lip meets the road edge exactly.
+    shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M)
+    # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
+    runoff = kerbs.corner_runoff(centerline, widths)
+    runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
     kerb = kerbs.corner_kerbs(centerline, widths)
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     marks = ribbon.road_markings(centerline, widths)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
 
     # AC track collision is one-sided — every ground/drivable surface must face up or the car
-    # falls straight through. The ribbon/terrain/kerb/verge/markings generators wind their quads
-    # downward, so re-orient them up. (No barriers any more — corners run off onto open grass.)
-    for surface in (road, grass, verge, kerb, marks):
+    # falls straight through. The ribbon/terrain/shoulder/runoff/kerb/markings generators wind their
+    # quads downward, so re-orient them up. (No barriers — corners run off onto open tarmac.)
+    for surface in (road, grass, shoulder, runoff, kerb, marks):
         orient_up(surface)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
@@ -149,8 +155,8 @@ def build(project_dir: str | Path) -> dict:
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     nv, nf = write_obj(data / "track.obj", "track.mtl",
-                       [("1GRASS", "grass", grass), ("1GRASS_verge", "grass", verge),
-                        ("1ROAD_main", "road", road),
+                       [("1GRASS", "grass", grass), ("1ROAD_shoulder", "road", shoulder),
+                        ("1RUNOFF_corners", "road", runoff), ("1ROAD_main", "road", road),
                         ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks)])
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
@@ -161,13 +167,14 @@ def build(project_dir: str | Path) -> dict:
     for a, b, c in road["tris"]:
         (ax, _, az), (bx, _, bz), (cx, _, cz) = rv[a], rv[b], rv[c]
         area += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2
-    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("verge", (0.34, 0.42, 0.24), verge),
-                ("road", (0.82, 0.83, 0.86), road), ("kerb", (0.88, 0.24, 0.20), kerb),
-                ("marks", (0.95, 0.95, 0.92), marks)], dummies, data / "track_render.svg")
+    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("shoulder", (0.40, 0.40, 0.43), shoulder),
+                ("runoff", (0.46, 0.46, 0.49), runoff), ("road", (0.82, 0.83, 0.86), road),
+                ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks)],
+               dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),
-            "verge_verts": len(verge["vertices"]), "grass_grid": f"{meta['nx']}x{meta['ny']}",
-            "road_area_m2": round(area), "dummies": len(dummies)}
+            "shoulder_verts": len(shoulder["vertices"]), "runoff_verts": len(runoff["vertices"]),
+            "grass_grid": f"{meta['nx']}x{meta['ny']}", "road_area_m2": round(area), "dummies": len(dummies)}
 
 
 # --- pure-python 3/4-view renderer (orthographic, flat-shaded, painter's algorithm) ----

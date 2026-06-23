@@ -18,22 +18,34 @@ import tempfile
 from pathlib import Path
 
 from scripts.config import load_config
-from scripts.ac import ext_config
+from scripts.ac import credits, ext_config
 
 
 # --- AC config files -----------------------------------------------------------
 
 def surfaces_ini() -> str:
-    """data/surfaces.ini — physical surfaces keyed to the 1ROAD/1KERB/GRASS mesh prefixes."""
+    """data/surfaces.ini — physical surfaces keyed to the 1ROAD/1KERB/1RUNOFF/1GRASS mesh prefixes.
+    WAV= names a STOCK AC sound resolved from the player's own content/sfx (FMOD GUIDs.txt) — NOTHING
+    is bundled or redistributed. ROAD is intentionally silent (tyre-roll covers tarmac); KERB rumbles,
+    RUNOFF/GRASS scrub. The kerb mesh is already 3D-ridged, so SIN_HEIGHT stays 0 (no double bump)."""
+    # KEY, params, stock WAV (referenced by name), WAV_PITCH
     blocks = [
-        ("ROAD",  dict(FRICTION=0.99, DAMPING=0, IS_VALID_TRACK=1, DIRT_ADDITIVE=0, IS_PITLANE=0)),
-        ("KERB",  dict(FRICTION=0.92, DAMPING=0, IS_VALID_TRACK=1, DIRT_ADDITIVE=0, IS_PITLANE=0,
-                       VIBRATION_GAIN=1.0, VIBRATION_LENGTH=1.5)),
-        ("GRASS", dict(FRICTION=0.60, DAMPING=0.1, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0)),
+        ("ROAD",   dict(FRICTION=0.99, DAMPING=0, IS_VALID_TRACK=1, DIRT_ADDITIVE=0, IS_PITLANE=0),
+                   "", 0),
+        ("KERB",   dict(FRICTION=0.92, DAMPING=0, IS_VALID_TRACK=1, DIRT_ADDITIVE=0, IS_PITLANE=0,
+                        VIBRATION_GAIN=1.0, VIBRATION_LENGTH=1.5),
+                   "kerb.wav", 1.3),
+        # Paved corner run-off: drivable tarmac but slightly low grip and OFF-track (cutting it doesn't
+        # count) — forgiving without turning the apron into a free track-extension.
+        ("RUNOFF", dict(FRICTION=0.90, DAMPING=0.02, IS_VALID_TRACK=0, DIRT_ADDITIVE=0, IS_PITLANE=0,
+                        VIBRATION_GAIN=0.4, VIBRATION_LENGTH=2.0),
+                   "gravel.wav", 1.2),
+        ("GRASS",  dict(FRICTION=0.60, DAMPING=0.1, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0),
+                   "grass.wav", 1.0),
     ]
     out = []
-    for i, (key, p) in enumerate(blocks):
-        lines = [f"[SURFACE_{i}]", f"KEY={key}", "WAV=", "WAV_PITCH=0", "FF_EFFECT=0",
+    for i, (key, p, wav, pitch) in enumerate(blocks):
+        lines = [f"[SURFACE_{i}]", f"KEY={key}", f"WAV={wav}", f"WAV_PITCH={pitch}", "FF_EFFECT=0",
                  "SIN_HEIGHT=0", "SIN_LENGTH=0", "BLACK_FLAG_TIME=0"]
         lines += [f"{k}={v}" for k, v in p.items()]
         out.append("\n".join(lines))
@@ -166,7 +178,8 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         f"Install: `python -m scripts.ac.install {project_dir}` (auto-finds AC, asks if it can't), "
         f"or copy this folder to <AC>/content/tracks/{cfg.slug}/. Validate in Content Manager.\n",
         encoding="utf-8")
-    ext_config.generate(project_dir)  # extension/ext_config.ini — CSP GrassFX / water shader / lights
+    credits.generate(project_dir, cfg)  # CREDITS.txt + LICENSES.md from assets/licenses.json
+    ext_config.generate(project_dir)  # extension/ext_config.ini — GrassFX / RainFX / light pollution / water
     return {"out": str(out), "layouts": layouts, "length_m": length_m, "n_pits": n_pits,
             "map_px": f"{params['WIDTH']}x{params['HEIGHT']}", "kn5": kn5_name}
 
