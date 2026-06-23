@@ -23,7 +23,7 @@ from scripts.config import load_config
 from scripts.geometry import kerbs, ribbon
 from scripts.geometry.build_mesh import ROAD_LIFT_M, project_grid, read_npy, render_iso, write_mtl, write_obj
 from scripts.geometry.projection import _meters_per_degree
-from scripts.environment import buildings
+from scripts.environment import buildings, signs
 
 Vertex = tuple[float, float, float]
 
@@ -218,11 +218,18 @@ def build(project_dir: str | Path) -> dict:
     bld_walls = _merge(wall_meshes)
     bld_roofs = _merge(roof_meshes)
 
+    # --- street-name signs at the junctions (orientation aid) ---
+    repo = Path(__file__).resolve().parents[2]
+    cells = signs.render_atlas(signs.STREET_NAMES, repo / "assets" / "textures" / "signs_atlas.png")
+    sign = signs.build_signs(loop, widths, signs.STREET_NAMES, cells)
+    nsigns = len(sign["SIGNS"]["vertices"]) // 4
+
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
               [("WATER", "grass", water), ("HIGHWAY_visual", "road", highways),
                ("1ROAD_connector", "road", connector), ("BUILDINGS", "road", bld_walls),
-               ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
+               ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights),
+               ("SIGNPOST", "road", sign["SIGNPOST"]), ("SIGNS", "road", sign["SIGNS"])])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("highway", (0.40, 0.40, 0.44), highways), ("buildings", (0.58, 0.55, 0.50), bld_walls),

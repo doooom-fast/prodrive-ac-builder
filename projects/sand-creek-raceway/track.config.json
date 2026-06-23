@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "location": {
     "lat": 39.7839155,
     "lon": -104.9398905,

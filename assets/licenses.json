@@ -14,6 +14,7 @@
     {"name": "Concrete034", "files": ["building_diffuse.jpg", "building_normal.jpg"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=Concrete034"},
     {"name": "CorrugatedSteel002", "files": ["roof_diffuse.jpg", "roof_normal.jpg"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=CorrugatedSteel002"},
     {"name": "Procedural kerb stripe", "files": ["kerb_diffuse.png"], "source": "prodrive-ac-builder (generated)", "license": "CC0-1.0", "url": ""},
+    {"name": "Street-name sign atlas", "files": ["signs_atlas.png"], "source": "prodrive-ac-builder (generated; system font is a build-time tool, not shipped)", "license": "CC0-1.0", "url": ""},
     {"name": "Tree billboard (PLACEHOLDER)", "files": ["tree_diffuse.png"], "source": "placeholder — not a verified CC0 asset yet; replaced in the v0.6.0 props pass", "license": "UNVERIFIED", "url": ""}
   ],
   "stock_audio_note": "Surface scrub/rumble (data/surfaces.ini WAV=) references the player's own stock Assetto Corsa sounds (content/sfx). No audio is bundled or redistributed."
