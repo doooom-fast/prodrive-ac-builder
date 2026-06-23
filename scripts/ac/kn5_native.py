@@ -116,14 +116,25 @@ def main() -> None:
         if p.exists():
             bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
 
-    # AC dummies as tiny named nodes (the exporter only writes meshes, not empties; AC reads the node
-    # by name + transform, so a 5 cm tri works as a marker).
+    # AC dummies (AC_START/AC_PIT/AC_TIME/AC_HOTLAP) as tiny named nodes: the exporter only writes
+    # meshes, not empties, and AC reads the node position from its geometry, so a 5 cm tri works.
+    #
+    # The position MUST live in the vertices, not in ob.location: the exporter bakes geometry with
+    # `obj.matrix_world @ co`, but in `--background` the depsgraph isn't evaluated after we set
+    # ob.location, so matrix_world stays identity and every marker collapsed to the world origin
+    # (car spawned at the track centroid, metres underground -> fell through, no ground visible).
+    # Bake the world position into the tri directly, like the road ribbon does.
+    #
+    # dummies.json is AC Y-up (x, y=up, z). The exporter applies convert_vector3 (x,y,z)->(x,z,-y)
+    # to every vertex, so pre-rotate into Blender's frame with the inverse (x,-z,y) and leave the
+    # object at the origin — the road reaches AC unchanged the same way (Y-up OBJ import + that one
+    # convert == identity), so this lands the marker exactly on the road.
     dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}
     for name, (x, y, z) in dummies.items():
+        bx, by, bz = x, -z, y  # inverse of the exporter's convert_vector3, so it lands at AC (x,y,z)
         m = bpy.data.meshes.new(name)
-        m.from_pydata([(0, 0, 0), (0.05, 0, 0), (0, 0.05, 0)], [], [(0, 1, 2)])
+        m.from_pydata([(bx, by, bz), (bx + 0.05, by, bz), (bx, by + 0.05, bz)], [], [(0, 1, 2)])
         ob = bpy.data.objects.new(name, m)
-        ob.location = (x, y, z)
         bpy.context.scene.collection.objects.link(ob)
 
     # materials (pbr image nodes for preview/packing) + AC settings.json from the same table

@@ -45,13 +45,43 @@ def build(track_dir: Path) -> Path:
         if p.exists():
             bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
 
-    # 3. AC dummy empties from dummies.json (ENU X-east / Y-up / Z-north metres)
+    # 2b. Weld coincident vertices. The geometry generators emit UNWELDED triangles (3 verts each),
+    #     so 1GRASS lands at ~283k verts — over AC/ksEditor's hard 65,535-per-mesh limit (16-bit
+    #     indices). Merging by a sub-mm distance collapses the terrain grid back to its ~48k shared
+    #     grid points (and shrinks every mesh) without changing the surface, then warns if anything
+    #     is somehow still over the limit.
+    import bmesh
+    for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+        bm.to_mesh(ob.data)
+        bm.free()
+        ob.data.update()
+        # ksEditor/AC count RENDER vertices (unique position+normal+uv), NOT welded positions. A
+        # FLAT-shaded mesh keeps 3 verts per triangle on export, so 1GRASS exported at ~246k even
+        # after welding to ~48k positions. Smooth-shading shares normals across the continuous
+        # terrain UV, collapsing render verts back to the position count. Only smooth meshes big
+        # enough to risk the 65,535 limit (len(loops) is the flat-shaded upper bound) — buildings
+        # etc. stay flat so their hard edges don't round off.
+        if len(ob.data.loops) > 65535:
+            for poly in ob.data.polygons:
+                poly.use_smooth = True
+            ob.data.update()
+            print(f"[build_kn5] smooth-shaded '{ob.name}' ({len(ob.data.vertices)} positions) to fit "
+                  f"the 65,535 render-vertex limit")
+        if len(ob.data.vertices) > 65535:
+            print(f"[build_kn5] WARNING: '{ob.name}' has {len(ob.data.vertices)} positions (> 65535) "
+                  f"— needs splitting or decimation before re-export.")
+
+    # 3. AC dummy empties from dummies.json (AC Y-up metres). The meshes import Y-up -> Blender Z-up,
+    #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
     dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}
     for name, (x, y, z) in dummies.items():
         empty = bpy.data.objects.new(name, None)
         empty.empty_display_type = "ARROWS"
         empty.empty_display_size = 3.0
-        empty.location = (x, y, z)
+        empty.location = (x, -z, y)
         bpy.context.scene.collection.objects.link(empty)
 
     # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
@@ -67,6 +97,13 @@ def build(track_dir: Path) -> Path:
         if prefix:
             mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools
 
+    # Pack the textures INTO the .blend so it's self-contained and portable to another machine
+    # (the image nodes point at this repo's assets/textures/, which won't exist on a Windows box).
+    # A packed .blend opens with all materials/textures intact -> open it, File > Export > kn5.
+    try:
+        bpy.ops.file.pack_all()
+    except Exception as e:
+        print(f"[build_kn5] WARNING: could not pack textures into the .blend: {e}")
     bpy.ops.wm.save_as_mainfile(filepath=str(track_dir / "blender" / f"{slug}.blend"))
 
     # 5. export kn5. Auto-detect whichever export operator the installed AC add-on registered
