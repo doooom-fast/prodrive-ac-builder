@@ -97,6 +97,13 @@ def build(track_dir: Path) -> Path:
         if prefix:
             mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools
 
+    # Pack the textures INTO the .blend so it's self-contained and portable to another machine
+    # (the image nodes point at this repo's assets/textures/, which won't exist on a Windows box).
+    # A packed .blend opens with all materials/textures intact -> open it, File > Export > kn5.
+    try:
+        bpy.ops.file.pack_all()
+    except Exception as e:
+        print(f"[build_kn5] WARNING: could not pack textures into the .blend: {e}")
     bpy.ops.wm.save_as_mainfile(filepath=str(track_dir / "blender" / f"{slug}.blend"))
 
     # 5. export kn5. Auto-detect whichever export operator the installed AC add-on registered
