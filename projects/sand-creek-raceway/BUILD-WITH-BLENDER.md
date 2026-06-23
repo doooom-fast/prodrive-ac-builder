@@ -5,9 +5,15 @@ Export. The file (`sand_creek_raceway.blend`) already has everything set up — 
 packed inside it, materials, and the `AC_START` / pit / timing markers — so there's no per-material
 work and nothing to assign.
 
-## 1. Install Blender (free)
+## 1. Install Blender 4.2 LTS (free) — NOT Blender 5
 
-Download and install the latest Blender from <https://www.blender.org/download/>.
+The add-on **crashes on Blender 5.x** (Blender 5 rewrote how meshes store data; the add-on reads it
+the old way and segfaults on export). Install **Blender 4.2 LTS** specifically:
+
+<https://www.blender.org/download/lts/4-2/>
+
+You can keep Blender 5 installed too — different versions live in separate folders and don't
+conflict. Just use 4.2 for this. The `.blend` in this zip is saved in 4.2 format.
 
 ## 2. Install the Assetto Corsa add-on
 
