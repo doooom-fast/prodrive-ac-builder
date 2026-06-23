@@ -18,7 +18,8 @@ conflict. Just use 4.2 for this. The `.blend` in this zip is saved in 4.2 format
 ## 2. Install the Assetto Corsa add-on
 
 1. Open <https://github.com/jwl-7/blender-assetto-corsa-tools/releases>.
-2. Download `blender_assetto_corsa_tools.zip` from the latest release (don't unzip it).
+2. Download `blender_assetto_corsa_tools.zip` from the **add-on's** latest release (this is the
+   add-on, not Blender — and don't unzip it).
 3. In Blender: **Edit → Preferences → Add-ons**, click **Install…** (on newer Blender it's the
    ▾ menu → **Install from Disk**), and pick that zip.
 4. Tick the checkbox next to **"Assetto Corsa (.kn5)"** to turn it on.
