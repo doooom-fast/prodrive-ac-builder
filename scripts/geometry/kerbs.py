@@ -66,10 +66,17 @@ def _fine_stations(poly: list[Vertex], step: float) -> list[tuple[float, float, 
     return out
 
 
+def _cum_stations(pts: list[Vertex]) -> list[float]:
+    st = [0.0]
+    for i in range(1, len(pts)):
+        st.append(st[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+    return st
+
+
 def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.007,
                  min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.05, ridge_period: float = 0.6,
                  ridge_lo: float = 0.45, top_frac: float = 0.55, lift: float = 0.01,
-                 fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6) -> dict:
+                 fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6, bank_at=None) -> dict:
     """Real 3D **ridged** kerbs on corners — a raised, serrated rumble strip, not a flat texture plane.
     Each corner run is resampled fine (``fine_step``) and a cross-section is swept along it:
         road-edge lip (vertical, flush at the lane edge) -> raised top -> ramp back down on the verge,
@@ -80,6 +87,7 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
     pts = centerline_m
     n = len(pts)
     rate = _smooth(_turn_rate(pts))
+    stations = _cum_stations(pts)
     verts: list[Vertex] = []
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
@@ -88,6 +96,7 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
         st = _fine_stations([pts[k] for k in run], fine_step)
         if len(st) < 2:
             return
+        base_s = stations[run[0]]                                # global station at the run's start
         rows = []
         for x, y, z, tx, tz, arc in st:
             nx, nz = -tz * side, tx * side                       # toward this side of the road
@@ -98,11 +107,12 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
             # (``half``) and the raised body + ramp extend OUTWARD onto the verge (``half + kerb_w``),
             # so it never eats into the drivable lane — you clip it running wide, you don't drive over it.
             edge, top, ramp = half, half + kerb_w * top_frac, half + kerb_w
+            tb = math.tan(bank_at(base_s + arc)) if bank_at else 0.0  # roll with the cambered road
             r = len(verts)
-            verts.append((x + nx * edge, y + lift, z + nz * edge))            # 0 edge bottom (road edge)
-            verts.append((x + nx * edge, y + lift + h, z + nz * edge))        # 1 edge top (vertical lip, track side)
-            verts.append((x + nx * top, y + lift + h, z + nz * top))          # 2 top (outward)
-            verts.append((x + nx * ramp, y + lift, z + nz * ramp))            # 3 ramp bottom (verge side)
+            verts.append((x + nx * edge, y + lift + side * edge * tb, z + nz * edge))        # 0 edge bottom (road edge)
+            verts.append((x + nx * edge, y + lift + h + side * edge * tb, z + nz * edge))    # 1 edge top (vertical lip, track side)
+            verts.append((x + nx * top, y + lift + h + side * top * tb, z + nz * top))       # 2 top (outward)
+            verts.append((x + nx * ramp, y + lift + side * ramp * tb, z + nz * ramp))        # 3 ramp bottom (verge side)
             v = arc / tile_m
             uvs.extend([(0.0, v), (0.15, v), (0.5, v), (1.0, v)])
             rows.append(r)
@@ -138,7 +148,7 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
 
 def corner_runoff(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.008,
                   min_run: int = 5, gap: float = 2.5, runoff_w: float = 9.0, pad: int = 5,
-                  taper: int = 5, tile_m: float = 8.0) -> dict:
+                  taper: int = 5, tile_m: float = 8.0, bank_at=None) -> dict:
     """A wide **paved tarmac apron** on the OUTSIDE of each corner — where the car runs wide — instead
     of grass. Replaces the old corner barriers: open, forgiving asphalt runoff rather than a wall.
 
@@ -150,6 +160,7 @@ def corner_runoff(centerline_m: list[Vertex], widths_m: list[float], *, thr: flo
     pts = centerline_m
     n = len(pts)
     rate = _smooth(_turn_rate(pts))
+    stations = _cum_stations(pts)
     verts: list[Vertex] = []
     uvs: list[tuple[float, float]] = []
     tris: list[tuple[int, int, int]] = []
@@ -178,9 +189,10 @@ def corner_runoff(centerline_m: list[Vertex], widths_m: list[float], *, thr: flo
                 w = runoff_w * min(1.0, idx / taper, (len(run) - 1 - idx) / taper)  # taper ends
                 half = widths_m[k] / 2.0
                 inner, outer = half + gap, half + gap + w
+                tb = math.tan(bank_at(stations[k])) if bank_at else 0.0   # roll with the cambered road
                 r = len(verts)
-                verts.append((x + nx * inner, y, z + nz * inner))
-                verts.append((x + nx * outer, y, z + nz * outer))
+                verts.append((x + nx * inner, y + side * inner * tb, z + nz * inner))
+                verts.append((x + nx * outer, y + side * outer * tb, z + nz * outer))
                 uvs.append((0.0, arc / tile_m))
                 uvs.append((max(w, 0.1) / tile_m, arc / tile_m))
                 rows.append(r)

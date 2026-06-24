@@ -18,7 +18,8 @@ import sys
 from pathlib import Path
 
 from scripts.geometry import dummies as dummies_mod
-from scripts.geometry import kerbs, ribbon
+from scripts.geometry import kerbs, ribbon, road_text
+from scripts.geometry import profile as profile_mod
 from scripts.geometry.projection import _meters_per_degree
 
 Vertex = tuple[float, float, float]
@@ -187,71 +188,96 @@ def build(project_dir: str | Path) -> dict:
     # left, north preserved). Cancel it by mirroring the SOURCE X (east) here — so the road, the dummies
     # (placed below) and the facing (build_kn5) are all COMPUTED in the mirrored frame, never reflected
     # as matrices (that's what broke the spawn before). orient_up re-faces the drivable surfaces.
-    mirror_x = bool(json.loads((project_dir / "track.config.json").read_text()).get("mirror_x", False))
+    cfg_raw = json.loads((project_dir / "track.config.json").read_text())
+    mirror_x = bool(cfg_raw.get("mirror_x", False))
     if mirror_x:
         centerline = [(-x, y, z) for (x, y, z) in centerline]
 
+    # ROAD PROFILE: hand-authored dip + camber drama (the Sand Creek corkscrew). dip_of/bank_at are
+    # keyed by lap station (metres from pts[0]); bank rolls every swept cross-section, the dip is baked
+    # into the centerline Y here so the terrain grade, the grass conform and the dummies all follow it.
+    dip_of, bank_at, profile_active = profile_mod.build_profile(cfg_raw.get("road_profile"))
+    bnk = bank_at if profile_active else None     # None => flat path is byte-identical to before
+    if profile_active:
+        cst = [0.0]
+        for i in range(1, len(centerline)):
+            cst.append(cst[-1] + math.hypot(centerline[i][0] - centerline[i - 1][0],
+                                            centerline[i][2] - centerline[i - 1][2]))
+        centerline = [(x, y - dip_of(cst[i]), z) for i, (x, y, z) in enumerate(centerline)]
+
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
-    grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m so grading hugs the road cleanly
+    grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m (×4 blew past AC's 65,535-vert grass cap)
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
-    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths)  # grade terrain to the road (no dipping)
+    # corridor 16 m (> the ~13 m grid's 9.4 m half-diagonal) so EVERY near-road node is graded below
+    # the road — kills the grass poke-throughs the old 12 m corridor missed, without over-refining the
+    # grid (×3 keeps 1GRASS ~48k verts, under AC's per-mesh 16-bit index limit).
+    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=16.0, bank_at=bnk)
 
     # tile_m=15 matches the Poly Haven aerial_asphalt_01 (~30 m) real-world scale — kills the 4 m
     # tiling repeat that read as obvious stripes with the old close-up asphalt.
-    road = ribbon.road_ribbon(centerline, widths, tile_m=15.0)
+    road = ribbon.road_ribbon(centerline, widths, tile_m=15.0, bank_at=bnk)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
     # Paved asphalt SHOULDER that ramps the lane edge down to the terrain (kills the floating-ribbon
     # hard edge AND gives a tarmac border instead of grass right at the edge). Lift baked in so its
     # inner lip meets the road edge exactly.
-    shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M)
+    shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk)
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
-    runoff = kerbs.corner_runoff(centerline, widths)
+    runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
-    kerb = kerbs.corner_kerbs(centerline, widths)
+    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk)
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
-    marks = ribbon.road_markings(centerline, widths)
+    marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
+
+    # CROSSWALK across the start/finish (continental bars) — sits just above the lane lines.
+    xwalk = ribbon.crosswalk(centerline, widths, at_idx=0, bank_at=bnk)
+    xwalk["vertices"] = [(x, y + ROAD_LIFT_M + 0.013, z) for x, y, z in xwalk["vertices"]]
+
+    # PAINTED STREET-NAME decals at each turn-onto, from the OSM street-label map (data/street_labels.json).
+    # Big white pavement lettering matching the Commerce City reference ("E 45TH AVE" painted on the road).
+    roadtext = {"vertices": [], "uvs": [], "tris": []}
+    labels_path = data / "street_labels.json"
+    if labels_path.exists():
+        sl = json.loads(labels_path.read_text(encoding="utf-8"))
+        rt_cfg = cfg_raw.get("road_text", {})
+        mode = rt_cfg.get("mode", "along")        # "along" = lengthwise down the lane (drive over it)
+        cap_m = float(rt_cfg.get("cap_m", 4.8))   # letter height across the road (≈half a 9 m lane)
+        min_leg = rt_cfg.get("min_leg_m", 200.0)
+        prelim = road_text.choose_placements(sl["labels"], sl["segments"], min_leg_m=min_leg)
+        tex_dir = Path(__file__).resolve().parents[2] / "assets" / "textures"
+        info = road_text.render_text_atlas([nm for _i, nm in prelim], tex_dir / "roadtext_atlas.png",
+                                           wrap=(mode != "along"))
+        # second pass: snap each label onto the straightest window in its leg (no text on corners)
+        placements = road_text.choose_placements(sl["labels"], sl["segments"], min_leg_m=min_leg,
+                                                 centerline=centerline, info=info, cap_m=cap_m)
+        roadtext = road_text.place_labels(centerline, widths, placements, info, bank_at=bnk,
+                                          mode=mode, cap_m=cap_m,
+                                          flip_read=bool(rt_cfg.get("flip_read", False)),
+                                          flip_up=bool(rt_cfg.get("flip_up", False)))
+        roadtext["vertices"] = [(x, y + ROAD_LIFT_M + 0.014, z) for x, y, z in roadtext["vertices"]]
+        print(f"  road-text decals ({mode}): {len(placements)} -> {[nm for _i, nm in placements]}")
 
     # AC track collision is one-sided — every ground/drivable surface must face up or the car
     # falls straight through. The ribbon/terrain/shoulder/runoff/kerb/markings generators wind their
     # quads downward, so re-orient them up. (No barriers — corners run off onto open tarmac.)
-    for surface in (road, grass, shoulder, runoff, kerb, marks):
-        orient_up(surface)
+    for surface in (road, grass, shoulder, runoff, kerb, marks, xwalk, roadtext):
+        if surface["tris"]:
+            orient_up(surface)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
-    # --- ORIENTATION CALIBRATION markers (TEMPORARY): pole CLUSTERS around the start so ONE in-game
-    #     photo pins down exactly how AC transforms our axes. Counts encode the intended direction:
-    #     1 pole = FORWARD (into the lap), 3 = RIGHT (the way the real Turn 1 goes), 2 = LEFT,
-    #     5 = BACK (toward the chicane). 20 m tall, 60 m out from the start. Remove once oriented.
-    x0, y0, z0 = centerline[0]
-    tx, tz = centerline[1][0] - x0, centerline[1][2] - z0
-    tl = math.hypot(tx, tz) or 1.0
-    tx, tz = tx / tl, tz / tl                                    # forward unit vector
-    dirs = [((tx, tz), 1), ((tz, -tx), 3), ((-tz, tx), 2), ((-tx, -tz), 5)]  # fwd, right, left, back
-    cv, ct = [], []
-    for (dx, dz), count in dirs:
-        for k in range(count):
-            off = 60.0 + k * 7.0
-            cx, cz = x0 + dx * off, z0 + dz * off
-            b = len(cv)
-            W, H = 1.2, 20.0
-            cv += [(cx - W, y0, cz), (cx + W, y0, cz), (cx + W, y0 + H, cz), (cx - W, y0 + H, cz),
-                   (cx, y0, cz - W), (cx, y0, cz + W), (cx, y0 + H, cz + W), (cx, y0 + H, cz - W)]
-            for o in (0, 4):
-                ct += [(b + o, b + o + 1, b + o + 2), (b + o, b + o + 2, b + o + 3),
-                       (b + o, b + o + 2, b + o + 1), (b + o, b + o + 3, b + o + 2)]
-    calib = {"vertices": cv, "tris": ct}
-
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
-    nv, nf = write_obj(data / "track.obj", "track.mtl",
-                       [("1GRASS", "grass", grass), ("1ROAD_shoulder", "road", shoulder),
-                        ("1RUNOFF_corners", "road", runoff), ("1ROAD_main", "road", road),
-                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
-                        ("CALIB", "kerb", calib)])
+    # (Orientation confirmed in-game — the temporary CALIB calibration poles are removed.)
+    groups = [("1GRASS", "grass", grass), ("1ROAD_shoulder", "road", shoulder),
+              ("1RUNOFF_corners", "road", runoff), ("1ROAD_main", "road", road),
+              ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
+              ("MARKINGS_crosswalk", "kerb", xwalk)]
+    if roadtext["tris"]:
+        groups.append(("ROADTEXT", "kerb", roadtext))
+    nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
 
@@ -261,10 +287,13 @@ def build(project_dir: str | Path) -> dict:
     for a, b, c in road["tris"]:
         (ax, _, az), (bx, _, bz), (cx, _, cz) = rv[a], rv[b], rv[c]
         area += abs((bx - ax) * (cz - az) - (cx - ax) * (bz - az)) / 2
-    render_iso([("grass", (0.30, 0.47, 0.22), grass), ("shoulder", (0.40, 0.40, 0.43), shoulder),
-                ("runoff", (0.46, 0.46, 0.49), runoff), ("road", (0.82, 0.83, 0.86), road),
-                ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks)],
-               dummies, data / "track_render.svg")
+    render_layers = [("grass", (0.30, 0.47, 0.22), grass), ("shoulder", (0.40, 0.40, 0.43), shoulder),
+                     ("runoff", (0.46, 0.46, 0.49), runoff), ("road", (0.82, 0.83, 0.86), road),
+                     ("kerb", (0.88, 0.24, 0.20), kerb), ("marks", (0.95, 0.95, 0.92), marks),
+                     ("xwalk", (1.0, 1.0, 1.0), xwalk)]
+    if roadtext["tris"]:
+        render_layers.append(("roadtext", (0.40, 0.85, 1.0), roadtext))
+    render_iso(render_layers, dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),
             "shoulder_verts": len(shoulder["vertices"]), "runoff_verts": len(runoff["vertices"]),

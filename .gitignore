@@ -31,6 +31,9 @@ projects/*/build/*
 !projects/*/data/.gitkeep
 !projects/*/blender/.gitkeep
 !projects/*/build/.gitkeep
+# Keep the resolved OSM street map (per-vertex street names + leg breakdown): it's reference data
+# worth committing, and tracking it means the build reads it instead of re-querying live Overpass.
+!projects/*/data/street_labels.json
 
 # GPL kn5 exporter (auto-cloned by scripts/ac/kn5_native.py — not vendored)
 vendor/

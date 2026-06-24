@@ -22,12 +22,16 @@ def _horiz_tangent(pts: list[Vertex], i: int, closed: bool) -> tuple[float, floa
     return dx / L, dz / L
 
 
-def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: float = 4.0) -> dict:
+def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: float = 4.0,
+                bank_at=None) -> dict:
     """Sweep a drivable ribbon (1ROAD) along the centerline, offsetting ±width/2 per vertex.
 
     Also emits per-vertex UVs (parallel to vertices) in metres/``tile_m``: U across the width
     (±half/tile), V along the lap (cumulative arc/tile) — so a seamless asphalt tiles correctly down
-    the road and a detail/markings layer can key off the same coordinates."""
+    the road and a detail/markings layer can key off the same coordinates.
+
+    ``bank_at`` (station_m -> roll radians) rolls the cross-section: a vertex at lateral offset ``o``
+    (left +ve) is lifted by ``o*tan(bank)`` so the road banks as one plane (see ``profile.py``)."""
     pts = centerline_m
     n = len(pts)
     closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
@@ -42,8 +46,9 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
         tx, tz = _horiz_tangent(pts, i, closed)
         nx, nz = -tz, tx  # left normal (tangent rotated +90° in X-Z)
         half = widths_m[i] / 2.0
-        verts.append((x + nx * half, y, z + nz * half))  # left  -> 2i
-        verts.append((x - nx * half, y, z - nz * half))  # right -> 2i+1
+        tb = math.tan(bank_at(arc)) if bank_at else 0.0
+        verts.append((x + nx * half, y + half * tb, z + nz * half))  # left  -> 2i  (outside/raised)
+        verts.append((x - nx * half, y - half * tb, z - nz * half))  # right -> 2i+1
         uvs.append((half / tile_m, arc / tile_m))        # left
         uvs.append((-half / tile_m, arc / tile_m))       # right
     tris: list[tuple[int, int, int]] = []
@@ -57,7 +62,7 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
 
 
 def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
-                  verge_w: float = 2.5, tile_m: float = 4.0) -> dict:
+                  verge_w: float = 2.5, tile_m: float = 4.0, bank_at=None) -> dict:
     """A soft graded **verge** that ramps each road edge down to the grass, so the road reads like a
     real shouldered road instead of a ribbon floating on a hard edge. Inner lip sits at the road edge
     and road height (``lift`` above the graded terrain); the outer lip is ``verge_w`` m out, at grass
@@ -80,9 +85,12 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             tx, tz = _horiz_tangent(pts, i, closed)
             nx, nz = -tz * side, tx * side  # outward normal on this side
             half = widths_m[i] / 2.0
+            tb = math.tan(bank_at(arc)) if bank_at else 0.0
             r = len(verts)
-            verts.append((x + nx * half, y + lift, z + nz * half))                       # inner lip (road edge)
-            verts.append((x + nx * (half + verge_w), y, z + nz * (half + verge_w)))       # outer lip (grass)
+            # bank the verge coplanar with the road edge (o = side*half, side*(half+verge)) so it
+            # never pokes above the banked road on the low (inside) side of a cambered corner.
+            verts.append((x + nx * half, y + lift + side * half * tb, z + nz * half))                 # inner lip (road edge)
+            verts.append((x + nx * (half + verge_w), y + side * (half + verge_w) * tb, z + nz * (half + verge_w)))  # outer lip (grass)
             uvs.append((0.0, arc / tile_m))
             uvs.append((1.0, arc / tile_m))
             rows.append(r)
@@ -95,26 +103,31 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
-def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | None):
-    """Centre + both edge points per station (flat cross-section), each tagged with its lap index.
-    Grading to these — not just the centreline — makes the terrain meet the road at its real edges."""
+def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | None, bank_at=None):
+    """Centre + both edge points per station, each tagged with its lap index. Grading to these — not
+    just the centreline — makes the terrain meet the road at its real edges; with ``bank_at`` the edge
+    samples carry the banked height (left = +o*tan, right = -o*tan) so the grass meets a cambered edge."""
     n = len(centerline_m)
     closed = abs(centerline_m[0][0] - centerline_m[-1][0]) < 1e-6 and abs(centerline_m[0][2] - centerline_m[-1][2]) < 1e-6
     out: list[tuple[float, float, float, int]] = []
+    arc = 0.0
     for i, (x, y, z) in enumerate(centerline_m):
+        if i > 0:
+            arc += math.hypot(x - centerline_m[i - 1][0], z - centerline_m[i - 1][2])
         out.append((x, y, z, i))
         if widths_m:
             tx, tz = _horiz_tangent(centerline_m, i, closed)
             nx, nz = -tz, tx
             h = widths_m[i] / 2.0
-            out.append((x + nx * h, y, z + nz * h, i))
-            out.append((x - nx * h, y, z - nz * h, i))
+            tb = math.tan(bank_at(arc)) if bank_at else 0.0
+            out.append((x + nx * h, y + h * tb, z + nz * h, i))   # left edge (raised when bank>0)
+            out.append((x - nx * h, y - h * tb, z - nz * h, i))   # right edge
     return out, n
 
 
 def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
                             widths_m: list[float] | None = None,
-                            *, corridor: float = 12.0, blend: float = 12.0) -> None:
+                            *, corridor: float = 12.0, blend: float = 12.0, bank_at=None) -> None:
     """Grade the terrain to the road so the road never dips into it. Each grid node within
     ``corridor`` m of the road surface (centre + both edges) is pulled down to the *lowest* nearby
     road elevation; the cut then blends back to natural terrain over ``blend`` m. Mutates in place.
@@ -129,7 +142,7 @@ def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Ver
     from collections import defaultdict
     reach = corridor + blend
     corr2 = corridor * corridor
-    samples, _ = _road_surface_samples(centerline_m, widths_m)
+    samples, _ = _road_surface_samples(centerline_m, widths_m, bank_at)
     buckets: dict[tuple[int, int], list[tuple[float, float, float]]] = defaultdict(list)
     for x, y, z, _i in samples:
         buckets[(int(x // reach), int(z // reach))].append((x, y, z))
@@ -224,11 +237,49 @@ def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0, skirt_m:
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
+def crosswalk(centerline_m: list[Vertex], widths_m: list[float], *, at_idx: int = 0,
+              depth_m: float = 3.6, bar_w: float = 0.55, gap_w: float = 0.55, margin_m: float = 0.5,
+              lift: float = 0.0, bank_at=None) -> dict:
+    """A high-visibility **continental crosswalk** across the road at centerline index ``at_idx`` (the
+    start/finish on Colorado Blvd). Longitudinal white bars — parallel to travel, arranged across the
+    full width — straddling the line. Flat white (visual-only, MARKINGS material). ``bank_at`` rolls it
+    with the road. UV-free (solid colour)."""
+    pts = centerline_m
+    n = len(pts)
+    i = max(0, min(n - 1, at_idx))
+    x, y, z = pts[i]
+    tx, tz = _horiz_tangent(pts, i, abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6)
+    nx, nz = -tz, tx                      # left normal (across the road)
+    # global station at this index (for bank lookup)
+    arc = 0.0
+    for k in range(1, i + 1):
+        arc += math.hypot(pts[k][0] - pts[k - 1][0], pts[k][2] - pts[k - 1][2])
+    tb = math.tan(bank_at(arc)) if bank_at else 0.0
+    half = widths_m[i] / 2.0 - margin_m
+    d = depth_m / 2.0
+    verts: list[Vertex] = []
+    tris: list[tuple[int, int, int]] = []
+    u = -half
+    step = bar_w + gap_w
+    while u <= half - 1e-6:
+        u1 = min(u + bar_w, half)
+        for (uu, dd) in ((u, -d), (u1, -d), (u1, d), (u, d)):   # bar corners (across × along)
+            px = x + nx * uu + tx * dd
+            pz = z + nz * uu + tz * dd
+            verts.append((px, y + lift + uu * tb, pz))
+        b = len(verts) - 4
+        tris.append((b, b + 1, b + 2))
+        tris.append((b, b + 2, b + 3))
+        u += step
+    return {"vertices": verts, "tris": tris}
+
+
 def road_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: float = 0.14,
                   edge_inset: float = 0.4, lift: float = 0.0, dash_on: float = 3.0,
-                  dash_gap: float = 4.5, tile_m: float = 1.0) -> dict:
+                  dash_gap: float = 4.5, tile_m: float = 1.0, bank_at=None) -> dict:
     """Thin white lane lines along the road: solid edge lines (inset from the kerb) + a dashed centre.
-    Visual-only (no ``1`` prefix). Sits ``lift`` above the road — build_mesh raises it with the ribbon."""
+    Visual-only (no ``1`` prefix). Sits ``lift`` above the road — build_mesh raises it with the ribbon.
+    ``bank_at`` rolls each line with the cambered road (offset*tan(bank) added to Y)."""
     pts = centerline_m
     n = len(pts)
     closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
@@ -257,9 +308,10 @@ def road_markings(centerline_m: list[Vertex], widths_m: list[float], *, line_w: 
             for s in (s0, s1):
                 x, y, z, nx, nz, half, a = s
                 o = offset_of(s)
+                tb = math.tan(bank_at(a)) if bank_at else 0.0
                 for sign in (-1, 1):
                     off = o + sign * line_w / 2
-                    verts.append((x + nx * off, y + lift, z + nz * off))
+                    verts.append((x + nx * off, y + lift + off * tb, z + nz * off))
                     uvs.append(((sign + 1) / 2, a / tile_m))
             tris.append((b, b + 1, b + 3))
             tris.append((b, b + 3, b + 2))
