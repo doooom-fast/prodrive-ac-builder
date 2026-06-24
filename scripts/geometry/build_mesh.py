@@ -115,6 +115,27 @@ def orient_up(mesh: dict) -> dict:
     return mesh
 
 
+def smooth_centerline(pts: list[Vertex], *, lam: float = 0.45, iterations: int = 4) -> list[Vertex]:
+    """Light GLOBAL Laplacian smoothing to kill the GPS-level wobble (3-15° per-vertex jogs in the
+    OSM/KML centerline) that makes the road EDGES ripple on curves. Each vertex is pulled only a
+    fraction toward its neighbours' midpoint, so straights stay straight and the route is preserved —
+    it just removes the high-frequency noise. Closed-loop aware; vertex count preserved."""
+    closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][2] - pts[-1][2]) < 1e-6
+    P = [list(p) for p in (pts[:-1] if closed else pts)]
+    m = len(P)
+    for _ in range(iterations):
+        new = [p[:] for p in P]
+        for i in range(m):
+            a, b = P[(i - 1) % m], P[(i + 1) % m]
+            for c in (0, 1, 2):
+                new[i][c] = P[i][c] + lam * ((a[c] + b[c]) / 2.0 - P[i][c])
+        P = new
+    out = [tuple(p) for p in P]
+    if closed:
+        out.append(out[0])
+    return out
+
+
 def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
                         iterations: int = 7, window: int = 3) -> list[Vertex]:
     """Round only the SHARP kinks (a hard ~90° street corner has no zero-radius point — real ones have
@@ -157,7 +178,7 @@ def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
     local = json.loads((data / "centerline.local.json").read_text(encoding="utf-8"))
-    centerline = round_sharp_corners([tuple(p) for p in local["points_xyz_m"]])
+    centerline = round_sharp_corners(smooth_centerline([tuple(p) for p in local["points_xyz_m"]]))
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
