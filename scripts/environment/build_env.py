@@ -204,7 +204,10 @@ def build(project_dir: str | Path) -> dict:
     bld_path = data / "buildings.geojson"
     bld = json.loads(bld_path.read_text())["buildings"] if bld_path.exists() else []
     loop_xz = [(p[0], p[2]) for p in loop[::4]]
-    wall_meshes, roof_meshes, nbld = [], [], 0
+    # Commerce City reads as industrial: big footprints = metal WAREHOUSES (corrugated skin), smaller
+    # ones = concrete/commercial. Splitting the walls by footprint area gives that variety instead of a
+    # field of identical grey boxes. Bury the base 2.5 m so boxes never float off sloped ground.
+    warehouse_walls, commercial_walls, roof_meshes, nbld = [], [], [], 0
     for b in bld:
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
         if len(foot) < 3 or _poly_area(foot) < 35:  # skip tiny sheds / noise
@@ -217,12 +220,14 @@ def build(project_dir: str | Path) -> dict:
         # (within 16 m of the racing line) so buildings don't sit over the road.
         if min(math.hypot(fx - lx, fz - lz) for fx, fz in foot for lx, lz in loop_xz) < 16.0:
             continue
-        base = min(y_at(lo, la) for lo, la in b["coords"]) - 0.4  # sink slightly to meet the ground
-        box = buildings.extrude(foot, base, b["height_m"])
-        wall_meshes.append(box["walls"])
+        bury = 2.5
+        base = min(y_at(lo, la) for lo, la in b["coords"]) - bury  # sink so it meets the ground on slopes
+        box = buildings.extrude(foot, base, b["height_m"] + bury)   # +bury so the roof stays at true height
+        (warehouse_walls if _poly_area(foot) > 700 else commercial_walls).append(box["walls"])
         roof_meshes.append(box["roof"])
         nbld += 1
-    bld_walls = _merge(wall_meshes)
+    bld_warehouse = _merge(warehouse_walls)
+    bld_commercial = _merge(commercial_walls)
     bld_roofs = _merge(roof_meshes)
 
     # --- street-name signs: DISABLED — the corner->street mapping was wrong (mislabeled) and the
@@ -231,11 +236,12 @@ def build(project_dir: str | Path) -> dict:
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
-              [("WATER", "grass", water), ("BUILDINGS", "road", bld_walls),
-               ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
+              [("WATER", "grass", water), ("BUILDINGS", "road", bld_commercial),
+               ("WAREHOUSE", "road", bld_warehouse), ("ROOFS", "road", bld_roofs),
+               ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
-                ("highway", (0.40, 0.40, 0.44), highways), ("buildings", (0.58, 0.55, 0.50), bld_walls),
+                ("buildings", (0.58, 0.55, 0.50), bld_commercial), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),
                 ("roofs", (0.42, 0.42, 0.45), bld_roofs), ("road", (0.82, 0.83, 0.86), road),
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
                 ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights)],
