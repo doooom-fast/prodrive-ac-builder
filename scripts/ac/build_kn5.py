@@ -117,6 +117,26 @@ def build(track_dir: Path) -> Path:
             empty.rotation_euler = (0.0, 0.0, start_yaw)
         bpy.context.scene.collection.objects.link(empty)
 
+    # 3b. UN-MIRROR. AC's kn5 convert reflects the track E<->W on load: a real right-hander (Colorado
+    #     -> right onto 52nd) renders as a LEFT, while north stays north (confirmed in-game). Cancel it
+    #     by mirroring every vertex across X here, and REVERSE each mesh's winding so faces keep facing
+    #     out/up (a bare mirror would flip them down and re-open the fall-through). Empties: mirror the
+    #     position and negate yaw. Verified: with this on, AC's reflection composes to identity.
+    for ob in bpy.data.objects:
+        if ob.type == "MESH":
+            me = ob.data
+            for v in me.vertices:
+                v.co.x = -v.co.x
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+            bm.to_mesh(me)
+            bm.free()
+            me.update()
+        elif ob.type == "EMPTY":
+            ob.location.x = -ob.location.x
+            ob.rotation_euler.z = -ob.rotation_euler.z
+
     # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
     #    stamp the AC shader name from materials.json — the FBX carries the textures (path_mode=COPY)
     #    AND the kn5 gets the right shader.
