@@ -97,12 +97,16 @@ def build(track_dir: Path) -> Path:
     # un-rotated empty already faces the travel direction; the yaw that aligns local -Y with the
     # Blender travel vector (tx, -tz) is atan2(tx, tz) (= 0 for north). (The earlier atan2(-tx,-tz)
     # was 180 deg off and faced the car backwards into the chicane.)
+    # mirror_x: the dummy POSITIONS already come mirrored via dummies.json (build_mesh placed them on the
+    # mirrored centerline). The facing here reads the raw centerline, so mirror its east axis to match.
+    mirror_x = bool(json.loads((track_dir / "track.config.json").read_text()).get("mirror_x", False))
+    sx = -1.0 if mirror_x else 1.0
     start_yaw = 0.0
     cl_path = data / "centerline.local.json"
     if cl_path.exists():
         pts = json.loads(cl_path.read_text()).get("points_xyz_m", [])
         if len(pts) >= 2:
-            tx, tz = pts[1][0] - pts[0][0], pts[1][2] - pts[0][2]
+            tx, tz = sx * (pts[1][0] - pts[0][0]), pts[1][2] - pts[0][2]
             L = math.hypot(tx, tz) or 1.0
             start_yaw = math.atan2(tx / L, tz / L)
 

@@ -37,8 +37,10 @@ def read_npy(path: Path) -> list[list[float]]:
     return [list(data[j * nx:(j + 1) * nx]) for j in range(ny)]
 
 
-def project_grid(grid: list[list[float]], meta: dict, origin: tuple[float, float], elev0: float) -> list[list[Vertex]]:
-    """Project the lat/lon terrain grid into the same local ENU frame as the centerline."""
+def project_grid(grid: list[list[float]], meta: dict, origin: tuple[float, float], elev0: float,
+                 *, mirror_x: bool = False) -> list[list[Vertex]]:
+    """Project the lat/lon terrain grid into the same local ENU frame as the centerline (mirroring the
+    east axis too when ``mirror_x`` so the grass stays under the mirrored road)."""
     s, w, n, e = meta["bbox_swne"]
     nx, ny, sp = meta["nx"], meta["ny"], meta["spacing_m"]
     midlat = (s + n) / 2
@@ -46,10 +48,11 @@ def project_grid(grid: list[list[float]], meta: dict, origin: tuple[float, float
     gx = sp / (111_000.0 * math.cos(math.radians(midlat)))
     lon0, lat0 = origin
     m_lon, m_lat = _meters_per_degree(lat0)
+    sx = -1.0 if mirror_x else 1.0
     out = []
     for j in range(ny):
         lat = n - j * gy
-        row = [(((w + i * gx) - lon0) * m_lon, grid[j][i] - elev0, (lat - lat0) * m_lat) for i in range(nx)]
+        row = [(sx * ((w + i * gx) - lon0) * m_lon, grid[j][i] - elev0, (lat - lat0) * m_lat) for i in range(nx)]
         out.append(row)
     return out
 
@@ -159,10 +162,18 @@ def build(project_dir: str | Path) -> dict:
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
 
+    # MIRROR_X: AC's kn5 convert renders the track reflected east<->west (a real right-hander reads as a
+    # left, north preserved). Cancel it by mirroring the SOURCE X (east) here — so the road, the dummies
+    # (placed below) and the facing (build_kn5) are all COMPUTED in the mirrored frame, never reflected
+    # as matrices (that's what broke the spawn before). orient_up re-faces the drivable surfaces.
+    mirror_x = bool(json.loads((project_dir / "track.config.json").read_text()).get("mirror_x", False))
+    if mirror_x:
+        centerline = [(-x, y, z) for (x, y, z) in centerline]
+
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
     grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m so grading hugs the road cleanly
-    grid_xyz = project_grid(grid, meta, origin, elev0)
+    grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
     ribbon.conform_terrain_to_road(grid_xyz, centerline, widths)  # grade terrain to the road (no dipping)
 
     # tile_m=15 matches the Poly Haven aerial_asphalt_01 (~30 m) real-world scale — kills the 4 m

@@ -128,6 +128,13 @@ def build(project_dir: str | Path) -> dict:
     loop = [tuple(p) for p in local["points_xyz_m"]]
     widths = local["widths_m"]
 
+    # MIRROR_X (must match build_mesh): mirror the east axis of everything so the scenery lines up with
+    # the mirrored track. Visual mesh winding is reversed at the end (a mirror flips it inside-out).
+    mirror_x = bool(cfg.raw.get("mirror_x", False))
+    sx = -1.0 if mirror_x else 1.0
+    if mirror_x:
+        loop = [(-x, y, z) for (x, y, z) in loop]
+
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text())
     grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m so grading hugs the road cleanly
@@ -135,13 +142,13 @@ def build(project_dir: str | Path) -> dict:
     m_lon, m_lat = _meters_per_degree(origin[1])
 
     def project(lon, lat):
-        return ((lon - origin[0]) * m_lon, y_at(lon, lat), (lat - origin[1]) * m_lat)
+        return (sx * (lon - origin[0]) * m_lon, y_at(lon, lat), (lat - origin[1]) * m_lat)
 
     env = json.loads((data / "environment.geojson").read_text())["features"]
     gj = json.loads((data / "centerline.geojson").read_text())["features"]
 
     # --- track + interior connector ---
-    grid_xyz = project_grid(grid, meta, origin, elev0)
+    grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
     ribbon.conform_terrain_to_road(grid_xyz, loop, widths)  # grade terrain to the road (no dipping)
     grass = ribbon.grass_terrain(grid_xyz)
     road = ribbon.road_ribbon(loop, widths)
@@ -233,6 +240,12 @@ def build(project_dir: str | Path) -> dict:
     # --- street-name signs: DISABLED — the corner->street mapping was wrong (mislabeled) and the
     #     panel UVs were flipped. Redo with real OSM road-name matching + corrected UVs before re-enabling.
     #     (signs.build_signs / render_atlas remain for that pass.)
+
+    # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
+    # render front-side again (the drivable track handles this via orient_up in build_mesh).
+    if mirror_x:
+        for _m in (water, bld_commercial, bld_warehouse, bld_roofs, trees, lights):
+            _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
