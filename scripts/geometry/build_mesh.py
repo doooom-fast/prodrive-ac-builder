@@ -244,7 +244,16 @@ def build(project_dir: str | Path) -> dict:
     kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk)
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
-    marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
+    marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]
+
+    # WARNING BARRIERS — guardrails on the OUTSIDE of sharp turns (and any corner hiding over a crest),
+    # so you read "hard corner ahead" + get caught if you run wide. Vertical double-sided walls: NOT
+    # oriented up (they're not ground), they collide as solid geometry.
+    barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
+    barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
+    if barrier_spots:
+        print(f"  warning barriers: {len(barrier_spots)} sharp/blind corners "
+              f"(crest-blind: {sum(1 for s in barrier_spots if s['crest'])})")  # just above road
 
     # Ribbon the interior connector roads — flat drivable 1ROAD asphalt (no bank/dip), so the interior
     # layout is drivable on the same kn5. Named 1ROAD_* -> asphalt material + physical (export DRIVABLE).
@@ -302,6 +311,8 @@ def build(project_dir: str | Path) -> dict:
               ("MARKINGS_crosswalk", "kerb", xwalk)]
     if roadtext["tris"]:
         groups.append(("ROADTEXT", "kerb", roadtext))
+    if barrier["tris"]:
+        groups.append(("BARRIER_warning", "kerb", barrier))   # guardrails at sharp/blind corners
     for gname, cm in conn_meshes:                       # interior-grid roads (2nd layout) on the shared mesh
         groups.append((gname, "road", cm))
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
@@ -320,6 +331,8 @@ def build(project_dir: str | Path) -> dict:
                      ("xwalk", (1.0, 1.0, 1.0), xwalk)]
     if roadtext["tris"]:
         render_layers.append(("roadtext", (0.40, 0.85, 1.0), roadtext))
+    if barrier["tris"]:
+        render_layers.append(("barrier", (0.92, 0.78, 0.20), barrier))   # warning guardrails in yellow
     for gname, cm in conn_meshes:
         render_layers.append((gname, (0.80, 0.55, 0.30), cm))   # interior-grid roads in amber
     render_iso(render_layers, dummies, data / "track_render.svg")

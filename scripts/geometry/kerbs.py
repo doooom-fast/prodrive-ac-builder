@@ -204,6 +204,97 @@ def corner_runoff(centerline_m: list[Vertex], widths_m: list[float], *, thr: flo
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
+def _turn_angle(pts: list[Vertex], i: int) -> float:
+    """Signed turn angle (deg) between consecutive segments at vertex i (+ve = left), X-Z plane."""
+    n = len(pts)
+    a, b, c = pts[(i - 1) % n], pts[i], pts[(i + 1) % n]
+    v1 = (b[0] - a[0], b[2] - a[2]); v2 = (c[0] - b[0], c[2] - b[2])
+    l1 = math.hypot(*v1) or 1e-9; l2 = math.hypot(*v2) or 1e-9
+    cr = max(-1.0, min(1.0, (v1[0] * v2[1] - v1[1] * v2[0]) / (l1 * l2)))
+    return math.degrees(math.asin(cr))
+
+
+def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp_deg: float = 45.0,
+                     crest_deg: float = 24.0, per_vtx_thr: float = 0.9, off: float = 4.0,
+                     height: float = 0.9, crest_height: float = 1.15, base_lift: float = -0.35,
+                     lead_m: float = 28.0, crest_lead_m: float = 70.0, crest_prom_m: float = 1.2,
+                     tile_m: float = 4.0):
+    """Guardrails on the OUTSIDE of sharp turns — a wayfinding cue ("a hard corner is coming") + a
+    backstop that catches a car run wide. Targets corners whose total turn ≥ ``sharp_deg``; ALSO catches
+    a more moderate corner (≥ ``crest_deg``) when it hides just over a CREST (blind brow), and for those
+    extends the lead-in back over the crest (``crest_lead_m``) and raises the rail so you see it as you
+    climb. Returns (wall_mesh_with_uvs, [placement dicts]). Built as a solid double-sided wall so it
+    collides from either side; build_mesh raises it with the road."""
+    pts = centerline_m
+    n = len(pts)
+    closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
+    ang = [_turn_angle(pts, i) for i in range(n)]
+    sm = _smooth(ang, 2)
+    elev = [p[1] for p in pts]
+    st = [0.0]
+    for i in range(1, n):
+        st.append(st[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+
+    # crests: a local elevation max that stands ≥ crest_prom_m above the road ~60 m back (a real brow)
+    def is_crest(i: int) -> bool:
+        wlo = next((k for k in range(i, -1, -1) if st[i] - st[k] >= 60), 0)
+        whi = next((k for k in range(i, n) if st[k] - st[i] >= 30), n - 1)
+        local_max = elev[i] >= max(elev[wlo:whi + 1]) - 0.05
+        return local_max and (elev[i] - elev[wlo]) >= crest_prom_m
+
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    placements = []
+
+    def sweep(run: list[int], side: float, h: float) -> None:
+        arc = 0.0
+        ring = []
+        for idx, k in enumerate(run):
+            x, y, z = pts[k]
+            if idx > 0:
+                p = pts[run[idx - 1]]
+                arc += math.hypot(x - p[0], z - p[2])
+            a = pts[max(0, k - 1)]; b = pts[min(n - 1, k + 1)]
+            tx, tz = b[0] - a[0], b[2] - a[2]
+            tl = math.hypot(tx, tz) or 1e-6
+            nx, nz = -tz / tl, tx / tl
+            o = side * (widths_m[k] / 2.0 + off)
+            bx, bz = x + nx * o, z + nz * o
+            bi = len(verts)
+            verts.append((bx, y + base_lift, bz))
+            verts.append((bx, y + base_lift + h, bz))
+            uvs.append((0.0, arc / tile_m)); uvs.append((1.0, arc / tile_m))
+            ring.append((bi, bi + 1))
+        for idx in range(len(ring) - 1):
+            b0, t0 = ring[idx]; b1, t1 = ring[idx + 1]
+            tris.append((b0, b1, t1)); tris.append((b0, t1, t0))   # front
+            tris.append((b0, t1, b1)); tris.append((b0, t0, t1))   # back (double-sided → collides both ways)
+
+    i = 1
+    while i < n - 1:
+        if abs(sm[i]) <= per_vtx_thr:
+            i += 1
+            continue
+        j = i
+        while j < n - 1 and abs(sm[j]) > per_vtx_thr:
+            j += 1
+        total = sum(ang[k] for k in range(i, j))
+        # is there a crest in the approach (≤ ~75 m before the corner start)?
+        crest_near = any(is_crest(k) for k in range(max(0, i - 26), i + 1))
+        if abs(total) >= sharp_deg or (abs(total) >= crest_deg and crest_near):
+            side = -1.0 if total > 0 else 1.0          # OUTSIDE of the turn
+            lead = crest_lead_m if crest_near else lead_m
+            lead_v = int(lead / 3.0)                    # ~3 m vertex spacing
+            a0 = max(1, i - lead_v); b0 = min(n - 1, j + 5)
+            h = crest_height if crest_near else height
+            sweep(list(range(a0, b0)), side, h)
+            placements.append({"start_idx": a0, "apex_idx": (i + j) // 2, "turn_deg": round(total, 0),
+                               "crest": crest_near, "station_m": round(st[(i + j) // 2], 0)})
+        i = j
+    return {"vertices": verts, "uvs": uvs, "tris": tris}, placements
+
+
 def corner_barriers(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.013,
                     min_run: int = 7, off: float = 1.6, base_lift: float = -0.4, height: float = 1.2,
                     pad: int = 4, tile_m: float = 2.0) -> dict:
