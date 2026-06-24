@@ -55,6 +55,20 @@ def build(track_dir: Path) -> Path:
         bm = bmesh.new()
         bm.from_mesh(ob.data)
         bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+        # Terrain must be WATERTIGHT or the car falls through. The source grass IS watertight, but
+        # Blender's 1e-4 weld doesn't fully re-merge the sparse terrain grid (tears ~500 holes near the
+        # racing line). The grid is ~4 m, so a 5 cm weld is safe and merges the stragglers; then fill
+        # any residual small holes (never the huge outer boundary).
+        if ob.name.upper().startswith("1GRASS"):
+            before = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.05)
+            try:
+                bmesh.ops.holes_fill(bm, edges=bm.edges, sides=16)
+            except Exception as e:
+                print(f"[build_kn5] holes_fill skipped on {ob.name}: {e}")
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            after = sum(1 for e in bm.edges if len(e.link_faces) == 1)
+            print(f"[build_kn5] 1GRASS open edges {before} -> {after} (weld 5 cm + holes_fill)")
         bm.to_mesh(ob.data)
         bm.free()
         ob.data.update()
@@ -78,10 +92,11 @@ def build(track_dir: Path) -> Path:
     #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
     import math
 
-    # Spawn/pit FACING: AC points the car along the AC_START node's local +Y (-> AC -Z after the
-    # add-on's convert). An un-rotated empty therefore faces AC -Z (south here) — 180° backwards —
-    # so the lap drives in reverse and every right-hander reads as a left. Yaw the start/pit/hotlap
-    # empties to the centerline travel direction: local +Y -> +tangent needs yaw = atan2(-tx, -tz).
+    # Spawn/pit FACING: the empty's forward is Blender -Y, and the mesh import puts the centerline
+    # travel direction (centreline pts[0]->pts[1]) along Blender -Y for a due-north start. So an
+    # un-rotated empty already faces the travel direction; the yaw that aligns local -Y with the
+    # Blender travel vector (tx, -tz) is atan2(tx, tz) (= 0 for north). (The earlier atan2(-tx,-tz)
+    # was 180 deg off and faced the car backwards into the chicane.)
     start_yaw = 0.0
     cl_path = data / "centerline.local.json"
     if cl_path.exists():
@@ -89,7 +104,7 @@ def build(track_dir: Path) -> Path:
         if len(pts) >= 2:
             tx, tz = pts[1][0] - pts[0][0], pts[1][2] - pts[0][2]
             L = math.hypot(tx, tz) or 1.0
-            start_yaw = math.atan2(-tx / L, -tz / L)
+            start_yaw = math.atan2(tx / L, tz / L)
 
     FACING = ("AC_START", "AC_PIT", "AC_HOTLAP")
     dummies = json.loads((data / "dummies.json").read_text()) if (data / "dummies.json").exists() else {}

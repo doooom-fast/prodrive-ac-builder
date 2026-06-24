@@ -218,18 +218,15 @@ def build(project_dir: str | Path) -> dict:
     bld_walls = _merge(wall_meshes)
     bld_roofs = _merge(roof_meshes)
 
-    # --- street-name signs at the junctions (orientation aid) ---
-    repo = Path(__file__).resolve().parents[2]
-    cells = signs.render_atlas(signs.STREET_NAMES, repo / "assets" / "textures" / "signs_atlas.png")
-    sign = signs.build_signs(loop, widths, signs.STREET_NAMES, cells)
-    nsigns = len(sign["SIGNS"]["vertices"]) // 4
+    # --- street-name signs: DISABLED — the corner->street mapping was wrong (mislabeled) and the
+    #     panel UVs were flipped. Redo with real OSM road-name matching + corrected UVs before re-enabling.
+    #     (signs.build_signs / render_atlas remain for that pass.)
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
               [("WATER", "grass", water), ("HIGHWAY_visual", "road", highways),
                ("1ROAD_connector", "road", connector), ("BUILDINGS", "road", bld_walls),
-               ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights),
-               ("SIGNPOST", "road", sign["SIGNPOST"]), ("SIGNS", "road", sign["SIGNS"])])
+               ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("highway", (0.40, 0.40, 0.44), highways), ("buildings", (0.58, 0.55, 0.50), bld_walls),

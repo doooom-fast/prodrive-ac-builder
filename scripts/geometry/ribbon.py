@@ -200,37 +200,27 @@ def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0, skirt_m:
             tris.append((a, c, d))
 
     if skirt_m > 0.0:
-        def add(p: Vertex) -> int:
-            verts.append(p)
-            uvs.append((p[0] / tile_m, p[2] / tile_m))
-            return len(verts) - 1
-
-        def strip(border: list[Vertex], ox: float, oz: float) -> None:
-            outer = [add((x + ox, y, z + oz)) for (x, y, z) in border]
-            inner = [add((x, y, z)) for (x, y, z) in border]  # coincident copies keep winding simple
-            for k in range(len(border) - 1):
-                tris.append((inner[k], outer[k], outer[k + 1]))
-                tris.append((inner[k], outer[k + 1], inner[k + 1]))
-
-        north = [grid_xyz[0][i] for i in range(nx)]          # j=0  (max z)
-        south = [grid_xyz[ny - 1][i] for i in range(nx)]     # j=ny-1 (min z)
-        west = [grid_xyz[j][0] for j in range(ny)]           # i=0  (min x)
-        east = [grid_xyz[j][nx - 1] for j in range(ny)]      # i=nx-1 (max x)
-        strip(north, 0.0, +skirt_m)
-        strip(south, 0.0, -skirt_m)
-        strip(west, -skirt_m, 0.0)
-        strip(east, +skirt_m, 0.0)
-        # four corner quads so the apron has no diagonal gaps
-        nw, ne = grid_xyz[0][0], grid_xyz[0][nx - 1]
-        sw, se = grid_xyz[ny - 1][0], grid_xyz[ny - 1][nx - 1]
-        for (cx, cy, cz), dx, dz in ((ne, +skirt_m, +skirt_m), (nw, -skirt_m, +skirt_m),
-                                     (se, +skirt_m, -skirt_m), (sw, -skirt_m, -skirt_m)):
-            a = add((cx, cy, cz))
-            b = add((cx + dx, cy, cz))
-            c = add((cx + dx, cy, cz + dz))
-            d = add((cx, cy, cz + dz))
-            tris.append((a, b, c))
-            tris.append((a, c, d))
+        # WATERTIGHT skirt: walk the grid's border as a closed perimeter loop and reference the grid's
+        # ACTUAL border vertex indices (gi). Each skirt quad's inner edge IS a real grid edge, so it
+        # shares with the grid face — no coincident copies, no reliance on welding, no open seam (the
+        # old copy-and-weld approach left ~780 holes the car fell through).
+        perim: list[tuple[int, float, float]] = []  # (grid_index, outward_dx, outward_dz)
+        for i in range(nx):                 perim.append((i, 0.0, skirt_m))                 # north  j=0
+        for j in range(1, ny):              perim.append((j * nx + nx - 1, skirt_m, 0.0))   # east   i=nx-1
+        for i in range(nx - 2, -1, -1):     perim.append(((ny - 1) * nx + i, 0.0, -skirt_m))  # south j=ny-1
+        for j in range(ny - 2, 0, -1):      perim.append((j * nx, -skirt_m, 0.0))           # west   i=0
+        outer_idx = []
+        for gi, dx, dz in perim:
+            x, y, z = verts[gi]
+            outer_idx.append(len(verts))
+            verts.append((x + dx, y, z + dz))
+            uvs.append(((x + dx) / tile_m, (z + dz) / tile_m))
+        P = len(perim)
+        for k in range(P):
+            gi0, gi1 = perim[k][0], perim[(k + 1) % P][0]      # consecutive grid border verts (a real edge)
+            oi0, oi1 = outer_idx[k], outer_idx[(k + 1) % P]
+            tris.append((gi0, oi0, oi1))
+            tris.append((gi0, oi1, gi1))
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
