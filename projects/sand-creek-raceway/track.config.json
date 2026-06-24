@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "mirror_x": true,
   "road_text": {
     "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
@@ -12,13 +12,13 @@
     "flip_up": false
   },
   "road_profile": {
-    "_doc": "Hand-authored elevation/camber drama (the Sand Creek corkscrew). Stations are metres along the lap in build_mesh's smoothed frame; on the Drive-3 route the Sand Creek Dr entry (E 56th -> Sand Creek, a right-hander) is at ~2585 m (idx 867). dip depth_m LOWERS the centerline; bank_deg rolls the road (+ve banks a RIGHT-hander: outside/left edge up, inside/right edge down). Tune by feel.",
+    "_doc": "Hand-authored corkscrew at the Sand Creek Dr turn-in (E 56th -> Sand Creek, idx 867 / build-station ~2585 m). depth_m = how far the road dives DOWN vertically (NOT length); len_m is the along-road span. bank_deg rolls the road (+ve banks a RIGHT-hander: outside/left edge up). The right->left->right bank twist is what nudges the car sideways (slight countersteer); the dip is just a gentle dive. NO camber elsewhere on Sand Creek Dr (a long constant lean drove rough).",
     "dips": [
       {
         "name": "sand_creek_corkscrew_dive",
         "center_m": 2605,
-        "len_m": 175,
-        "depth_m": 8.0
+        "len_m": 160,
+        "depth_m": 2.0
       }
     ],
     "cambers": [
@@ -26,29 +26,22 @@
         "name": "sc_entry_right",
         "start_m": 2575,
         "len_m": 80,
-        "bank_deg": 15.0,
+        "bank_deg": 7.0,
         "ramp_m": 22
       },
       {
         "name": "sc_quick_left",
         "start_m": 2655,
         "len_m": 75,
-        "bank_deg": -13.0,
+        "bank_deg": -7.0,
         "ramp_m": 22
       },
       {
         "name": "sc_settle_right",
         "start_m": 2725,
         "len_m": 60,
-        "bank_deg": 8.0,
+        "bank_deg": 4.0,
         "ramp_m": 18
-      },
-      {
-        "name": "sc_north_along_highway",
-        "start_m": 2805,
-        "len_m": 500,
-        "bank_deg": 3.0,
-        "ramp_m": 60
       }
     ]
   },
