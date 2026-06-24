@@ -112,11 +112,49 @@ def orient_up(mesh: dict) -> dict:
     return mesh
 
 
+def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
+                        iterations: int = 7, window: int = 3) -> list[Vertex]:
+    """Round only the SHARP kinks (a hard ~90° street corner has no zero-radius point — real ones have
+    a curb radius). Localized corner-cutting near kinks > ``angle_thr``; straights and gentle bends are
+    untouched, so the route shape is preserved. Fixes the ribbon self-pinching + the stub kerbs at
+    corners. Closed-loop aware; vertex count (and the parallel widths) is preserved."""
+    closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][2] - pts[-1][2]) < 1e-6
+    P = [list(p) for p in (pts[:-1] if closed else pts)]
+    m = len(P)
+
+    def kink(Q: list, i: int) -> float:
+        a, b, c = Q[(i - 1) % m], Q[i], Q[(i + 1) % m]
+        v1 = (b[0] - a[0], b[2] - a[2])
+        v2 = (c[0] - b[0], c[2] - b[2])
+        l1 = math.hypot(*v1) or 1e-9
+        l2 = math.hypot(*v2) or 1e-9
+        d = max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2)))
+        return math.degrees(math.acos(d))
+
+    for _ in range(iterations):
+        mark = [False] * m
+        for i in range(m):
+            if kink(P, i) > angle_thr:
+                for w in range(-window, window + 1):
+                    mark[(i + w) % m] = True
+        new = [p[:] for p in P]
+        for i in range(m):
+            if mark[i]:
+                a, b = P[(i - 1) % m], P[(i + 1) % m]
+                for c in (0, 1, 2):
+                    new[i][c] = 0.5 * P[i][c] + 0.25 * (a[c] + b[c])
+        P = new
+    out = [tuple(p) for p in P]
+    if closed:
+        out.append(out[0])
+    return out
+
+
 def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
     local = json.loads((data / "centerline.local.json").read_text(encoding="utf-8"))
-    centerline = [tuple(p) for p in local["points_xyz_m"]]
+    centerline = round_sharp_corners([tuple(p) for p in local["points_xyz_m"]])
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]

@@ -156,8 +156,10 @@ def build(project_dir: str | Path) -> dict:
     water = _merge([_line_ribbon(f["coords"], project, 4.0, -0.3) if f["kind"] == "line"
                     else _fan(f["coords"], project, -0.3)
                     for f in env if f["cls"] == "water"])
-    # --- raised highway decks (visual only) ---
-    highways = _merge([_line_ribbon(f["coords"], project, 8.0, 5.0) for f in env if f["cls"] == "highway"])
+    # --- highways: DISABLED. The raised decks floated 5 m over the track ("debris hovering above the
+    #     track") and read as a fake overpass that isn't there in real life. Removed for now; proper
+    #     overpass structures (with piers, at the real crossings) are a later, deliberate pass.
+    highways = {"vertices": [], "uvs": [], "tris": []}
 
     # --- trees scattered in green/wetland polygons (capped) ---
     tree_meshes, ntrees = [], 0
@@ -210,6 +212,10 @@ def build(project_dir: str | Path) -> dict:
         cz = sum(p[1] for p in foot) / len(foot)
         if min(math.hypot(cx - lx, cz - lz) for lx, lz in loop_xz) > 330:  # keep near-lap only
             continue
+        # ...but never ON the track: drop any building whose footprint crowds the drivable surface
+        # (within 16 m of the racing line) so buildings don't sit over the road.
+        if min(math.hypot(fx - lx, fz - lz) for fx, fz in foot for lx, lz in loop_xz) < 16.0:
+            continue
         base = min(y_at(lo, la) for lo, la in b["coords"]) - 0.4  # sink slightly to meet the ground
         box = buildings.extrude(foot, base, b["height_m"])
         wall_meshes.append(box["walls"])
@@ -224,7 +230,7 @@ def build(project_dir: str | Path) -> dict:
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
-              [("WATER", "grass", water), ("HIGHWAY_visual", "road", highways),
+              [("WATER", "grass", water),
                ("1ROAD_connector", "road", connector), ("BUILDINGS", "road", bld_walls),
                ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
     write_mtl(data / "environment.mtl")
