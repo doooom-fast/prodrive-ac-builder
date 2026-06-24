@@ -152,12 +152,36 @@ def build(project_dir: str | Path) -> dict:
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
+    # --- ORIENTATION CALIBRATION markers (TEMPORARY): pole CLUSTERS around the start so ONE in-game
+    #     photo pins down exactly how AC transforms our axes. Counts encode the intended direction:
+    #     1 pole = FORWARD (into the lap), 3 = RIGHT (the way the real Turn 1 goes), 2 = LEFT,
+    #     5 = BACK (toward the chicane). 20 m tall, 60 m out from the start. Remove once oriented.
+    x0, y0, z0 = centerline[0]
+    tx, tz = centerline[1][0] - x0, centerline[1][2] - z0
+    tl = math.hypot(tx, tz) or 1.0
+    tx, tz = tx / tl, tz / tl                                    # forward unit vector
+    dirs = [((tx, tz), 1), ((tz, -tx), 3), ((-tz, tx), 2), ((-tx, -tz), 5)]  # fwd, right, left, back
+    cv, ct = [], []
+    for (dx, dz), count in dirs:
+        for k in range(count):
+            off = 60.0 + k * 7.0
+            cx, cz = x0 + dx * off, z0 + dz * off
+            b = len(cv)
+            W, H = 1.2, 20.0
+            cv += [(cx - W, y0, cz), (cx + W, y0, cz), (cx + W, y0 + H, cz), (cx - W, y0 + H, cz),
+                   (cx, y0, cz - W), (cx, y0, cz + W), (cx, y0 + H, cz + W), (cx, y0 + H, cz - W)]
+            for o in (0, 4):
+                ct += [(b + o, b + o + 1, b + o + 2), (b + o, b + o + 2, b + o + 3),
+                       (b + o, b + o + 2, b + o + 1), (b + o, b + o + 3, b + o + 2)]
+    calib = {"vertices": cv, "tris": ct}
+
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     nv, nf = write_obj(data / "track.obj", "track.mtl",
                        [("1GRASS", "grass", grass), ("1ROAD_shoulder", "road", shoulder),
                         ("1RUNOFF_corners", "road", runoff), ("1ROAD_main", "road", road),
-                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks)])
+                        ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
+                        ("CALIB", "kerb", calib)])
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
 
