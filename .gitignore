@@ -34,6 +34,9 @@ projects/*/build/*
 # Keep the resolved OSM street map (per-vertex street names + leg breakdown): it's reference data
 # worth committing, and tracking it means the build reads it instead of re-querying live Overpass.
 !projects/*/data/street_labels.json
+# Keep the interior-grid connector roads (the 2nd layout's extra streets, projected) so the dual-layout
+# build is reproducible from a clean checkout.
+!projects/*/data/connectors.local.json
 
 # GPL kn5 exporter (auto-cloned by scripts/ac/kn5_native.py — not vendored)
 vendor/

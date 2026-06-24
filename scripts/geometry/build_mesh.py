@@ -205,14 +205,29 @@ def build(project_dir: str | Path) -> dict:
                                             centerline[i][2] - centerline[i - 1][2]))
         centerline = [(x, y - dip_of(cst[i]), z) for i, (x, y, z) in enumerate(centerline)]
 
+    # INTERIOR-GRID connector roads (the 2nd layout's extra streets, from connectors.local.json) — they
+    # share this one mesh, laid flat asphalt (the corkscrew is main-loop only). Mirror to the same frame.
+    connectors = []
+    conn_path = data / "connectors.local.json"
+    if conn_path.exists():
+        for c in json.loads(conn_path.read_text(encoding="utf-8")).get("connectors", []):
+            pts = [(-p[0], p[1], p[2]) if mirror_x else tuple(p) for p in c["points_xyz_m"]]
+            connectors.append((c["name"], pts, c["widths_m"]))
+        print(f"  interior connectors: {len(connectors)} ({[n for n, _p, _w in connectors]})")
+
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
     grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m (×4 blew past AC's 65,535-vert grass cap)
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
+    # Sink the terrain into a wide smooth BOWL around any dip (the corkscrew) so it reads as a valley,
+    # not a road in a walled trench with the surrounding grass towering overhead.
+    if profile_active:
+        profile_mod.apply_dip_bowl(grid_xyz, centerline, dip_of)
     # corridor 16 m (> the ~13 m grid's 9.4 m half-diagonal) so EVERY near-road node is graded below
     # the road — kills the grass poke-throughs the old 12 m corridor missed, without over-refining the
     # grid (×3 keeps 1GRASS ~48k verts, under AC's per-mesh 16-bit index limit).
-    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=16.0, bank_at=bnk)
+    ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=16.0, bank_at=bnk,
+                                   extra_roads=[(p, w) for _n, p, w in connectors])
 
     # tile_m=15 matches the Poly Haven aerial_asphalt_01 (~30 m) real-world scale — kills the 4 m
     # tiling repeat that read as obvious stripes with the old close-up asphalt.
@@ -230,6 +245,14 @@ def build(project_dir: str | Path) -> dict:
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]  # just above road
+
+    # Ribbon the interior connector roads — flat drivable 1ROAD asphalt (no bank/dip), so the interior
+    # layout is drivable on the same kn5. Named 1ROAD_* -> asphalt material + physical (export DRIVABLE).
+    conn_meshes = []
+    for name, pts, w in connectors:
+        cm = ribbon.road_ribbon(pts, w, tile_m=15.0)
+        cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
+        conn_meshes.append((f"1ROAD_{name}", cm))
 
     # CROSSWALK across the start/finish (continental bars) — sits just above the lane lines.
     xwalk = ribbon.crosswalk(centerline, widths, at_idx=0, bank_at=bnk)
@@ -265,6 +288,8 @@ def build(project_dir: str | Path) -> dict:
     for surface in (road, grass, shoulder, runoff, kerb, marks, xwalk, roadtext):
         if surface["tris"]:
             orient_up(surface)
+    for _gn, cm in conn_meshes:
+        orient_up(cm)
 
     dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
 
@@ -277,6 +302,8 @@ def build(project_dir: str | Path) -> dict:
               ("MARKINGS_crosswalk", "kerb", xwalk)]
     if roadtext["tris"]:
         groups.append(("ROADTEXT", "kerb", roadtext))
+    for gname, cm in conn_meshes:                       # interior-grid roads (2nd layout) on the shared mesh
+        groups.append((gname, "road", cm))
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     write_mtl(data / "track.mtl")
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
@@ -293,6 +320,8 @@ def build(project_dir: str | Path) -> dict:
                      ("xwalk", (1.0, 1.0, 1.0), xwalk)]
     if roadtext["tris"]:
         render_layers.append(("roadtext", (0.40, 0.85, 1.0), roadtext))
+    for gname, cm in conn_meshes:
+        render_layers.append((gname, (0.80, 0.55, 0.30), cm))   # interior-grid roads in amber
     render_iso(render_layers, dummies, data / "track_render.svg")
 
     return {"vertices": nv, "triangles": nf, "road_verts": len(rv), "kerb_verts": len(kerb["vertices"]),

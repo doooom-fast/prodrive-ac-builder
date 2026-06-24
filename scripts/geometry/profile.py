@@ -53,6 +53,38 @@ def _window(s: float, start: float, length: float, ramp: float) -> float:
     return 1.0
 
 
+def apply_dip_bowl(grid_xyz, centerline, dip_of, *, radius: float = 55.0) -> None:
+    """Sink the TERRAIN into a smooth bowl around any dipped road, so a dip reads as a valley in the
+    landscape — not a road in a walled trench with the surrounding grass towering overhead ("grass in
+    the sky"). Each grid node is lowered by the dip depth of the nearest dipped road point, faded out
+    over ``radius`` m with a raised cosine. Run BEFORE the road conform (which then just meets the road
+    at the edge). Mutates ``grid_xyz`` in place. No-op when nothing dips."""
+    # dipped road points (x, z, depth) — station = arc length along the centerline
+    st = 0.0
+    dipped = []
+    for i, (x, y, z) in enumerate(centerline):
+        if i > 0:
+            st += math.hypot(x - centerline[i - 1][0], z - centerline[i - 1][2])
+        d = dip_of(st)
+        if d > 0.05:
+            dipped.append((x, z, d))
+    if not dipped:
+        return
+    r2 = radius * radius
+    for row in grid_xyz:
+        for k in range(len(row)):
+            gx, gy, gz = row[k]
+            best = 0.0
+            for rx, rz, depth in dipped:
+                dd = (gx - rx) ** 2 + (gz - rz) ** 2
+                if dd < r2:
+                    f = 0.5 * (1.0 + math.cos(math.pi * math.sqrt(dd) / radius))  # 1 at road -> 0 at radius
+                    if depth * f > best:
+                        best = depth * f
+            if best > 0.0:
+                row[k] = (gx, gy - best, gz)
+
+
 def build_profile(road_profile: dict | None) -> tuple[Callable[[float], float], Callable[[float], float], bool]:
     """Return (dip_of, bank_at, active). ``active`` is False (and both callables are no-ops) when the
     config has no road_profile, so the flat pipeline is unchanged."""

@@ -127,22 +127,27 @@ def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | No
 
 def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
                             widths_m: list[float] | None = None,
-                            *, corridor: float = 12.0, blend: float = 12.0, bank_at=None) -> None:
-    """Grade the terrain to the road so the road never dips into it. Each grid node within
-    ``corridor`` m of the road surface (centre + both edges) is pulled down to the *lowest* nearby
-    road elevation; the cut then blends back to natural terrain over ``blend`` m. Mutates in place.
+                            *, corridor: float = 12.0, blend: float = 12.0, bank_at=None,
+                            target: str = "nearest", extra_roads=None) -> None:
+    """Grade the terrain so it MEETS the road at the edge (no cliff to fall off, no bulge to poke up).
+    Each grid node within ``corridor`` m of the road surface (centre + both edges) is pulled to a road
+    elevation; the cut then blends back to natural terrain over ``blend`` m. Mutates in place.
 
-    Taking the minimum (not the nearest) is what guarantees the terrain never rises above the road —
-    including where the route is grade-separated (one part passing under another): the under-road wins
-    and the over-road floats free as a drivable bridge. For that guarantee to hold at every road point,
-    ``corridor`` must exceed the terrain grid's half-diagonal — so the grid must be FINE (see
-    ``upsample_grid``). A fine grid also keeps the min-cut shallow (float ≈ grade × corridor), so the
-    road hugs the terrain instead of riding a fat embankment. On the coarse 40 m grid this same call
-    left ~115 poke-throughs (the grass surface bulged between far nodes); at ~13 m it goes clean."""
+    ``target="nearest"`` (default) grades to the NEAREST road sample, so the grass sits right at the
+    local road height and you can run off road->grass smoothly. ``target="min"`` grades to the lowest
+    road sample within the corridor — only correct for a grade-SEPARATED route (one part passing under
+    another), and on a normal single-loop street it carves the grass metres below the local road,
+    leaving the shoulder floating on a cliff the car falls off (the "drive off the grass and collapse"
+    bug). The Sand Creek loop is a simple closed loop (no self-crossing), so nearest is right.
+
+    For the meeting to hold at every road point, ``corridor`` must exceed the terrain grid's
+    half-diagonal — so the grid must be FINE (see ``upsample_grid``)."""
     from collections import defaultdict
     reach = corridor + blend
     corr2 = corridor * corridor
     samples, _ = _road_surface_samples(centerline_m, widths_m, bank_at)
+    for ec, ew in (extra_roads or []):       # connector/interior roads: grass meets them too (flat, no bank)
+        samples = samples + _road_surface_samples(ec, ew, None)[0]
     buckets: dict[tuple[int, int], list[tuple[float, float, float]]] = defaultdict(list)
     for x, y, z, _i in samples:
         buckets[(int(x // reach), int(z // reach))].append((x, y, z))
@@ -161,13 +166,13 @@ def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Ver
                             corr_min = cy
             if near_y is None:
                 continue
-            target = corr_min if corr_min is not None else near_y
+            tgt = (corr_min if corr_min is not None else near_y) if target == "min" else near_y
             d = math.sqrt(best_d2)
             if d <= corridor:
-                row[k] = (gx, target, gz)
+                row[k] = (gx, tgt, gz)
             elif d <= reach:
                 t = (d - corridor) / blend
-                row[k] = (gx, target * (1 - t) + gy * t, gz)
+                row[k] = (gx, tgt * (1 - t) + gy * t, gz)
 
 
 def upsample_grid(grid: list[list[float]], meta: dict, factor: int) -> tuple[list[list[float]], dict]:
@@ -222,11 +227,16 @@ def grass_terrain(grid_xyz: list[list[Vertex]], *, tile_m: float = 6.0, skirt_m:
         for j in range(1, ny):              perim.append((j * nx + nx - 1, skirt_m, 0.0))   # east   i=nx-1
         for i in range(nx - 2, -1, -1):     perim.append(((ny - 1) * nx + i, 0.0, -skirt_m))  # south j=ny-1
         for j in range(ny - 2, 0, -1):      perim.append((j * nx, -skirt_m, 0.0))           # west   i=0
+        # Drop the far edge to one flat LOW level (below all terrain) instead of extruding each border
+        # FLAT at its own height — otherwise a high DEM border (here up to +35 m vs a ~17 m track) makes
+        # a 500 m grass plane hanging in the sky. The skirt now ramps gently down-and-out to a floor you
+        # never reach, so there's a catch-surface off the world without any floating planes.
+        low_y = min(v[1] for v in verts) - 5.0
         outer_idx = []
         for gi, dx, dz in perim:
-            x, y, z = verts[gi]
+            x, _y, z = verts[gi]
             outer_idx.append(len(verts))
-            verts.append((x + dx, y, z + dz))
+            verts.append((x + dx, low_y, z + dz))
             uvs.append(((x + dx) / tile_m, (z + dz) / tile_m))
         P = len(perim)
         for k in range(P):

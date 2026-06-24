@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "mirror_x": true,
   "road_text": {
     "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
@@ -12,15 +12,44 @@
     "flip_up": false
   },
   "road_profile": {
-    "_doc": "Hand-authored elevation/camber drama (the Sand Creek corkscrew). Stations are metres along the lap in build_mesh's smoothed frame; the Sand Creek Dr entry (E 56th -> Sand Creek, a right-hander) is at ~3465 m. dip depth_m LOWERS the centerline; bank_deg rolls the road (+ve banks a RIGHT-hander: outside/left edge up, inside/right edge down). Tune by feel.",
+    "_doc": "Hand-authored elevation/camber drama (the Sand Creek corkscrew). Stations are metres along the lap in build_mesh's smoothed frame; on the Drive-3 route the Sand Creek Dr entry (E 56th -> Sand Creek, a right-hander) is at ~2585 m (idx 867). dip depth_m LOWERS the centerline; bank_deg rolls the road (+ve banks a RIGHT-hander: outside/left edge up, inside/right edge down). Tune by feel.",
     "dips": [
-      { "name": "sand_creek_corkscrew_dive", "center_m": 3500, "len_m": 170, "depth_m": 4.5 }
+      {
+        "name": "sand_creek_corkscrew_dive",
+        "center_m": 2620,
+        "len_m": 170,
+        "depth_m": 4.5
+      }
     ],
     "cambers": [
-      { "name": "sc_entry_right",  "start_m": 3460, "len_m": 80, "bank_deg": 9.0,  "ramp_m": 24 },
-      { "name": "sc_quick_left",   "start_m": 3540, "len_m": 75, "bank_deg": -8.0, "ramp_m": 24 },
-      { "name": "sc_settle_right", "start_m": 3610, "len_m": 60, "bank_deg": 5.0,  "ramp_m": 20 },
-      { "name": "sc_north_along_highway", "start_m": 3690, "len_m": 500, "bank_deg": 2.5, "ramp_m": 60 }
+      {
+        "name": "sc_entry_right",
+        "start_m": 2580,
+        "len_m": 80,
+        "bank_deg": 9.0,
+        "ramp_m": 24
+      },
+      {
+        "name": "sc_quick_left",
+        "start_m": 2660,
+        "len_m": 75,
+        "bank_deg": -8.0,
+        "ramp_m": 24
+      },
+      {
+        "name": "sc_settle_right",
+        "start_m": 2730,
+        "len_m": 60,
+        "bank_deg": 5.0,
+        "ramp_m": 20
+      },
+      {
+        "name": "sc_north_along_highway",
+        "start_m": 2810,
+        "len_m": 500,
+        "bank_deg": 2.5,
+        "ramp_m": 60
+      }
     ]
   },
   "location": {
@@ -30,7 +59,7 @@
   },
   "source": {
     "type": "kml",
-    "kml": "source/Sand Creek Raceway Drive.kml",
+    "kml": "source/Sand Creek Raceway Drive-3.kml",
     "kml_overrides": []
   },
   "route": {
@@ -60,14 +89,16 @@
     {
       "id": "full",
       "ai": "ai/full",
-      "uses_connectors": []
+      "uses_connectors": [],
+      "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start."
     },
     {
-      "id": "short",
-      "ai": "ai/short",
+      "id": "interior",
+      "ai": "ai/interior",
       "uses_connectors": [
-        "cut_48th"
-      ]
+        "interior_grid"
+      ],
+      "_doc": "Interior circuit: Colorado -> 52nd -> Dahlia -> 56th -> Sand Creek -> inner grid (Pontiac/Olive/Monaco/Ivy/Leyden/49th) -> 46th -> start. Same kn5 mesh."
     }
   ],
   "lighting": {
