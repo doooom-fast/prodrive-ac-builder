@@ -67,7 +67,7 @@ def _fine_stations(poly: list[Vertex], step: float) -> list[tuple[float, float, 
 
 
 def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.007,
-                 min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.10, ridge_period: float = 0.6,
+                 min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.05, ridge_period: float = 0.6,
                  ridge_lo: float = 0.45, top_frac: float = 0.55, lift: float = 0.01,
                  fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6) -> dict:
     """Real 3D **ridged** kerbs on corners — a raised, serrated rumble strip, not a flat texture plane.
@@ -91,8 +91,9 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
         rows = []
         for x, y, z, tx, tz, arc in st:
             nx, nz = -tz * side, tx * side                       # toward this side of the road
-            ph = (arc % ridge_period) / ridge_period             # triangle wave -> serrated ridges
-            h = kerb_h * (ridge_lo + (1.0 - ridge_lo) * (1.0 - abs(2.0 * ph - 1.0)))
+            h = kerb_h                                            # flat low kerb (no serrated ridges —
+            #   the 3D serrations drove like an off-road rumble strip; the red/white stripe is the
+            #   TEXTURE + a gentle surfaces.ini vibration, not a physical speed bump).
             # Kerb sits OUTSIDE the racing surface: the vertical lip is flush at the road edge
             # (``half``) and the raised body + ramp extend OUTWARD onto the verge (``half + kerb_w``),
             # so it never eats into the drivable lane — you clip it running wide, you don't drive over it.

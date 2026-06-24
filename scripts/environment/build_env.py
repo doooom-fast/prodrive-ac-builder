@@ -148,9 +148,10 @@ def build(project_dir: str | Path) -> dict:
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     kerb = kerbs.corner_kerbs(loop, widths)
     kerb["vertices"] = [(x, y + ROAD_LIFT_M + 0.02, z) for x, y, z in kerb["vertices"]]
-    conn_feat = next((f for f in gj if f["properties"].get("kind") == "connector"), None)
-    connector = (_line_ribbon(conn_feat["geometry"]["coordinates"], project, cfg.default_width_m / 2, ROAD_LIFT_M)
-                 if conn_feat else {"vertices": [], "tris": []})
+    # connector "side roads" DISABLED — they were bare raised ribbons with no shoulders, reading as
+    # concrete slabs jutting out of the ground, and aren't part of the drivable lap. (If interior
+    # connectors become real layout variants later, they need shoulders + terrain blend like 1ROAD.)
+    connector = {"vertices": [], "uvs": [], "tris": []}
 
     # --- water (Sand Creek lines + basins) ---
     water = _merge([_line_ribbon(f["coords"], project, 4.0, -0.3) if f["kind"] == "line"
@@ -230,8 +231,7 @@ def build(project_dir: str | Path) -> dict:
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
-              [("WATER", "grass", water),
-               ("1ROAD_connector", "road", connector), ("BUILDINGS", "road", bld_walls),
+              [("WATER", "grass", water), ("BUILDINGS", "road", bld_walls),
                ("ROOFS", "road", bld_roofs), ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
