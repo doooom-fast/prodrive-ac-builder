@@ -216,9 +216,9 @@ def _turn_angle(pts: list[Vertex], i: int) -> float:
 
 def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp_deg: float = 45.0,
                      crest_deg: float = 24.0, per_vtx_thr: float = 0.9, off: float = 4.0,
-                     height: float = 0.9, crest_height: float = 1.15, base_lift: float = -0.35,
+                     height: float = 1.0, crest_height: float = 1.25, base_lift: float = -0.3,
                      lead_m: float = 28.0, crest_lead_m: float = 70.0, crest_prom_m: float = 1.2,
-                     tile_m: float = 4.0):
+                     tile_m: float = 12.0):
     """Guardrails on the OUTSIDE of sharp turns — a wayfinding cue ("a hard corner is coming") + a
     backstop that catches a car run wide. Targets corners whose total turn ≥ ``sharp_deg``; ALSO catches
     a more moderate corner (≥ ``crest_deg``) when it hides just over a CREST (blind brow), and for those
@@ -264,7 +264,8 @@ def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp
             bi = len(verts)
             verts.append((bx, y + base_lift, bz))
             verts.append((bx, y + base_lift + h, bz))
-            uvs.append((0.0, arc / tile_m)); uvs.append((1.0, arc / tile_m))
+            # armco texture is a horizontal rail strip: U runs ALONG the rail (arc), V up the height.
+            uvs.append((arc / tile_m, 1.0)); uvs.append((arc / tile_m, 0.0))
             ring.append((bi, bi + 1))
         for idx in range(len(ring) - 1):
             b0, t0 = ring[idx]; b1, t1 = ring[idx + 1]
