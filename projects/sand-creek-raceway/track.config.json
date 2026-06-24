@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "mirror_x": true,
   "road_text": {
     "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
@@ -16,38 +16,38 @@
     "dips": [
       {
         "name": "sand_creek_corkscrew_dive",
-        "center_m": 2620,
-        "len_m": 170,
-        "depth_m": 4.5
+        "center_m": 2605,
+        "len_m": 175,
+        "depth_m": 8.0
       }
     ],
     "cambers": [
       {
         "name": "sc_entry_right",
-        "start_m": 2580,
+        "start_m": 2575,
         "len_m": 80,
-        "bank_deg": 9.0,
-        "ramp_m": 24
+        "bank_deg": 15.0,
+        "ramp_m": 22
       },
       {
         "name": "sc_quick_left",
-        "start_m": 2660,
+        "start_m": 2655,
         "len_m": 75,
-        "bank_deg": -8.0,
-        "ramp_m": 24
+        "bank_deg": -13.0,
+        "ramp_m": 22
       },
       {
         "name": "sc_settle_right",
-        "start_m": 2730,
+        "start_m": 2725,
         "len_m": 60,
-        "bank_deg": 5.0,
-        "ramp_m": 20
+        "bank_deg": 8.0,
+        "ramp_m": 18
       },
       {
         "name": "sc_north_along_highway",
-        "start_m": 2810,
+        "start_m": 2805,
         "len_m": 500,
-        "bank_deg": 2.5,
+        "bank_deg": 3.0,
         "ramp_m": 60
       }
     ]
