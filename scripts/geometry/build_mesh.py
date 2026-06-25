@@ -24,6 +24,8 @@ from scripts.geometry.projection import _meters_per_degree
 
 Vertex = tuple[float, float, float]
 ROAD_LIFT_M = 0.1  # small crown above the graded terrain (a real road sits ~0.1 m proud, not floating)
+GRASS_CLEARANCE_M = 0.25 # sink near-road grass this far below the road so the coarse grid can't bulge
+#                          a triangle up through the road on steep bits (corkscrew); shoulder meets it.
 
 
 def read_npy(path: Path) -> list[list[float]]:
@@ -227,7 +229,8 @@ def build(project_dir: str | Path) -> dict:
     # the road — kills the grass poke-throughs the old 12 m corridor missed, without over-refining the
     # grid (×3 keeps 1GRASS ~48k verts, under AC's per-mesh 16-bit index limit).
     ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=16.0, bank_at=bnk,
-                                   extra_roads=[(p, w) for _n, p, w in connectors])
+                                   extra_roads=[(p, w) for _n, p, w in connectors],
+                                   clearance=GRASS_CLEARANCE_M)
 
     # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
     # stretched). The cracking is irregular enough to hide the repeat.
@@ -237,7 +240,8 @@ def build(project_dir: str | Path) -> dict:
     # Paved asphalt SHOULDER that ramps the lane edge down to the terrain (kills the floating-ribbon
     # hard edge AND gives a tarmac border instead of grass right at the edge). Lift baked in so its
     # inner lip meets the road edge exactly.
-    shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk)
+    shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk,
+                                    ground_drop=GRASS_CLEARANCE_M)
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road

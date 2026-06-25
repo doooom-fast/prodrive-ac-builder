@@ -62,7 +62,7 @@ def road_ribbon(centerline_m: list[Vertex], widths_m: list[float], *, tile_m: fl
 
 
 def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
-                  verge_w: float = 2.5, tile_m: float = 4.0, bank_at=None) -> dict:
+                  verge_w: float = 2.5, tile_m: float = 4.0, bank_at=None, ground_drop: float = 0.0) -> dict:
     """A soft graded **verge** that ramps each road edge down to the grass, so the road reads like a
     real shouldered road instead of a ribbon floating on a hard edge. Inner lip sits at the road edge
     and road height (``lift`` above the graded terrain); the outer lip is ``verge_w`` m out, at grass
@@ -90,7 +90,7 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
             # bank the verge coplanar with the road edge (o = side*half, side*(half+verge)) so it
             # never pokes above the banked road on the low (inside) side of a cambered corner.
             verts.append((x + nx * half, y + lift + side * half * tb, z + nz * half))                 # inner lip (road edge)
-            verts.append((x + nx * (half + verge_w), y + side * (half + verge_w) * tb, z + nz * (half + verge_w)))  # outer lip (grass)
+            verts.append((x + nx * (half + verge_w), y + side * (half + verge_w) * tb - ground_drop, z + nz * (half + verge_w)))  # outer lip (meets the sunk grass)
             uvs.append((0.0, arc / tile_m))
             uvs.append((1.0, arc / tile_m))
             rows.append(r)
@@ -128,7 +128,7 @@ def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | No
 def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Vertex],
                             widths_m: list[float] | None = None,
                             *, corridor: float = 12.0, blend: float = 12.0, bank_at=None,
-                            target: str = "nearest", extra_roads=None) -> None:
+                            target: str = "nearest", extra_roads=None, clearance: float = 0.0) -> None:
     """Grade the terrain so it MEETS the road at the edge (no cliff to fall off, no bulge to poke up).
     Each grid node within ``corridor`` m of the road surface (centre + both edges) is pulled to a road
     elevation; the cut then blends back to natural terrain over ``blend`` m. Mutates in place.
@@ -167,6 +167,9 @@ def conform_terrain_to_road(grid_xyz: list[list[Vertex]], centerline_m: list[Ver
             if near_y is None:
                 continue
             tgt = (corr_min if corr_min is not None else near_y) if target == "min" else near_y
+            tgt -= clearance      # sink the graded grass a touch BELOW the road so the coarse grass grid
+            #                       can't bulge a triangle up through the road (poke-through) on steep
+            #                       sections like the corkscrew. The shoulder ramps to this same level.
             d = math.sqrt(best_d2)
             if d <= corridor:
                 row[k] = (gx, tgt, gz)
