@@ -40,3 +40,7 @@ projects/*/build/*
 
 # GPL kn5 exporter (auto-cloned by scripts/ac/kn5_native.py — not vendored)
 vendor/
+
+# mined mod intermediates — license-sensitive, never commit to a public artifact
+assets/props/_raw/
+*.dds
