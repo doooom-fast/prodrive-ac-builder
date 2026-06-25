@@ -131,6 +131,166 @@ def _post(x, y, z, h=9.0, r=0.25):  # streetlight post (thin quad)
             "tris": [(0, 1, 2), (0, 2, 3)]}
 
 
+def _resample_xz(pts, step=8.0):
+    """Resample a polyline of (x,y,z) to ~step spacing in the X-Z plane (y zeroed)."""
+    seg = [0.0]
+    for i in range(1, len(pts)):
+        seg.append(seg[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+    total = seg[-1]
+    if total < step:
+        return pts
+    n = max(2, int(total / step))
+    out, si = [], 1
+    for s in range(n + 1):
+        d = total * s / n
+        while si < len(pts) - 1 and seg[si] < d:
+            si += 1
+        a, b = pts[si - 1], pts[si]
+        den = (seg[si] - seg[si - 1]) or 1.0
+        t = (d - seg[si - 1]) / den
+        out.append((a[0] + (b[0] - a[0]) * t, 0.0, a[2] + (b[2] - a[2]) * t))
+    return out
+
+
+def _build_highways(env, project, ground_y, *, half_w=11.0, parapet=0.85, pier_w=1.4,
+                    pier_step=24.0, min_len=240.0, smooth_win=22, bridge_gap=2.5):
+    """Re-build the I-70 / US-36 decks ALONGSIDE the route from real OSM geometry. The deck rides the
+    terrain crests but stays LEVEL over the dips, carried on PIERS (bridges) — instead of the old flat
+    +5 m deck that floated over everything. Returns (deck[asphalt], struct[concrete parapets+slab+piers])."""
+    dv, duv, dt = [], [], []
+    sv, suv, stt = [], [], []
+
+    def quad(V, UV, T, a, b, c, d, uvs):
+        base = len(V); V += [a, b, c, d]; UV += uvs
+        T += [(base, base + 1, base + 2), (base, base + 2, base + 3)]
+
+    def column(cx, cz, y0, y1, w):
+        h2 = w / 2.0
+        c = [(cx - h2, cz - h2), (cx + h2, cz - h2), (cx + h2, cz + h2), (cx - h2, cz + h2)]
+        base = len(sv)
+        for bx, bz in c:
+            sv.append((bx, y0, bz)); suv.append((0, 0))
+        for bx, bz in c:
+            sv.append((bx, y1, bz)); suv.append((0, 1))
+        for i in range(4):
+            j = (i + 1) % 4
+            stt.extend([(base + i, base + j, base + j + 4), (base + i, base + j + 4, base + i + 4)])
+
+    for f in env:
+        if f.get("cls") != "highway" or f.get("kind") != "line" or len(f.get("coords", [])) < 2:
+            continue
+        raw = [project(lo, la) for lo, la in f["coords"]]
+        if sum(math.hypot(raw[i][0] - raw[i - 1][0], raw[i][2] - raw[i - 1][2])
+               for i in range(1, len(raw))) < min_len:
+            continue
+        pts = _resample_xz(raw)
+        terr = [ground_y(x, z) for x, _, z in pts]
+        sm = [sum(terr[max(0, i - smooth_win):i + smooth_win + 1]) /
+              len(terr[max(0, i - smooth_win):i + smooth_win + 1]) for i in range(len(terr))]
+        deck_e = [max(sm[i], terr[i] + 0.2) for i in range(len(terr))]   # ride crests, bridge dips
+        edges = []
+        for i in range(len(pts)):
+            x, _, z = pts[i]
+            a, b = pts[max(0, i - 1)], pts[min(len(pts) - 1, i + 1)]
+            tx, tz = b[0] - a[0], b[2] - a[2]; tl = math.hypot(tx, tz) or 1.0
+            nx, nz = -tz / tl, tx / tl
+            de = deck_e[i]
+            edges.append(((x + nx * half_w, de, z + nz * half_w), (x - nx * half_w, de, z - nz * half_w),
+                          (x, de, z), terr[i], nx, nz))
+        for k in range(len(edges) - 1):
+            L0, R0, C0, t0, _, _ = edges[k]
+            L1, R1, C1, t1, _, _ = edges[k + 1]
+            quad(dv, duv, dt, L0, R0, R1, L1, [(0, k), (1, k), (1, k + 1), (0, k + 1)])          # deck top
+            bL0 = (L0[0], L0[1] - 0.7, L0[2]); bR0 = (R0[0], R0[1] - 0.7, R0[2])
+            bL1 = (L1[0], L1[1] - 0.7, L1[2]); bR1 = (R1[0], R1[1] - 0.7, R1[2])
+            quad(sv, suv, stt, bR0, bL0, bL1, bR1, [(0, 0), (1, 0), (1, 1), (0, 1)])             # underside
+            quad(sv, suv, stt, L0, (L0[0], L0[1] + parapet, L0[2]),
+                 (L1[0], L1[1] + parapet, L1[2]), L1, [(0, 0), (0, 1), (1, 1), (1, 0)])          # L parapet
+            quad(sv, suv, stt, R1, (R1[0], R1[1] + parapet, R1[2]),
+                 (R0[0], R0[1] + parapet, R0[2]), R0, [(0, 0), (0, 1), (1, 1), (1, 0)])          # R parapet
+        acc = pier_step
+        for k in range(len(edges)):
+            if k > 0:
+                acc += math.hypot(edges[k][2][0] - edges[k - 1][2][0], edges[k][2][2] - edges[k - 1][2][2])
+            _, _, C, t, _, _ = edges[k]
+            if C[1] - t > bridge_gap and acc >= pier_step:
+                acc = 0.0
+                column(C[0], C[2], t - 0.4, C[1] - 0.6, pier_w)                                  # bridge pier
+    return {"vertices": dv, "uvs": duv, "tris": dt}, {"vertices": sv, "uvs": suv, "tris": stt}
+
+
+def _box_column(cx, cz, y0, y1, w):
+    """A square concrete column from y0 to y1 (4 sides). Returns (verts, tris) to append into a mesh."""
+    h = w / 2.0
+    c = [(cx - h, cz - h), (cx + h, cz - h), (cx + h, cz + h), (cx - h, cz + h)]
+    verts = [(x, y0, z) for x, z in c] + [(x, y1, z) for x, z in c]
+    tris = []
+    for i in range(4):
+        j = (i + 1) % 4
+        tris += [(i, j, j + 4), (i, j + 4, i + 4)]
+    return verts, tris
+
+
+def _creek_bridge(loop, widths, env, project, ground_y, *, parapet=1.0, thick=0.7, pad=4):
+    """Dress the route's creek crossing (Quebec over Sand Creek) as a bridge: concrete parapets along
+    both road edges, an underside slab, and piers down into the water. The drivable road surface stays
+    (it's the track mesh); this is the structure around/under it. Returns a concrete mesh."""
+    wp = [project(lo, la) for f in env if f.get("cls") == "water" for lo, la in f.get("coords", [])]
+    from collections import defaultdict
+    C = 40.0
+    wb = defaultdict(list)
+    for x, _, z in wp:
+        wb[(int(x // C), int(z // C))].append((x, z))
+
+    def near_w(x, z):
+        ci, cj = int(x // C), int(z // C); best = 1e18
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for wx, wz in wb.get((ci + di, cj + dj), ()):
+                    best = min(best, (x - wx) ** 2 + (z - wz) ** 2)
+        return math.sqrt(best)
+
+    n = len(loop)
+    flag = [near_w(loop[i][0], loop[i][2]) < widths[i] / 2 + 8 for i in range(n)]
+    spans, i = [], 0
+    while i < n:
+        if flag[i]:
+            j = i
+            while j < n and flag[j]:
+                j += 1
+            spans.append((max(1, i - pad), min(n - 1, j + pad))); i = j
+        else:
+            i += 1
+    V, UV, T = [], [], []
+
+    def quad(a, b, c, d):
+        base = len(V); V.extend([a, b, c, d]); UV.extend([(0, 0), (1, 0), (1, 1), (0, 1)])
+        T.extend([(base, base + 1, base + 2), (base, base + 2, base + 3)])
+
+    for a, b in spans:
+        rows = []
+        for k in range(a, b + 1):
+            x, y, z = loop[k]
+            pa, pb = loop[max(0, k - 1)], loop[min(n - 1, k + 1)]
+            tx, tz = pb[0] - pa[0], pb[2] - pa[2]; tl = math.hypot(tx, tz) or 1.0
+            nx, nz = -tz / tl, tx / tl
+            hw = widths[k] / 2 + 0.3
+            rows.append(((x + nx * hw, y + ROAD_LIFT_M, z + nz * hw),
+                         (x - nx * hw, y + ROAD_LIFT_M, z - nz * hw), (x, y, z)))
+        for k in range(len(rows) - 1):
+            L0, R0, _ = rows[k]; L1, R1, _ = rows[k + 1]
+            quad(L0, (L0[0], L0[1] + parapet, L0[2]), (L1[0], L1[1] + parapet, L1[2]), L1)   # L rail
+            quad(R1, (R1[0], R1[1] + parapet, R1[2]), (R0[0], R0[1] + parapet, R0[2]), R0)   # R rail
+            bL0 = (L0[0], L0[1] - thick, L0[2]); bR0 = (R0[0], R0[1] - thick, R0[2])
+            bL1 = (L1[0], L1[1] - thick, L1[2]); bR1 = (R1[0], R1[1] - thick, R1[2])
+            quad(bR0, bL0, bL1, bR1)                                                          # underside
+        for frac in (0.33, 0.66):                                                            # piers in the water
+            x, y, z = loop[int(a + (b - a) * frac)]
+            cv, ct = _box_column(x, z, ground_y(x, z) - 0.6, y - thick, 1.1)
+            base = len(V); V.extend(cv); UV.extend([(0, 0)] * len(cv)); T.extend([(base + p, base + q, base + r) for p, q, r in ct])
+    return {"vertices": V, "uvs": UV, "tris": T}
+
+
 def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
@@ -182,10 +342,12 @@ def build(project_dir: str | Path) -> dict:
     water = _merge([_line_ribbon(f["coords"], project, 4.0, -0.3) if f["kind"] == "line"
                     else _fan(f["coords"], project, -0.3)
                     for f in env if f["cls"] == "water"])
-    # --- highways: DISABLED. The raised decks floated 5 m over the track ("debris hovering above the
-    #     track") and read as a fake overpass that isn't there in real life. Removed for now; proper
-    #     overpass structures (with piers, at the real crossings) are a later, deliberate pass.
-    highways = {"vertices": [], "uvs": [], "tris": []}
+    # --- highways: I-70 / US-36 decks ALONGSIDE the route (real OSM geometry), riding the terrain
+    #     crests but staying LEVEL over the dips on piers (bridges). Re-enabled + fixed (the old version
+    #     floated a flat +5 m deck over the track). hwy_struct = parapets + underside slab + piers. ---
+    hwy_deck, hwy_struct = _build_highways(env, project, ground_y)
+    # Quebec-over-Sand-Creek bridge: parapets + underside + piers around the route's creek crossing.
+    bridge = _creek_bridge(loop, widths, env, project, ground_y)
 
     # --- trees scattered in green/wetland polygons (capped) ---
     tree_meshes, ntrees = [], 0
@@ -336,7 +498,8 @@ def build(project_dir: str | Path) -> dict:
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
-        for _m in (water, bld_commercial, bld_warehouse, bld_roofs, trees, bushes, lights):
+        for _m in (water, bld_commercial, bld_warehouse, bld_roofs, trees, bushes, lights,
+                   hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
@@ -344,7 +507,8 @@ def build(project_dir: str | Path) -> dict:
               [("WATER", "grass", water), ("BUILDINGS", "road", bld_commercial),
                ("WAREHOUSE", "road", bld_warehouse), ("ROOFS", "road", bld_roofs),
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
-               ("MOUNTAINS", "grass", mountains)])
+               ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
+               ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("buildings", (0.58, 0.55, 0.50), bld_commercial), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),
@@ -354,7 +518,8 @@ def build(project_dir: str | Path) -> dict:
                {}, data / "dressed_render.svg")
 
     return {"connector_pts": len(connector["vertices"]) // 2, "water_tris": len(water["tris"]),
-            "highway_tris": len(highways["tris"]), "buildings": nbld, "trees": ntrees,
+            "highway_deck_tris": len(hwy_deck["tris"]), "highway_struct_tris": len(hwy_struct["tris"]),
+            "buildings": nbld, "trees": ntrees, "bushes": nbush, "river_trees": nriver,
             "streetlights": nlights, "render": str(data / "dressed_render.svg")}
 
 
