@@ -53,13 +53,16 @@ def surfaces_ini() -> str:
 
 
 def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
+    loc = cfg.raw.get("location", {})
+    city = loc.get("city", "Commerce City")
+    country = loc.get("country", "United States")
     return {
         "name": f"{cfg.name}" + ("" if layout == "full" else f" — {layout}"),
-        "description": "Real-world street circuit built from OpenStreetMap + USGS 3DEP by "
-                       "prodrive-ac-builder. First target: Commerce City, CO.",
+        "description": f"Real-world street circuit built from OpenStreetMap + USGS 3DEP by "
+                       f"prodrive-ac-builder ({city}, {country}).",
         "tags": ["street", "loop", "fictional", "real-roads"],
         "geotags": [f"{cfg.lat}", f"{cfg.lon}"],
-        "country": "United States", "city": "Commerce City",
+        "country": country, "city": city,
         "length": str(round(length_m)), "width": str(round(cfg.default_width_m)),
         "pitboxes": str(n_pits), "run": "clockwise",
         "author": cfg.author, "version": str(cfg.version), "year": cfg.year,

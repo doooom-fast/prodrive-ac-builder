@@ -48,7 +48,9 @@
   "location": {
     "lat": 39.7839155,
     "lon": -104.9398905,
-    "timezone": "America/Denver"
+    "timezone": "America/Denver",
+    "city": "Commerce City",
+    "country": "United States"
   },
   "source": {
     "type": "kml",
