@@ -1,0 +1,80 @@
+// VideoWriter.swift — encodes ARFrame.capturedImage to an HEVC .mov via AVAssetWriter.
+//
+// Lazily initialised on the first frame so the encoder is sized to the actual capture resolution.
+// Presentation times are relative to the session start (seconds), matching the `t` field in
+// samples.jsonl, so the Mac can seek the video by a sample's timestamp. Frames offered while the
+// encoder is busy are dropped (pose/GPS for that frame are still logged).
+
+import AVFoundation
+import CoreVideo
+
+final class VideoWriter {
+    private(set) var width = 0
+    private(set) var height = 0
+    private(set) var frameCount = 0
+
+    private var writer: AVAssetWriter?
+    private var input: AVAssetWriterInput?
+    private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
+    private var started = false
+    private let url: URL
+
+    init(url: URL) { self.url = url }
+
+    /// Append one frame at `time` seconds since session start. Safe to call before/while configuring.
+    func append(_ pixelBuffer: CVPixelBuffer, at time: Double) {
+        if writer == nil { configure(with: pixelBuffer) }
+        guard let writer, let input, let adaptor else { return }
+
+        let pts = CMTime(seconds: max(0, time), preferredTimescale: 1_000_000)
+        if !started {
+            writer.startWriting()
+            writer.startSession(atSourceTime: pts)
+            started = true
+        }
+        guard writer.status == .writing, input.isReadyForMoreMediaData else { return }
+        if adaptor.append(pixelBuffer, withPresentationTime: pts) {
+            frameCount += 1
+        }
+    }
+
+    /// Finish encoding and block until the file is finalised.
+    func finish() {
+        guard let writer, let input, started else { return }
+        input.markAsFinished()
+        let sema = DispatchSemaphore(value: 0)
+        writer.finishWriting { sema.signal() }
+        sema.wait()
+    }
+
+    private func configure(with pixelBuffer: CVPixelBuffer) {
+        width = CVPixelBufferGetWidth(pixelBuffer)
+        height = CVPixelBufferGetHeight(pixelBuffer)
+        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
+
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return }
+        let settings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.hevc,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+        ]
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        input.expectsMediaDataInRealTime = true
+        // ARKit's capturedImage comes in landscape sensor orientation; tag it so players show it level.
+        input.transform = CGAffineTransform(rotationAngle: .pi / 2)
+
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
+            ])
+
+        guard writer.canAdd(input) else { return }
+        writer.add(input)
+        self.writer = writer
+        self.input = input
+        self.adaptor = adaptor
+    }
+}

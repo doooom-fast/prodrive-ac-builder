@@ -51,3 +51,14 @@ vendor/io_import_accsv/**/*.pyc
 # mined mod intermediates — license-sensitive, never commit to a public artifact
 assets/props/_raw/
 *.dds
+
+# --- iOS capture app (apps/prodrive-scan) --------------------------------------
+# The .xcodeproj is generated from project.yml by xcodegen — commit the spec, not the project.
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Recorded session bundles are multi-GB and live outside git (like mined mod assets).
+apps/*/captures/
+*.prodrive-scan/

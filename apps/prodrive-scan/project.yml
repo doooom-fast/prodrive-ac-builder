@@ -1,0 +1,46 @@
+# XcodeGen spec → ProdriveScan.xcodeproj  (regenerate: `xcodegen generate`)
+#
+# Prodrive Scan is the track-agnostic windshield capture app for the Prodrive AC Builder pipeline.
+# Kept as a regenerable spec (not a checked-in .pbxproj) to match the repo's "reproducible from
+# config" ethos. Open the generated project in Xcode, set your signing team, and run on an iPhone Pro.
+name: ProdriveScan
+options:
+  bundleIdPrefix: org.alternate
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"            # Swift 5 language mode — the AR delegate touches shared writer
+                                    # state off the main actor; full Swift 6 concurrency would reject it.
+    MARKETING_VERSION: "0.1.0"      # keep in lockstep with the bundle SCHEMA_VERSION story
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""            # set your Apple Developer team in Xcode (can't be scripted headlessly)
+    GENERATE_INFOPLIST_FILE: NO     # we ship a complete Info.plist (usage strings + file sharing + arkit)
+
+targets:
+  ProdriveScan:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.alternate.prodrivescan
+        PRODUCT_NAME: ProdriveScan
+        INFOPLIST_FILE: Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+schemes:
+  ProdriveScan:
+    build:
+      targets:
+        ProdriveScan: all
+    run:
+      config: Debug
+    archive:
+      config: Release
