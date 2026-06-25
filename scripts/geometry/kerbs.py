@@ -214,17 +214,22 @@ def _turn_angle(pts: list[Vertex], i: int) -> float:
     return math.degrees(math.asin(cr))
 
 
+# Jersey-barrier half-profile (lateral offset from the barrier centreline, height) bottom→top, ~0.81 m
+# tall: wide vertical toe, the lower 55° slope, then the steeper face to a narrow flat top.
+_JERSEY = [(0.30, 0.0), (0.30, 0.09), (0.17, 0.34), (0.115, 0.81)]
+
+
 def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp_deg: float = 45.0,
                      crest_deg: float = 24.0, per_vtx_thr: float = 0.9, off: float = 4.0,
-                     height: float = 1.0, crest_height: float = 1.25, base_lift: float = -0.3,
+                     height: float = 0.81, crest_height: float = 0.9, base_lift: float = -0.05,
                      lead_m: float = 28.0, crest_lead_m: float = 70.0, crest_prom_m: float = 1.2,
-                     tile_m: float = 12.0):
-    """Guardrails on the OUTSIDE of sharp turns — a wayfinding cue ("a hard corner is coming") + a
-    backstop that catches a car run wide. Targets corners whose total turn ≥ ``sharp_deg``; ALSO catches
-    a more moderate corner (≥ ``crest_deg``) when it hides just over a CREST (blind brow), and for those
-    extends the lead-in back over the crest (``crest_lead_m``) and raises the rail so you see it as you
-    climb. Returns (wall_mesh_with_uvs, [placement dicts]). Built as a solid double-sided wall so it
-    collides from either side; build_mesh raises it with the road."""
+                     tile_m: float = 3.5):
+    """Concrete JERSEY barriers on the OUTSIDE of sharp turns — a wayfinding cue ("a hard corner is
+    coming") + a backstop that catches a car run wide. Targets corners whose total turn ≥ ``sharp_deg``;
+    ALSO catches a more moderate corner (≥ ``crest_deg``) when it hides just over a CREST (blind brow),
+    and for those extends the lead-in back over the crest (``crest_lead_m``) and raises it a touch so you
+    see it as you climb. A sloped jersey cross-section (``_JERSEY``) is swept along each run, so it reads
+    as concrete K-rail and collides as solid geometry. Returns (mesh_with_uvs, [placement dicts])."""
     pts = centerline_m
     n = len(pts)
     closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
@@ -248,8 +253,15 @@ def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp
     placements = []
 
     def sweep(run: list[int], side: float, h: float) -> None:
+        scale = h / 0.81
+        prof = [(lat, ht * scale) for lat, ht in _JERSEY] + \
+               [(-lat, ht * scale) for lat, ht in reversed(_JERSEY)]   # full outline: up one face, down the other
+        plen = [0.0]
+        for k in range(1, len(prof)):
+            plen.append(plen[-1] + math.hypot(prof[k][0] - prof[k - 1][0], prof[k][1] - prof[k - 1][1]))
+        ptot = plen[-1] or 1.0
         arc = 0.0
-        ring = []
+        rows = []
         for idx, k in enumerate(run):
             x, y, z = pts[k]
             if idx > 0:
@@ -261,16 +273,17 @@ def warning_barriers(centerline_m: list[Vertex], widths_m: list[float], *, sharp
             nx, nz = -tz / tl, tx / tl
             o = side * (widths_m[k] / 2.0 + off)
             bx, bz = x + nx * o, z + nz * o
-            bi = len(verts)
-            verts.append((bx, y + base_lift, bz))
-            verts.append((bx, y + base_lift + h, bz))
-            # armco texture is a horizontal rail strip: U runs ALONG the rail (arc), V up the height.
-            uvs.append((arc / tile_m, 1.0)); uvs.append((arc / tile_m, 0.0))
-            ring.append((bi, bi + 1))
-        for idx in range(len(ring) - 1):
-            b0, t0 = ring[idx]; b1, t1 = ring[idx + 1]
-            tris.append((b0, b1, t1)); tris.append((b0, t1, t0))   # front
-            tris.append((b0, t1, b1)); tris.append((b0, t0, t1))   # back (double-sided → collides both ways)
+            row = []
+            for pi, (lat, ht) in enumerate(prof):                 # sweep the jersey cross-section
+                row.append(len(verts))
+                verts.append((bx + nx * lat, y + base_lift + ht, bz + nz * lat))
+                uvs.append((plen[pi] / ptot, arc / tile_m))       # U around the profile, V along the run
+            rows.append(row)
+        for idx in range(len(rows) - 1):
+            r0, r1 = rows[idx], rows[idx + 1]
+            for pi in range(len(prof) - 1):
+                a0, a1 = r0[pi], r0[pi + 1]; c1, c0 = r1[pi + 1], r1[pi]
+                tris.append((a0, a1, c1)); tris.append((a0, c1, c0))
 
     i = 1
     while i < n - 1:

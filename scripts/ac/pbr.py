@@ -23,7 +23,7 @@ TEXTURES = {
     "HIGHWAY": ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.80, (0.34, 0.34, 0.36, 1), 0.0, False),
     "BUILDING": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.55, 0.52, 0.48, 1), 0.0, False),
     "WAREHOUSE": ("roof_diffuse.jpg", "roof_normal.jpg", 0.70, (0.60, 0.62, 0.65, 1), 0.0, False),  # corrugated-metal warehouse walls (industrial)
-    "BARRIER": ("guardrail_diffuse.png", "guardrail_normal.png", 0.5, (0.55, 0.57, 0.60, 1), 0.4, False),  # armco (LA Canyons guardrail_07)
+    "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.74, 0.74, 0.72, 1), 0.0, False),  # concrete jersey K-rail
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.70, (0.40, 0.40, 0.42, 1), 0.10, False),
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
     "TREES":   ("tree_diffuse.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),
