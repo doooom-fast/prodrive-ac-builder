@@ -29,6 +29,29 @@ cd "$ROOT"
 PY="${PYTHON:-python3}"
 STAGES=(gps elev project mesh env blend kn5 pack)
 
+# Pre-flight: AC/CSP can hard-CRASH THE GPU (whole-PC freeze) on load when a kn5 carries a
+# non-power-of-two texture (mipmap/DXT upload hangs the driver). Fail loudly before building.
+"$PY" - <<'POT' || exit 1
+import sys
+from pathlib import Path
+try:
+    from PIL import Image
+except Exception:
+    print("  [pot-check skipped: Pillow not available]"); sys.exit(0)
+pot = lambda n: (n & (n - 1)) == 0
+bad = []
+for f in Path("assets/textures").glob("*"):
+    if f.suffix.lower() in (".png", ".jpg", ".jpeg"):
+        w, h = Image.open(f).size
+        if not (pot(w) and pot(h)):
+            bad.append(f"{f.name} {w}x{h}")
+if bad:
+    print("NON-PoT textures (resize to power-of-two or AC hard-crashes on load):")
+    for b in bad: print("   ", b)
+    sys.exit(1)
+print("  pot-check: all textures power-of-two")
+POT
+
 if [[ "$FROM" == "--list" ]]; then printf '%s\n' "${STAGES[@]}"; exit 0; fi
 # index of the start stage
 START=-1; for i in "${!STAGES[@]}"; do [[ "${STAGES[$i]}" == "$FROM" ]] && START=$i; done
