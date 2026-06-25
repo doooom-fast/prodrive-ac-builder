@@ -113,6 +113,19 @@ def _billboard(x, y, z, h=7.0, w=5.5):  # crossed tree billboards (two perpendic
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
+def _billboard_cell(x, y, z, col, row, ncols, nrows, h, w):
+    """Crossed billboard mapped to one cell of a foliage atlas (ncols x nrows). V=0 (base) → bottom of
+    the cell. Used for the dry scrub bushes (one random plant per billboard)."""
+    hw = w / 2
+    verts = [(x - hw, y, z), (x + hw, y, z), (x + hw, y + h, z), (x - hw, y + h, z),
+             (x, y, z - hw), (x, y, z + hw), (x, y + h, z + hw), (x, y + h, z - hw)]
+    u0, u1 = col / ncols, (col + 1) / ncols
+    vb, vt = (nrows - 1 - row) / nrows, (nrows - row) / nrows   # bottom/top of cell (v=0 = image bottom)
+    uvs = [(u0, vb), (u1, vb), (u1, vt), (u0, vt), (u0, vb), (u1, vb), (u1, vt), (u0, vt)]
+    tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def _post(x, y, z, h=9.0, r=0.25):  # streetlight post (thin quad)
     return {"vertices": [(x - r, y, z), (x + r, y, z), (x + r, y + h, z), (x - r, y + h, z)],
             "tris": [(0, 1, 2), (0, 2, 3)]}
@@ -190,6 +203,36 @@ def build(project_dir: str | Path) -> dict:
                     ntrees += 1
     trees = _merge(tree_meshes)
 
+    # --- dry scrub bushes scattered trackside (the dry-prairie look: sparse low shrubs on dirt) ---
+    import random as _rnd
+    _r = _rnd.Random(1234)                          # seeded → reproducible
+    bush_meshes, nbush = [], 0
+    NC, NR = 3, 3                                    # bo_bushes_11 atlas = 3x3 dry plants
+    acc = 0.0
+    for i in range(1, len(loop)):
+        acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
+        if acc < 6.0:
+            continue
+        acc = 0.0
+        x, y, z = loop[i]
+        a, b = loop[i - 1], loop[min(len(loop) - 1, i + 1)]
+        tx, tz = b[0] - a[0], b[2] - a[2]
+        tl = math.hypot(tx, tz) or 1e-6
+        nx, nz = -tz / tl, tx / tl
+        for side in (1.0, -1.0):
+            if _r.random() > 0.55:                  # sparse — dry prairie, not a hedge
+                continue
+            off = widths[i] / 2 + 7.0 + _r.random() * 33.0   # 7..40 m off the road, out on the grass
+            bx, bz = x + nx * off * side, z + nz * off * side
+            lon = origin[0] + bx / m_lon
+            lat = origin[1] + bz / m_lat
+            by = y_at(lon, lat) - 0.4               # seat into the ground so it never floats over the verge
+            sz = 1.2 + _r.random() * 1.4            # 1.2..2.6 m
+            bush_meshes.append(_billboard_cell(bx, by, bz, _r.randint(0, NC - 1), _r.randint(0, NR - 1),
+                                               NC, NR, sz * 0.78, sz))
+            nbush += 1
+    bushes = _merge(bush_meshes)
+
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
     light_meshes, nlights = [], 0
     acc = 0.0
@@ -244,14 +287,14 @@ def build(project_dir: str | Path) -> dict:
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
-        for _m in (water, bld_commercial, bld_warehouse, bld_roofs, trees, lights):
+        for _m in (water, bld_commercial, bld_warehouse, bld_roofs, trees, bushes, lights):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
               [("WATER", "grass", water), ("BUILDINGS", "road", bld_commercial),
                ("WAREHOUSE", "road", bld_warehouse), ("ROOFS", "road", bld_roofs),
-               ("TREES", "grass", trees), ("LIGHTS", "road", lights)])
+               ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("buildings", (0.58, 0.55, 0.50), bld_commercial), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),

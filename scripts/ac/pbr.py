@@ -19,7 +19,8 @@ TEXTURES = {
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
     "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines + crosswalk (shape = geometry)
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
-    "1GRASS":  ("grass_diffuse.jpg",   "grass_normal.jpg",   0.95, (0.15, 0.33, 0.11, 1), 0.0, False),
+    "1GRASS":  ("ground_dry_diffuse.jpg", None,              0.95, (0.42, 0.38, 0.29, 1), 0.0, False),  # dry dirt/prairie (LA Canyons lac_dirt_ground)
+    "BUSHES":  ("bushes_atlas.png", None, 0.9, (0.36, 0.37, 0.24, 1), 0.0, False),  # dry scrub billboards (LA Canyons bo_bushes_11)
     "HIGHWAY": ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.80, (0.34, 0.34, 0.36, 1), 0.0, False),
     "BUILDING": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.55, 0.52, 0.48, 1), 0.0, False),
     "WAREHOUSE": ("roof_diffuse.jpg", "roof_normal.jpg", 0.70, (0.60, 0.62, 0.65, 1), 0.0, False),  # corrugated-metal warehouse walls (industrial)
@@ -35,7 +36,7 @@ TEXTURES = {
 # materials drawn as alpha-cutout — wire the texture alpha + clip the transparent bg (trees as
 # billboards; painted street names as flat road decals). The export addon also reads this set to set
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
-BILLBOARD = {"TREES", "ROADTEXT"}
+BILLBOARD = {"TREES", "ROADTEXT", "BUSHES"}
 
 
 def texture_dir() -> Path:
