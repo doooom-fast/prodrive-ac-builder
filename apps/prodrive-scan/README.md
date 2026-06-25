@@ -37,22 +37,40 @@ in the simulator — the simulator only proves it compiles).
 
 ```bash
 cd apps/prodrive-scan
-xcodegen generate                 # project.yml → ProdriveScan.xcodeproj (the .xcodeproj is gitignored)
+# Team ID is read from the environment so it never lands in git (see project.yml).
+DEVELOPMENT_TEAM=XXXXXXXXXX xcodegen generate   # → ProdriveScan.xcodeproj (gitignored)
 open ProdriveScan.xcodeproj
 ```
 
-Then in Xcode:
-1. Select the **ProdriveScan** target → **Signing & Capabilities** → set your **Team** (the spec leaves
-   `DEVELOPMENT_TEAM` blank; it can't be scripted headlessly).
-2. Pick your iPhone as the run destination and press **Run**.
-3. Grant **Camera**, **Location** (While Using), and **Motion** when prompted.
+Find your Team ID (it's the certificate's OU, not the name in parentheses):
 
-Compile-check without a device (what CI / this Mac does):
+```bash
+security find-certificate -c "Apple Development: <your-email>" -p \
+  | openssl x509 -noout -subject -nameopt sep_multiline | grep OU
+```
+
+Then in Xcode pick your iPhone as the run destination and press **Run**, or deploy from the CLI (see
+below). Grant **Camera**, **Location** (While Using), and **Motion** when prompted.
+
+Compile-check without a device or a team (what this Mac / CI does — no signing needed):
 
 ```bash
 xcodegen generate
 xcodebuild -scheme ProdriveScan -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' build
+```
+
+Deploy to a connected iPhone from the CLI (build for a generic device, then install — a direct
+`-destination id=<UDID>` build can time out mounting the developer image over wifi; the phone must be
+**unlocked**):
+
+```bash
+DEVELOPMENT_TEAM=XXXXXXXXXX xcodegen generate
+xcodebuild -scheme ProdriveScan -destination 'generic/platform=iOS' \
+  -derivedDataPath /tmp/ps-dd -allowProvisioningUpdates build
+xcrun devicectl device install app --device <UDID> \
+  /tmp/ps-dd/Build/Products/Debug-iphoneos/ProdriveScan.app
+xcrun devicectl device process launch --device <UDID> org.alternate.prodrivescan
 ```
 
 ## Recording

@@ -80,7 +80,8 @@ final class ARCaptureController: NSObject, ARSessionDelegate {
         session.run(cfg)
     }
 
-    func startRecording(device: DeviceInfo, appVersion: String, depthHz: Double) throws {
+    func startRecording(device: DeviceInfo, appVersion: String, depthHz: Double,
+                        videoTransform: CGAffineTransform) throws {
         guard let session else { throw CaptureError.noSession }
         let layout = BundleLayout()
         try layout.create()
@@ -88,7 +89,7 @@ final class ARCaptureController: NSObject, ARSessionDelegate {
 
         self.layout = layout
         self.sampleLog = try SampleLog(url: layout.samplesURL)
-        self.videoWriter = VideoWriter(url: layout.videoURL)
+        self.videoWriter = VideoWriter(url: layout.videoURL, transform: videoTransform)
         self.depthWriter = hasLidar ? DepthWriter(layout: layout, hz: depthHz) : nil
         self.depthHz = depthHz
         self.device = DeviceInfo(model: device.model, os: device.os, name: device.name, has_lidar: hasLidar)

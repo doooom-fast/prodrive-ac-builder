@@ -18,7 +18,12 @@ settings:
     MARKETING_VERSION: "0.1.0"      # keep in lockstep with the bundle SCHEMA_VERSION story
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: ""            # set your Apple Developer team in Xcode (can't be scripted headlessly)
+    # Team ID is injected from the environment at generate time so it never lands in git:
+    #   DEVELOPMENT_TEAM=XXXXXXXXXX xcodegen generate
+    # Unset (e.g. simulator builds) → empty, which is fine. The resolved value only ends up in the
+    # gitignored .xcodeproj. Find your id: security find-certificate -c "Apple Development: <email>" \
+    #   -p | openssl x509 -noout -subject -nameopt sep_multiline | grep OU
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
     GENERATE_INFOPLIST_FILE: NO     # we ship a complete Info.plist (usage strings + file sharing + arkit)
 
 targets:

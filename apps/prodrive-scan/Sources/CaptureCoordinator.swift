@@ -45,7 +45,8 @@ final class CaptureCoordinator: ObservableObject {
     private func start() {
         do {
             try controller.startRecording(device: DeviceID.info(hasLidar: lidarAvailable),
-                                          appVersion: appVersion, depthHz: Self.depthHz)
+                                          appVersion: appVersion, depthHz: Self.depthHz,
+                                          videoTransform: Self.videoTransform(for: interfaceOrientation()))
             stats = CaptureStats()
             stats.hasLidar = lidarAvailable
             errorMessage = nil
@@ -61,6 +62,24 @@ final class CaptureCoordinator: ObservableObject {
         isRecording = false
         lastBundle = url?.lastPathComponent
         controller.startPreview()   // resume the live preview
+    }
+
+    private func interfaceOrientation() -> UIInterfaceOrientation {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.interfaceOrientation ?? .landscapeRight
+    }
+
+    /// ARKit delivers capturedImage in landscapeRight; rotate to match how the phone is actually held
+    /// so the recorded .mov plays level whichever way it's mounted.
+    static func videoTransform(for o: UIInterfaceOrientation) -> CGAffineTransform {
+        switch o {
+        case .landscapeRight:     return .identity
+        case .landscapeLeft:      return CGAffineTransform(rotationAngle: .pi)
+        case .portrait:           return CGAffineTransform(rotationAngle: .pi / 2)
+        case .portraitUpsideDown: return CGAffineTransform(rotationAngle: -.pi / 2)
+        default:                  return .identity
+        }
     }
 }
 

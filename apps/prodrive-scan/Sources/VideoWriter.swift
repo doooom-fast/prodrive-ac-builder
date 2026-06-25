@@ -18,8 +18,12 @@ final class VideoWriter {
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var started = false
     private let url: URL
+    private let transform: CGAffineTransform   // rotates the landscape-native frame upright for the mount
 
-    init(url: URL) { self.url = url }
+    init(url: URL, transform: CGAffineTransform) {
+        self.url = url
+        self.transform = transform
+    }
 
     /// Append one frame at `time` seconds since session start. Safe to call before/while configuring.
     func append(_ pixelBuffer: CVPixelBuffer, at time: Double) {
@@ -60,8 +64,8 @@ final class VideoWriter {
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
-        // ARKit's capturedImage comes in landscape sensor orientation; tag it so players show it level.
-        input.transform = CGAffineTransform(rotationAngle: .pi / 2)
+        // ARKit's capturedImage is landscape-native; tag with the mount-derived rotation so it plays level.
+        input.transform = transform
 
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,

@@ -17,7 +17,10 @@ struct RecorderView: View {
                 if let bundle = coordinator.lastBundle, !coordinator.isRecording {
                     savedBanner(bundle)
                 }
-                recordButton
+                HStack {
+                    Spacer()
+                    recordButton
+                }
             }
             .padding()
         }
@@ -28,7 +31,8 @@ struct RecorderView: View {
     // MARK: HUD
 
     private var statusHUD: some View {
-        HStack(alignment: .top) {
+        // Card hugs its content (background wraps the VStack); the spacers keep it pinned top-left.
+        HStack {
             VStack(alignment: .leading, spacing: 4) {
                 if coordinator.isRecording {
                     Label(timeString(coordinator.stats.elapsed), systemImage: "record.circle.fill")
@@ -43,12 +47,14 @@ struct RecorderView: View {
                     hudRow("LiDAR", "unavailable")
                 }
             }
-            Spacer()
+            .fixedSize()
+            .font(.subheadline.monospacedDigit())
+            .padding(12)
+            .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+            .foregroundStyle(.white)
+
+            Spacer(minLength: 0)
         }
-        .font(.subheadline.monospacedDigit())
-        .padding(12)
-        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
-        .foregroundStyle(.white)
     }
 
     private func hudRow(_ label: String, _ value: String) -> some View {

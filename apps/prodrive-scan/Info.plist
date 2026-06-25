@@ -24,9 +24,9 @@
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<!-- Landscape only — windshield mount; ARKit depth/image are landscape-native anyway -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
