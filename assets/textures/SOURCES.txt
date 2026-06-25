@@ -17,6 +17,6 @@ ground_dry_diffuse.jpg — dry dirt/gravel ground, from LA Canyons (la_canyons.k
 bushes_atlas.png — dry scrub bushes (sage/rabbitbrush/grass-tuft/agave), from LA Canyons (main_bushes.kn5, bo_bushes_11.dds). Personal/non-distributed use.
 asphalt_cracked_diffuse.jpg + asphalt_cracked_normal.jpg — cracked/alligator tarmac, from LA Canyons (main_roads.kn5, lac_tarmac_detail_cracked_04.dds). Personal/non-distributed use.
 
-trees_atlas.png — Colorado (AC track mod) 2013colorado_tree.kn5, material trees4 (2x2 mature
-  broadleaf cutout atlas). Mined via scripts/modkit/extract_kn5.py for PERSONAL/non-distributed use
-  (repo + releases private). Front Range broadleaf for the Sand Creek cottonwood look.
+trees_atlas.png — curated 3x2 cutout atlas from Colorado (AC mod) 2013colorado_tree.kn5: 4 mature
+  broadleaf (material trees4) + spruce + Lombardy poplar (material trees_NEW), composed for the Sand
+  Creek cottonwood/Front-Range look. Mined via scripts/modkit/extract_kn5.py, PERSONAL/non-distributed.
