@@ -1,0 +1,23 @@
+{
+  "name": "Sand Creek Raceway",
+  "description": "Real-world street circuit built from OpenStreetMap + USGS 3DEP by prodrive-ac-builder (Commerce City, United States).",
+  "tags": [
+    "street",
+    "loop",
+    "fictional",
+    "real-roads"
+  ],
+  "geotags": [
+    "39.7839155",
+    "-104.9398905"
+  ],
+  "country": "United States",
+  "city": "Commerce City",
+  "length": "9687",
+  "width": "9",
+  "pitboxes": "4",
+  "run": "clockwise",
+  "author": "prodrive-ac-builder",
+  "version": "0.12.6",
+  "year": 2026
+}

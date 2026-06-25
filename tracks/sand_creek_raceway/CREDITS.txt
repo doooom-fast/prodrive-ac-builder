@@ -1,0 +1,19 @@
+Sand Creek Raceway — credits & licenses
+========================================
+
+Built with prodrive-ac-builder. All bundled binary assets are CC0-1.0 / public domain.
+Surface scrub & kerb-rumble sounds are the player's own stock Assetto Corsa sounds
+(content/sfx), referenced by name in data/surfaces.ini — none are redistributed here.
+
+Data:
+  - OpenStreetMap road geometry (ODbL-1.0) https://www.openstreetmap.org/copyright
+  - USGS 3DEP 1 m elevation (Public Domain (US Gov)) https://www.usgs.gov/3d-elevation-program
+
+Bundled assets:
+  - aerial_asphalt_01 — Poly Haven — CC0-1.0 — https://polyhaven.com/a/aerial_asphalt_01
+  - Grass001 — ambientCG — CC0-1.0 — https://ambientcg.com/view?id=Grass001
+  - Concrete034 — ambientCG — CC0-1.0 — https://ambientcg.com/view?id=Concrete034
+  - CorrugatedSteel002 — ambientCG — CC0-1.0 — https://ambientcg.com/view?id=CorrugatedSteel002
+  - Procedural kerb stripe — prodrive-ac-builder (generated) — CC0-1.0 — 
+  - Street-name sign atlas — prodrive-ac-builder (generated; system font is a build-time tool, not shipped) — CC0-1.0 — 
+  - Tree billboard (PLACEHOLDER) — placeholder — not a verified CC0 asset yet; replaced in the v0.6.0 props pass — UNVERIFIED — 

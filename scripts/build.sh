@@ -91,5 +91,11 @@ with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED, 6) as z:
             z.write(f, f.relative_to(root))
 print(f"  -> {zp}  ({zp.stat().st_size/1e6:.1f} MB)")
 PY
+  # publish the installable folder to a committed, git-pullable location (tracks/<slug>/). The .svg
+  # render previews are OURS, not AC assets (CM uses preview.png) — exclude them to keep it lean.
+  mkdir -p "$ROOT/tracks/$SLUG"
+  rsync -a --delete --exclude='*.svg' "$PROJ/build/$SLUG/" "$ROOT/tracks/$SLUG/"
+  find "$ROOT/tracks/$SLUG" -name '*.svg' -delete 2>/dev/null || true
+  echo "  synced -> tracks/$SLUG/  (git pull lands this in content/tracks via a junction/symlink)"
 fi
 echo; echo "✓ build complete: $PROJ ($SLUG v$VER)"

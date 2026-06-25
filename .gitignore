@@ -23,6 +23,8 @@ venv/
 *.blend1
 *.fbx
 *.kn5
+# ...but the PUBLISHED, installable track folder IS committed (git-pullable into content/tracks).
+!tracks/**/*.kn5
 
 # Per-project working/output dirs (keep the folders via .gitkeep)
 projects/*/data/*
