@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "mirror_x": true,
   "road_text": {
     "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
@@ -73,6 +73,19 @@
   "loop": true,
   "default_width_m": 9.0,
   "width_overrides": [],
+  "scenery": {
+    "_doc": "Per-track foliage/scatter knobs read by scripts/environment/build_env.py. Defaults (shown) reproduce the original look; override per track (e.g. a desert track wants sparser, lower scrub). corridor_margin_m keeps ALL scatter this far clear of every road (main loop + connectors).",
+    "corridor_margin_m": 3.0,
+    "tree_step_m": 28.0,
+    "tree_cap": 700,
+    "bush_spacing_m": 6.0,
+    "bush_density": 0.55,
+    "bush_off_min_m": 7.0,
+    "bush_off_span_m": 33.0,
+    "bush_size_min_m": 1.2,
+    "bush_size_span_m": 1.4,
+    "light_spacing_m": 48.0
+  },
   "origin": "centroid",
   "true_north_rotation_deg": 0.0,
   "surfaces": {

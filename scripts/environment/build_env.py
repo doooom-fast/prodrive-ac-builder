@@ -104,21 +104,55 @@ def _pip(x, z, poly):  # ray-cast point-in-polygon (poly = [(x,z)...])
     return inside
 
 
-def _billboard(x, y, z, h=7.0, w=5.5):  # crossed tree billboards (two perpendicular cards) + UVs
+def _corridor_rejecter(loop, widths, extra_lines=(), *, margin=3.0, cell=20.0):
+    """Return ``on_road(x, z)`` → True when (x,z) is within (local road half-width + ``margin``) of ANY
+    road centreline point — the MAIN loop plus any interior connectors. Spatial-hashed for speed.
+
+    A purely local perpendicular offset (what the scatters use) keeps foliage off the road *next to the
+    current point*, but not where the road folds back on itself (the corkscrew) or runs parallel a few
+    metres away (the interior grid) — there a 7–40 m sideways throw lands on a DIFFERENT segment. Testing
+    against the whole network fixes the 'bushes/trees through the road' clipping for any track."""
+    pts = [(loop[i][0], loop[i][2], (widths[i] / 2.0 if i < len(widths) else 4.5)) for i in range(len(loop))]
+    for ln, lw in extra_lines:
+        for j, p in enumerate(ln):
+            pts.append((p[0], p[2], (lw[j] / 2.0 if j < len(lw) else 4.5)))
+    buckets = {}
+    for px, pz, hw in pts:
+        buckets.setdefault((int(px // cell), int(pz // cell)), []).append((px, pz, hw))
+
+    def on_road(x, z):
+        ci, cj = int(x // cell), int(z // cell)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for px, pz, hw in buckets.get((ci + di, cj + dj), ()):
+                    if math.hypot(x - px, z - pz) < hw + margin:
+                        return True
+        return False
+
+    return on_road
+
+
+def _billboard(x, y, z, h=7.0, w=5.5, yaw=0.0):  # crossed tree billboards (two perpendicular cards) + UVs
     hw = w / 2
-    verts = [(x - hw, y, z), (x + hw, y, z), (x + hw, y + h, z), (x - hw, y + h, z),   # card along X
-             (x, y, z - hw), (x, y, z + hw), (x, y + h, z + hw), (x, y + h, z - hw)]   # card along Z
+    c, s = math.cos(yaw), math.sin(yaw)               # per-instance yaw so the cross-quads aren't all
+    ax, az = c * hw, s * hw                            # axis-aligned identical clones
+    bx, bz = -s * hw, c * hw                           # perpendicular card
+    verts = [(x - ax, y, z - az), (x + ax, y, z + az), (x + ax, y + h, z + az), (x - ax, y + h, z - az),
+             (x - bx, y, z - bz), (x + bx, y, z + bz), (x + bx, y + h, z + bz), (x - bx, y + h, z - bz)]
     uvs = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0), (1, 0), (1, 1), (0, 1)]  # V=0 trunk → V=1 canopy
     tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
-def _billboard_cell(x, y, z, col, row, ncols, nrows, h, w):
+def _billboard_cell(x, y, z, col, row, ncols, nrows, h, w, yaw=0.0):
     """Crossed billboard mapped to one cell of a foliage atlas (ncols x nrows). V=0 (base) → bottom of
-    the cell. Used for the dry scrub bushes (one random plant per billboard)."""
+    the cell. Used for the dry scrub bushes (one random plant per billboard). yaw varies orientation."""
     hw = w / 2
-    verts = [(x - hw, y, z), (x + hw, y, z), (x + hw, y + h, z), (x - hw, y + h, z),
-             (x, y, z - hw), (x, y, z + hw), (x, y + h, z + hw), (x, y + h, z - hw)]
+    c, s = math.cos(yaw), math.sin(yaw)
+    ax, az = c * hw, s * hw
+    bx, bz = -s * hw, c * hw
+    verts = [(x - ax, y, z - az), (x + ax, y, z + az), (x + ax, y + h, z + az), (x - ax, y + h, z - az),
+             (x - bx, y, z - bz), (x + bx, y, z + bz), (x + bx, y + h, z + bz), (x - bx, y + h, z - bz)]
     u0, u1 = col / ncols, (col + 1) / ncols
     vb, vt = (nrows - 1 - row) / nrows, (nrows - row) / nrows   # bottom/top of cell (v=0 = image bottom)
     uvs = [(u0, vb), (u1, vb), (u1, vt), (u0, vt), (u0, vb), (u1, vb), (u1, vt), (u0, vt)]
@@ -349,22 +383,43 @@ def build(project_dir: str | Path) -> dict:
     # Quebec-over-Sand-Creek bridge: parapets + underside + piers around the route's creek crossing.
     bridge = _creek_bridge(loop, widths, env, project, ground_y)
 
+    # --- scenery knobs (per-track, config-driven; defaults reproduce the original Sand Creek look) and
+    #     the road-corridor index that keeps every scatter OFF the asphalt for ANY track ---
+    import random
+    scn = cfg.raw.get("scenery", {})
+    connector_lines = []
+    cpath = data / "connectors.local.json"
+    if cpath.exists():
+        for c in json.loads(cpath.read_text()).get("connectors", []):
+            cp = c.get("points_xyz_m", [])
+            cw = c.get("widths_m", [])
+            if mirror_x:
+                cp = [(-p[0], p[1], p[2]) for p in cp]
+            connector_lines.append((cp, cw))
+    on_road = _corridor_rejecter(loop, widths, connector_lines,
+                                 margin=float(scn.get("corridor_margin_m", 3.0)))
+
     # --- trees scattered in green/wetland polygons (capped) ---
     tree_meshes, ntrees = [], 0
+    _tg = random.Random(55)
+    t_step = float(scn.get("tree_step_m", 28.0))
+    t_cap = int(scn.get("tree_cap", 700))
     for f in env:
         if f["cls"] not in ("green", "wetland") or f["kind"] != "poly" or len(f["coords"]) < 3:
             continue
         poly = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in f["coords"]]
         xs = [p[0] for p in poly]; zs = [p[1] for p in poly]
-        step = 28.0
+        step = t_step
         gx = int((max(xs) - min(xs)) / step)
         gz = int((max(zs) - min(zs)) / step)
         for ix in range(gx + 1):
             for iz in range(gz + 1):
                 x = min(xs) + ix * step + (iz % 2) * 9
                 z = min(zs) + iz * step
-                if ntrees < 700 and _pip(x, z, poly):
-                    tree_meshes.append(_billboard(x, ground_y(x, z), z))
+                if ntrees < t_cap and _pip(x, z, poly) and not on_road(x, z):
+                    h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m (was a fixed 7) — break the clones
+                    tree_meshes.append(_billboard(x, ground_y(x, z), z, h=h, w=h * 0.72,
+                                                  yaw=_tg.random() * math.pi))
                     ntrees += 1
 
     # DENSE riparian trees along Sand Creek (the green corridor — cottonwoods/willows on the banks).
@@ -388,20 +443,28 @@ def build(project_dir: str | Path) -> dict:
                         continue
                     off = 5.0 + _tr.random() * 18.0         # 5..23 m off the water, on the banks
                     rx, rz = bx + nx * off * side, bz + nz * off * side
+                    if on_road(rx, rz):                     # the road crosses the creek (bridge) — keep off it
+                        continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
-                    tree_meshes.append(_billboard(rx, ground_y(rx, rz), rz, h=h, w=h * 0.7))
+                    tree_meshes.append(_billboard(rx, ground_y(rx, rz), rz, h=h, w=h * 0.7,
+                                                  yaw=_tr.random() * math.pi))
                     nriver += 1
     trees = _merge(tree_meshes)
 
     # --- dry scrub bushes scattered trackside (the dry-prairie look: sparse low shrubs on dirt) ---
-    import random as _rnd
-    _r = _rnd.Random(1234)                          # seeded → reproducible
+    _r = random.Random(1234)                        # seeded → reproducible
     bush_meshes, nbush = [], 0
     NC, NR = 3, 3                                    # bo_bushes_11 atlas = 3x3 dry plants
+    b_spacing = float(scn.get("bush_spacing_m", 6.0))
+    b_density = float(scn.get("bush_density", 0.55))
+    b_off_min = float(scn.get("bush_off_min_m", 7.0))
+    b_off_span = float(scn.get("bush_off_span_m", 33.0))
+    b_sz_min = float(scn.get("bush_size_min_m", 1.2))
+    b_sz_span = float(scn.get("bush_size_span_m", 1.4))
     acc = 0.0
     for i in range(1, len(loop)):
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
-        if acc < 6.0:
+        if acc < b_spacing:
             continue
         acc = 0.0
         x, y, z = loop[i]
@@ -410,23 +473,26 @@ def build(project_dir: str | Path) -> dict:
         tl = math.hypot(tx, tz) or 1e-6
         nx, nz = -tz / tl, tx / tl
         for side in (1.0, -1.0):
-            if _r.random() > 0.55:                  # sparse — dry prairie, not a hedge
+            if _r.random() > b_density:             # sparse — dry prairie, not a hedge
                 continue
-            off = widths[i] / 2 + 7.0 + _r.random() * 33.0   # 7..40 m off the road, out on the grass
+            off = widths[i] / 2 + b_off_min + _r.random() * b_off_span   # off the road, out on the grass
             bx, bz = x + nx * off * side, z + nz * off * side
+            if on_road(bx, bz):                     # reject where the throw lands on a fold-back/parallel road
+                continue
             by = ground_y(bx, bz) - 0.4             # seat into the ground (correct height even when mirrored)
-            sz = 1.2 + _r.random() * 1.4            # 1.2..2.6 m
+            sz = b_sz_min + _r.random() * b_sz_span
             bush_meshes.append(_billboard_cell(bx, by, bz, _r.randint(0, NC - 1), _r.randint(0, NR - 1),
-                                               NC, NR, sz * 0.78, sz))
+                                               NC, NR, sz * 0.78, sz, yaw=_r.random() * math.pi))
             nbush += 1
     bushes = _merge(bush_meshes)
 
     # --- streetlights along the lap (~ every 48 m, on the right verge) ---
     light_meshes, nlights = [], 0
+    l_spacing = float(scn.get("light_spacing_m", 48.0))
     acc = 0.0
     for i in range(1, len(loop)):
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
-        if acc >= 48.0:
+        if acc >= l_spacing:
             acc = 0.0
             x, y, z = loop[i]
             a, b = loop[i - 1], loop[min(len(loop) - 1, i + 1)]
