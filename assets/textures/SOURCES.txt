@@ -15,3 +15,4 @@ Normal maps are OpenGL convention (Poly Haven "nor_gl" / ambientCG "NormalGL").
 guardrail_diffuse.png + guardrail_normal.png — armco guardrail, extracted from LA Canyons 1.2 (main_rails.kn5, guardrail_07.dds). Personal/non-distributed use only.
 ground_dry_diffuse.jpg — dry dirt/gravel ground, from LA Canyons (la_canyons.kn5, lac_dirt_ground_07.dds).
 bushes_atlas.png — dry scrub bushes (sage/rabbitbrush/grass-tuft/agave), from LA Canyons (main_bushes.kn5, bo_bushes_11.dds). Personal/non-distributed use.
+asphalt_cracked_diffuse.jpg + asphalt_cracked_normal.jpg — cracked/alligator tarmac, from LA Canyons (main_roads.kn5, lac_tarmac_detail_cracked_04.dds). Personal/non-distributed use.

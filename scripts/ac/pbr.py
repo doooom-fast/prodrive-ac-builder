@@ -13,8 +13,8 @@ from pathlib import Path
 
 # name-prefix -> (diffuse, normal, roughness, fallback_rgba, metallic, water)
 TEXTURES = {
-    "1ROAD":   ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.72, (0.08, 0.08, 0.09, 1), 0.0, False),
-    "1RUNOFF": ("asphalt_diffuse.jpg", "asphalt_normal.jpg", 0.82, (0.16, 0.15, 0.14, 1), 0.0, False),  # paved corner run-off (dustier)
+    "1ROAD":   ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.80, (0.10, 0.10, 0.11, 1), 0.0, False),  # cracked/alligator asphalt (LA Canyons lac_tarmac_cracked)
+    "1RUNOFF": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.85, (0.16, 0.15, 0.14, 1), 0.0, False),
     "CALIB":   (None, None, 0.4, (1.0, 0.05, 0.6, 1), 0.9, False),  # bright emissive magenta — temp orientation poles
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
     "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines + crosswalk (shape = geometry)
@@ -30,6 +30,7 @@ TEXTURES = {
     "TREES":   ("tree_diffuse.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
+    "MOUNTAINS": (None, None, 0.95, (0.52, 0.57, 0.66, 1), 0.0, False),  # hazy blue Front Range backdrop (flat silhouette)
     "SIGNPOST": (None, None, 0.60, (0.45, 0.46, 0.48, 1), 0.0, False),              # grey metal posts
 }
 

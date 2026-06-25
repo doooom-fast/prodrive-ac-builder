@@ -157,6 +157,11 @@ def build(project_dir: str | Path) -> dict:
     def project(lon, lat):
         return (sx * (lon - origin[0]) * m_lon, y_at(lon, lat), (lat - origin[1]) * m_lat)
 
+    def ground_y(x, z):
+        """Terrain height under a LOCAL (mirrored) x,z — inverts the projection (incl. mirror) before
+        sampling the heightfield, so scattered foliage sits on the real ground, not a mirror-image of it."""
+        return y_at(origin[0] + sx * x / m_lon, origin[1] + z / m_lat)
+
     env = json.loads((data / "environment.geojson").read_text())["features"]
     gj = json.loads((data / "centerline.geojson").read_text())["features"]
 
@@ -197,10 +202,33 @@ def build(project_dir: str | Path) -> dict:
                 x = min(xs) + ix * step + (iz % 2) * 9
                 z = min(zs) + iz * step
                 if ntrees < 700 and _pip(x, z, poly):
-                    # local x,z -> lon,lat to sample y
-                    lon = origin[0] + x / m_lon; lat = origin[1] + z / m_lat
-                    tree_meshes.append(_billboard(x, y_at(lon, lat), z))
+                    tree_meshes.append(_billboard(x, ground_y(x, z), z))
                     ntrees += 1
+
+    # DENSE riparian trees along Sand Creek (the green corridor — cottonwoods/willows on the banks).
+    import random as _trnd
+    _tr = _trnd.Random(77)
+    nriver = 0
+    for f in env:
+        if f.get("cls") != "water" or f.get("kind") != "line" or len(f.get("coords", [])) < 2:
+            continue
+        pls = [project(lo, la) for lo, la in f["coords"]]
+        for i in range(1, len(pls)):
+            x0, _, z0 = pls[i - 1]; x1, _, z1 = pls[i]
+            seg = math.hypot(x1 - x0, z1 - z0)
+            tx, tz = (x1 - x0) / (seg or 1), (z1 - z0) / (seg or 1)
+            nx, nz = -tz, tx
+            for s in range(max(1, int(seg / 8))):           # ~ every 8 m along the bank
+                t = s / max(1, int(seg / 8))
+                bx, bz = x0 + (x1 - x0) * t, z0 + (z1 - z0) * t
+                for side in (1.0, -1.0):
+                    if _tr.random() > 0.8:                  # dense but not a solid wall
+                        continue
+                    off = 5.0 + _tr.random() * 18.0         # 5..23 m off the water, on the banks
+                    rx, rz = bx + nx * off * side, bz + nz * off * side
+                    h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
+                    tree_meshes.append(_billboard(rx, ground_y(rx, rz), rz, h=h, w=h * 0.7))
+                    nriver += 1
     trees = _merge(tree_meshes)
 
     # --- dry scrub bushes scattered trackside (the dry-prairie look: sparse low shrubs on dirt) ---
@@ -224,9 +252,7 @@ def build(project_dir: str | Path) -> dict:
                 continue
             off = widths[i] / 2 + 7.0 + _r.random() * 33.0   # 7..40 m off the road, out on the grass
             bx, bz = x + nx * off * side, z + nz * off * side
-            lon = origin[0] + bx / m_lon
-            lat = origin[1] + bz / m_lat
-            by = y_at(lon, lat) - 0.4               # seat into the ground so it never floats over the verge
+            by = ground_y(bx, bz) - 0.4             # seat into the ground (correct height even when mirrored)
             sz = 1.2 + _r.random() * 1.4            # 1.2..2.6 m
             bush_meshes.append(_billboard_cell(bx, by, bz, _r.randint(0, NC - 1), _r.randint(0, NR - 1),
                                                NC, NR, sz * 0.78, sz))
@@ -249,6 +275,29 @@ def build(project_dir: str | Path) -> dict:
             light_meshes.append(_post(x - nx * off, y, z - nz * off))
             nlights += 1
     lights = _merge(light_meshes)
+
+    # --- Front Range backdrop: hazy ridges far to the (real) WEST. Placed by real longitude so the
+    #     projection + mirror drop it at true west in-game, and the physical CSP sun (true-north, real
+    #     lat/lon) then SETS BEHIND it. Flat double-sided silhouettes; CSP aerial haze blurs them. ---
+    import random as _mrnd
+    _mr = _mrnd.Random(9)
+    mnt_v, mnt_t = [], []
+    for layer, (dlon, base_h, amp) in enumerate([(-0.10, 560.0, 240.0), (-0.15, 920.0, 340.0)]):
+        wlon = origin[0] + dlon                      # west of the origin
+        prev = None
+        for i in range(81):
+            lat = origin[1] - 0.11 + 0.22 * i / 80
+            x = sx * (wlon - origin[0]) * m_lon       # mirror-aware: ends up at true west in-game
+            z = (lat - origin[1]) * m_lat
+            h = base_h + amp * (0.5 * math.sin(i * 0.4 + layer) + 0.3 * math.sin(i * 1.3 + layer * 2)
+                                + 0.2 * (2 * _mr.random() - 1))
+            b = len(mnt_v)
+            mnt_v.append((x, -200.0, z)); mnt_v.append((x, max(250.0, h), z))
+            if prev is not None:
+                p0, p1 = prev
+                mnt_t += [(p0, p1, b + 1), (p0, b + 1, b), (p0, b + 1, p1), (p0, b, b + 1)]  # double-sided
+            prev = (b, b + 1)
+    mountains = {"vertices": mnt_v, "tris": mnt_t}
 
     # --- buildings from OSM footprints (extruded boxes: walls + corrugated roofs) ---
     bld_path = data / "buildings.geojson"
@@ -294,7 +343,8 @@ def build(project_dir: str | Path) -> dict:
     write_obj(data / "environment.obj", "environment.mtl",
               [("WATER", "grass", water), ("BUILDINGS", "road", bld_commercial),
                ("WAREHOUSE", "road", bld_warehouse), ("ROOFS", "road", bld_roofs),
-               ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights)])
+               ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
+               ("MOUNTAINS", "grass", mountains)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("buildings", (0.58, 0.55, 0.50), bld_commercial), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),

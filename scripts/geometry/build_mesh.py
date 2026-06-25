@@ -229,9 +229,9 @@ def build(project_dir: str | Path) -> dict:
     ribbon.conform_terrain_to_road(grid_xyz, centerline, widths, corridor=16.0, bank_at=bnk,
                                    extra_roads=[(p, w) for _n, p, w in connectors])
 
-    # tile_m=15 matches the Poly Haven aerial_asphalt_01 (~30 m) real-world scale — kills the 4 m
-    # tiling repeat that read as obvious stripes with the old close-up asphalt.
-    road = ribbon.road_ribbon(centerline, widths, tile_m=15.0, bank_at=bnk)
+    # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
+    # stretched). The cracking is irregular enough to hide the repeat.
+    road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
     # Paved asphalt SHOULDER that ramps the lane edge down to the terrain (kills the floating-ribbon
@@ -259,7 +259,7 @@ def build(project_dir: str | Path) -> dict:
     # layout is drivable on the same kn5. Named 1ROAD_* -> asphalt material + physical (export DRIVABLE).
     conn_meshes = []
     for name, pts, w in connectors:
-        cm = ribbon.road_ribbon(pts, w, tile_m=15.0)
+        cm = ribbon.road_ribbon(pts, w, tile_m=8.0)
         cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
         conn_meshes.append((f"1ROAD_{name}", cm))
 
