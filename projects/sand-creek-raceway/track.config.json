@@ -1,7 +1,7 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "mirror_x": true,
   "road_text": {
     "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
@@ -78,6 +78,8 @@
     "corridor_margin_m": 3.0,
     "tree_step_m": 28.0,
     "tree_cap": 700,
+    "tree_atlas_cols": 2,
+    "tree_atlas_rows": 2,
     "bush_spacing_m": 6.0,
     "bush_density": 0.55,
     "bush_off_min_m": 7.0,

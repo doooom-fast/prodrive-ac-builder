@@ -404,6 +404,8 @@ def build(project_dir: str | Path) -> dict:
     _tg = random.Random(55)
     t_step = float(scn.get("tree_step_m", 28.0))
     t_cap = int(scn.get("tree_cap", 700))
+    t_ac = int(scn.get("tree_atlas_cols", 2))     # TREES atlas grid (mined Colorado trees4 = 2x2)
+    t_ar = int(scn.get("tree_atlas_rows", 2))
     for f in env:
         if f["cls"] not in ("green", "wetland") or f["kind"] != "poly" or len(f["coords"]) < 3:
             continue
@@ -417,9 +419,10 @@ def build(project_dir: str | Path) -> dict:
                 x = min(xs) + ix * step + (iz % 2) * 9
                 z = min(zs) + iz * step
                 if ntrees < t_cap and _pip(x, z, poly) and not on_road(x, z):
-                    h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m (was a fixed 7) — break the clones
-                    tree_meshes.append(_billboard(x, ground_y(x, z), z, h=h, w=h * 0.72,
-                                                  yaw=_tg.random() * math.pi))
+                    h = 5.5 + _tg.random() * 4.0                  # 5.5..9.5 m, varied
+                    tree_meshes.append(_billboard_cell(x, ground_y(x, z), z,
+                                                       _tg.randint(0, t_ac - 1), _tg.randint(0, t_ar - 1),
+                                                       t_ac, t_ar, h, h * 0.85, yaw=_tg.random() * math.pi))
                     ntrees += 1
 
     # DENSE riparian trees along Sand Creek (the green corridor — cottonwoods/willows on the banks).
@@ -446,8 +449,9 @@ def build(project_dir: str | Path) -> dict:
                     if on_road(rx, rz):                     # the road crosses the creek (bridge) — keep off it
                         continue
                     h = 6.0 + _tr.random() * 5.0            # 6..11 m cottonwoods
-                    tree_meshes.append(_billboard(rx, ground_y(rx, rz), rz, h=h, w=h * 0.7,
-                                                  yaw=_tr.random() * math.pi))
+                    tree_meshes.append(_billboard_cell(rx, ground_y(rx, rz), rz,
+                                                       _tr.randint(0, t_ac - 1), _tr.randint(0, t_ar - 1),
+                                                       t_ac, t_ar, h, h * 0.85, yaw=_tr.random() * math.pi))
                     nriver += 1
     trees = _merge(tree_meshes)
 

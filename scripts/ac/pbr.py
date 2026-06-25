@@ -28,7 +28,7 @@ TEXTURES = {
     "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.74, 0.74, 0.72, 1), 0.0, False),  # concrete jersey K-rail
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.70, (0.40, 0.40, 0.42, 1), 0.10, False),
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
-    "TREES":   ("tree_diffuse.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),
+    "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
     "MOUNTAINS": (None, None, 0.95, (0.52, 0.57, 0.66, 1), 0.0, False),  # hazy blue Front Range backdrop (flat silhouette)
