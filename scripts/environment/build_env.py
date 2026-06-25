@@ -165,6 +165,35 @@ def _post(x, y, z, h=9.0, r=0.25):  # streetlight post (thin quad)
             "tris": [(0, 1, 2), (0, 2, 3)]}
 
 
+def _container_box(cx, cz, gy, yaw, *, L=12.2, H=5.2, D=2.5):
+    """A stacked-shipping-container box (industrial-yard prop). Long faces map the FULL container atlas
+    (rows of weathered containers); short ends a single-container slice. DOUBLE-SIDED so it renders
+    regardless of the mirror_x winding flip (no need to track it for a handful of boxes)."""
+    c, s = math.cos(yaw), math.sin(yaw)
+    hl, hd = L / 2.0, D / 2.0
+
+    def R(dx, dz, y):
+        return (cx + dx * c - dz * s, y, cz + dx * s + dz * c)
+
+    V = [R(-hl, -hd, gy), R(hl, -hd, gy), R(hl, hd, gy), R(-hl, hd, gy),
+         R(-hl, -hd, gy + H), R(hl, -hd, gy + H), R(hl, hd, gy + H), R(-hl, hd, gy + H)]
+    verts, uvs, tris = [], [], []
+
+    def face(a, b, cc, d, uv):
+        n = len(verts)
+        verts.extend([V[a], V[b], V[cc], V[d]])
+        uvs.extend(uv)
+        tris.extend([(n, n + 1, n + 2), (n, n + 2, n + 3),
+                     (n, n + 2, n + 1), (n, n + 3, n + 2)])   # both windings → double-sided
+    A = [(0, 0), (1, 0), (1, 1), (0, 1)]            # long faces: full stacked-container atlas
+    E = [(0, 0), (0.28, 0), (0.28, 1), (0, 1)]      # short ends: one-container slice
+    T = [(0, 0.82), (1, 0.82), (1, 1), (0, 1)]      # top: thin slice
+    face(0, 1, 5, 4, A); face(2, 3, 7, 6, A)
+    face(1, 2, 6, 5, E); face(3, 0, 4, 7, E)
+    face(4, 5, 6, 7, T)
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def _resample_xz(pts, step=8.0):
     """Resample a polyline of (x,y,z) to ~step spacing in the X-Z plane (y zeroed)."""
     seg = [0.0]
@@ -561,6 +590,32 @@ def build(project_dir: str | Path) -> dict:
     bld_commercial = _merge(commercial_walls)
     bld_roofs = _merge(roof_meshes)
 
+    # --- shipping-container stacks in the warehouse yards (industrial Commerce City character) ---
+    _rc = random.Random(99)
+    cont_meshes, ncont = [], 0
+    cont_cap = int(scn.get("container_cap", 60))
+    for b in bld:
+        if ncont >= cont_cap:
+            break
+        foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
+        if len(foot) < 3 or _poly_area(foot) < 700:      # warehouses only (big footprints get yards)
+            continue
+        cxf = sum(p[0] for p in foot) / len(foot)
+        czf = sum(p[1] for p in foot) / len(foot)
+        if min(math.hypot(cxf - lx, czf - lz) for lx, lz in loop_xz) > 330:
+            continue
+        ext = math.sqrt(_poly_area(foot))
+        for _ in range(_rc.randint(1, 3)):               # a small cluster beside each warehouse
+            ang = _rc.random() * 2 * math.pi
+            r = ext * 0.5 + 6.0 + _rc.random() * 14.0
+            px, pz = cxf + math.cos(ang) * r, czf + math.sin(ang) * r
+            if on_road(px, pz):
+                continue
+            cont_meshes.append(_container_box(px, pz, ground_y(px, pz) - 0.1, _rc.random() * math.pi,
+                                              L=_rc.choice([6.1, 12.2]), H=_rc.choice([2.6, 5.2, 5.2])))
+            ncont += 1
+    containers = _merge(cont_meshes)
+
     # --- street-name signs: DISABLED — the corner->street mapping was wrong (mislabeled) and the
     #     panel UVs were flipped. Redo with real OSM road-name matching + corrected UVs before re-enabling.
     #     (signs.build_signs / render_atlas remain for that pass.)
@@ -578,7 +633,8 @@ def build(project_dir: str | Path) -> dict:
                ("WAREHOUSE", "road", bld_warehouse), ("ROOFS", "road", bld_roofs),
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
-               ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge)])
+               ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
+               ("CONTAINERS", "road", containers)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
                 ("buildings", (0.58, 0.55, 0.50), bld_commercial), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),
@@ -590,7 +646,7 @@ def build(project_dir: str | Path) -> dict:
     return {"connector_pts": len(connector["vertices"]) // 2, "water_tris": len(water["tris"]),
             "highway_deck_tris": len(hwy_deck["tris"]), "highway_struct_tris": len(hwy_struct["tris"]),
             "buildings": nbld, "trees": ntrees, "bushes": nbush, "river_trees": nriver,
-            "streetlights": nlights, "render": str(data / "dressed_render.svg")}
+            "streetlights": nlights, "containers": ncont, "render": str(data / "dressed_render.svg")}
 
 
 def main() -> None:
