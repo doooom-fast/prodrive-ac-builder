@@ -40,8 +40,13 @@ projects/*/build/*
 # build is reproducible from a clean checkout.
 !projects/*/data/connectors.local.json
 
-# GPL kn5 exporter (auto-cloned by scripts/ac/kn5_native.py — not vendored)
-vendor/
+# vendor/: ignore everything EXCEPT the io_import_accsv add-on — that's the WORKING headless kn5
+# exporter (scripts/ac/export_kn5_addon.py installs it), so it must be committed for a clean checkout
+# to build. (The auto-cloned GPL kn5_native exporter, if ever present, stays ignored.)
+vendor/*
+!vendor/io_import_accsv
+vendor/io_import_accsv/**/__pycache__/
+vendor/io_import_accsv/**/*.pyc
 
 # mined mod intermediates — license-sensitive, never commit to a public artifact
 assets/props/_raw/
