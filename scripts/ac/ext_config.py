@@ -33,11 +33,19 @@ def generate(project_dir: str | Path) -> Path:
     slug = json.loads((project_dir / "track.config.json").read_text())["slug"]
     groups = _obj_groups(data / "track.obj") + _obj_groups(data / "environment.obj")
 
-    # everything solid that sits over grass occludes the procedural grass (so it doesn't grow through);
-    # GRASS is the source, TREES/LIGHTS are thin/decorative so they don't occlude.
     grass_meshes = [g for g in groups if g.upper().startswith("1GRASS")] or ["1GRASS"]
-    occluders = [g for g in groups if not g.upper().startswith("1GRASS")
-                 and g.upper() not in ("TREES", "LIGHTS")]
+    # GrassFX OCCLUDING_MESHES = ONLY ground-level solid surfaces that sit on the grass plane (so grass
+    # doesn't grow through them). This is a deliberate ALLOW-LIST. Anything else MUST NOT be an occluder:
+    # foliage billboards (TREES/BUSHES), the far-field MOUNTAINS backdrop, elevated HIGHWAY/HWYSTRUCT decks,
+    # thin LIGHTS posts, barriers, decorative props. WHY it's an allow-list not a blacklist: GrassFX builds
+    # its occlusion field over the COMBINED bounding volume of these meshes at SESSION load — a far-field
+    # mesh wrongly enrolled (e.g. a 24 km x 1.45 km mountain backdrop) explodes that volume and the GPU
+    # pass exceeds the Windows TDR watchdog -> whole-PC freeze. That exact bug shipped v0.12.1-v0.12.6 when
+    # MOUNTAINS/HIGHWAY got auto-swept in by the old blacklist. A missing prefix here only lets grass grow
+    # through something (cosmetic); an over-broad list crashes the PC, so fail safe toward FEWER occluders.
+    OCCLUDE_PREFIXES = ("1ROAD", "1KERB", "1RUNOFF", "MARKINGS", "ROADTEXT",
+                        "BUILDINGS", "WAREHOUSE", "ROOFS", "WATER")
+    occluders = [g for g in groups if g.upper().startswith(OCCLUDE_PREFIXES)]
     has_water = any(g.upper() == "WATER" for g in groups)
     has_lights = any(g.upper() == "LIGHTS" for g in groups)
     has_windows = any(g.upper() in ("WINDOWS", "BUILDING", "BUILDINGS") for g in groups)
