@@ -49,14 +49,26 @@ tools and 3D asset sources.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e .          # geospatial deps (rasterio needs system GDAL)
-# Blender 4.x + AC Blender Tools addon installed separately for kn5 export
+# Blender 4.2 + the kn5 export add-on are pinned/vendored — bootstrap fetches them, see Build.
 ```
 
 ## Build
 
+One command runs the whole Mac pipeline (Phases 1–5) for a track, from `track.config.json` to an
+installable `.zip`. It pins Blender 4.2 (the add-on's required version) into a stable cache on first
+run — no manual Blender install, no ephemeral `/tmp`.
+
 ```bash
-blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
+./scripts/build.sh projects/sand-creek-raceway          # full run, Phases 1–5
+./scripts/build.sh projects/sand-creek-raceway mesh      # resume from a stage (skip the OSM/USGS fetch)
+./scripts/build.sh projects/sand-creek-raceway --list    # list the stages
 ```
+
+Stages, in order: `gps` (Overpass centerline + street labels) → `elev` (USGS 3DEP) → `project`
+(local metres, origin, true north) → `mesh` (road ribbon + grass + dummies + decals) → `env`
+(buildings/trees/highways/mountains) → `blend` → `kn5` (Blender 4.2 + vendored add-on) → `pack`
+(AC folder + zip). The `gps`/`elev` front half hits the network and only re-runs when the route or
+region changes; the geometry→package back half is offline and deterministic.
 
 ## Install (optional, phase 6 — Windows)
 
