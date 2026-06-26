@@ -33,7 +33,7 @@ from scripts.geometry.projection import _meters_per_degree
 OUTPUT_SCHEMA_VERSION = 1
 STATION_BIN_M = 5.0          # distil to one evidence point every 5 m of centerline
 MAX_FRAMES_PER_STATION = 3   # keep a few representative frame refs per station (lowest GPS error)
-GRADE_WINDOW_BINS = 3        # ±3 bins (~30 m) least-squares slope — smooth, robust to bin-mean wobble
+GRADE_WINDOW_BINS = 6        # ±6 bins (~60 m) least-squares slope — wide enough to smooth GPS-alt noise
 FRAME = "ENU local meters (X=east, Y=up, Z=north)"
 
 
@@ -90,12 +90,10 @@ def _distil_source(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     bins: dict[int, dict[str, Any]] = {}
     for r in records:
         idx = int(r["station"] // STATION_BIN_M)
-        b = bins.setdefault(idx, {"lat": [], "alt": [], "baro": [], "hacc": [], "frames": []})
+        b = bins.setdefault(idx, {"lat": [], "alt": [], "hacc": [], "frames": []})
         b["lat"].append(r["lateral"])
         if r["gps_alt"] is not None:
             b["alt"].append(r["gps_alt"])
-        if r["baro_rel"] is not None:
-            b["baro"].append(r["baro_rel"])
         if r["hacc"] is not None:
             b["hacc"].append(r["hacc"])
         b["frames"].append({"i": r["i"], "t": round(r["t"], 3),
@@ -106,35 +104,33 @@ def _distil_source(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         b = bins[idx]
         n = len(b["lat"])
         frames = sorted(b["frames"], key=lambda f: f["hacc"])[:MAX_FRAMES_PER_STATION]
+        # medians, not means: a station is visited on every lap, so pooling all passes and taking the
+        # median is robust to the odd off-line GPS fix or vertical spike.
         stations.append({
             "station_m": round(idx * STATION_BIN_M, 2),
-            "lat_offset_m": round(_mean(b["lat"]), 3),
-            "alt_m": round(_mean(b["alt"]), 3) if b["alt"] else None,
-            "_baro_rel": _mean(b["baro"]) if b["baro"] else None,  # private: dropped after grade calc
+            "lat_offset_m": round(_median(b["lat"]), 3),
+            "alt_m": round(_median(b["alt"]), 3) if b["alt"] else None,
             "gps_hacc_m": round(_mean(b["hacc"]), 2) if b["hacc"] else None,
             "n": n,
             "frames": [{"i": f["i"], "t": f["t"]} for f in frames],
         })
 
     _fill_grade(stations)
-    for s in stations:
-        s.pop("_baro_rel", None)
     return stations
 
 
 def _fill_grade(stations: list[dict[str, Any]]) -> None:
-    """Grade (%) as an n-weighted least-squares slope over a ±``GRADE_WINDOW_BINS`` window. Prefer the
-    barometer (smooth within a session); else GPS altitude. A 2-point difference of binned means wobbles
-    when samples land unevenly across bins; the windowed fit smooths that out. Mutates each station,
-    adding ``grade_pct`` (None where elevation is too sparse to fit)."""
-    use_baro = any(s["_baro_rel"] is not None for s in stations)
-    key = "_baro_rel" if use_baro else "alt_m"
+    """Grade (%) as an n-weighted least-squares slope of GPS altitude over a ±``GRADE_WINDOW_BINS``
+    window. GPS altitude is absolute and drift-free; the barometer's relative-altitude reference drifts
+    over a long multi-lap session (weather + sensor) and yields wild grades (±80%+ on real data). The
+    median-per-station alt + wide window + n-weighting smooth the residual GPS vertical noise to a sane
+    ±3% for gentle terrain. Mutates each station, adding ``grade_pct`` (None where alt is too sparse)."""
     n = len(stations)
     for k in range(n):
         xs, ys, ws = [], [], []
         for s in stations[max(0, k - GRADE_WINDOW_BINS):k + GRADE_WINDOW_BINS + 1]:
-            if s[key] is not None:
-                xs.append(s["station_m"]); ys.append(s[key]); ws.append(s["n"])
+            if s["alt_m"] is not None:
+                xs.append(s["station_m"]); ys.append(s["alt_m"]); ws.append(s["n"])
         stations[k]["grade_pct"] = round(_wls_slope(xs, ys, ws) * 100.0, 2) if len(xs) >= 2 else None
 
 
@@ -287,6 +283,14 @@ def _load_existing(out_path: Path, slug: str) -> dict[str, Any]:
 
 def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
+
+
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    m = len(s)
+    if m == 0:
+        return 0.0
+    return s[m // 2] if m % 2 else (s[m // 2 - 1] + s[m // 2]) / 2.0
 
 
 def main() -> None:
