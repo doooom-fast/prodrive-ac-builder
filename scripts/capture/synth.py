@@ -57,9 +57,8 @@ def write_bundle(out_dir: str | Path, project_dir: str | Path, *, session_id: st
     lon0, lat0, elev0 = origin["lon"], origin["lat"], origin["elev_m"]
     m_lon, m_lat = _meters_per_degree(lat0)
 
-    cfg_path = project_dir / "track.config.json"
-    mirror_x = bool(json.loads(cfg_path.read_text()).get("mirror_x", False)) if cfg_path.exists() else False
-
+    # NB: centerline.local.json is un-mirrored ENU (mirror_x is applied later, at mesh build), so we
+    # un-project straight through the origin — no mirror — exactly the frame ingest matches against.
     pts_xyz = [(p[0], p[1], p[2]) for p in local["points_xyz_m"]]
     rng = random.Random(1234)
 
@@ -78,8 +77,7 @@ def write_bundle(out_dir: str | Path, project_dir: str | Path, *, session_id: st
         if gps_noise_m:
             mx += rng.gauss(0, gps_noise_m)
             mz += rng.gauss(0, gps_noise_m)
-        proj_x = -mx if mirror_x else mx
-        lon = lon0 + proj_x / m_lon
+        lon = lon0 + mx / m_lon
         lat = lat0 + mz / m_lat
         heading = (math.degrees(math.atan2(tx, tz)) + 360.0) % 360.0  # true-north bearing of travel
         depth_ref = None

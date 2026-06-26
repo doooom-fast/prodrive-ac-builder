@@ -126,14 +126,21 @@ def test_multilap_merge_strengthens_stations():
         assert s150["n"] == n_one[150.0] * 2     # two laps → double the evidence count
 
 
-def test_mirror_x_roundtrips():
+def test_mirror_x_config_is_ignored_by_ingest():
+    # Regression for the real-capture bug: centerline.local.json is ALWAYS un-mirrored (projection.py
+    # never mirrors; build_mesh/build_env apply mirror_x later). So a config with mirror_x=true must NOT
+    # shift the match — GPS driven on the line still lands at lateral ≈ 0. (Previously ingest negated x
+    # against an un-mirrored centerline, reflecting the whole trace across x=0.)
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         proj = _write_project(root, mirror_x=True)
+        # offset the line in +x so a mistaken mirror would show up as a large lateral, not cancel at 0
+        cl = json.loads((proj / "data" / "centerline.local.json").read_text())
+        cl["points_xyz_m"] = [[x + 500.0, y, z] for x, y, z in cl["points_xyz_m"]]
+        (proj / "data" / "centerline.local.json").write_text(json.dumps(cl))
         synth.write_bundle(root / "bundle", proj, session_id="lap1")
         ingest.build(proj, root / "bundle")
         doc = _load_capture(proj)
-        # synth + ingest both honor mirror_x, so the line still reconstructs at lateral ≈ 0
         assert max(abs(s["lat_offset_m"]) for s in doc["stations"]) < 0.05
 
 

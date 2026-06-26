@@ -1,10 +1,11 @@
 """Phase: ingest a Prodrive Scan session bundle → committed real-world evidence.
 
-Projects every captured GPS fix into the *same* local-metre mesh frame the geometry pipeline built
-(reusing ``scripts.geometry.projection._meters_per_degree`` + the origin in ``centerline.local.json``),
-matches each to the centerline to get an arc-length **station** + a **signed lateral offset in mesh
-space** (never driver-POV L/R — that flips under a config ``mirror_x``), then distils the run into
-per-station evidence and merges it into ``projects/<slug>/source/realworld_capture.json``.
+Projects every captured GPS fix into the ``centerline.local.json`` frame the geometry pipeline built
+(reusing ``scripts.geometry.projection._meters_per_degree`` + the origin in that file), matches each to
+the centerline to get an arc-length **station** + a **signed lateral offset** in that un-mirrored ENU
+frame (NOT driver-POV L/R). NB: ``centerline.local.json`` is always un-mirrored — the config
+``mirror_x`` is applied later by build_mesh/build_env, so ingest must not apply it. The run is then
+distilled into per-station evidence and merged into ``projects/<slug>/source/realworld_capture.json``.
 
 Output is deterministic (no wall-clock fields) so re-ingesting the same bundle is a no-op diff, and
 each source carries its own distilled per-station summary so the committed file survives even after the
@@ -207,8 +208,11 @@ def build(project_dir: str | Path, bundle_dir: str | Path) -> dict:
     origin = local["origin"]
     lon0, lat0, elev0 = origin["lon"], origin["lat"], origin["elev_m"]
     m_lon, m_lat = _meters_per_degree(lat0)
-    mirror_x = bool(cfg.raw.get("mirror_x", False))  # absent in this checkout; honored if a track sets it
 
+    # centerline.local.json is UN-mirrored ENU: projection.py never mirrors — the config `mirror_x` is
+    # applied LATER, when build_mesh/build_env/build_kn5 construct the actual mesh. So we match GPS in
+    # this same un-mirrored frame and must NOT apply mirror_x here. The lateral is therefore in the
+    # centerline frame; the consumer (build_env) applies mirror_x consistently when it places things.
     pts_xz = [(p[0], p[2]) for p in local["points_xyz_m"]]
     stations_cum = _cumulative_stations(pts_xz)
 
@@ -221,8 +225,6 @@ def build(project_dir: str | Path, bundle_dir: str | Path) -> dict:
         gps_fixes += 1
         x = (s.gps.lon - lon0) * m_lon
         z = (s.gps.lat - lat0) * m_lat
-        if mirror_x:
-            x = -x
         station, lateral = match_to_centerline(x, z, pts_xz, stations_cum)
         records.append({
             "station": station, "lateral": lateral,
