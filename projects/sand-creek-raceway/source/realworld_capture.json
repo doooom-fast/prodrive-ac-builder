@@ -36173,7 +36173,14 @@
     }
   ],
   "placements": [],
-  "texture_overrides": [],
+  "texture_overrides": [
+    {
+      "material": "1ROAD",
+      "diffuse": "source/textures/sand_creek_raceway_road_diffuse.jpg",
+      "normal": "source/textures/sand_creek_raceway_road_normal.jpg",
+      "source": "prodrive-scan-20260626T012652Z-c7be2c"
+    }
+  ],
   "origin": {
     "lon": -104.92279307050906,
     "lat": 39.78644888384027,
