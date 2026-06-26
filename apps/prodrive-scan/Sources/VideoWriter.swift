@@ -19,6 +19,7 @@ final class VideoWriter {
     private var started = false
     private let url: URL
     private let transform: CGAffineTransform   // rotates the landscape-native frame upright for the mount
+    private(set) var lastError: String?        // surfaced if the encoder fails mid-recording
 
     init(url: URL, transform: CGAffineTransform) {
         self.url = url
@@ -36,19 +37,29 @@ final class VideoWriter {
             writer.startSession(atSourceTime: pts)
             started = true
         }
+        if writer.status == .failed {
+            if lastError == nil { lastError = writer.error?.localizedDescription ?? "encoder failed" }
+            return
+        }
         guard writer.status == .writing, input.isReadyForMoreMediaData else { return }
         if adaptor.append(pixelBuffer, withPresentationTime: pts) {
             frameCount += 1
         }
     }
 
-    /// Finish encoding and block until the file is finalised.
+    /// Finish encoding and block until the file is finalised. Even if this never runs (crash/kill) or
+    /// the writer has failed, the fragmented-MP4 stream written so far is still playable.
     func finish() {
         guard let writer, let input, started else { return }
+        guard writer.status == .writing else {
+            lastError = writer.error?.localizedDescription ?? "writer not writing (status \(writer.status.rawValue))"
+            return
+        }
         input.markAsFinished()
         let sema = DispatchSemaphore(value: 0)
         writer.finishWriting { sema.signal() }
         sema.wait()
+        if writer.status == .failed { lastError = writer.error?.localizedDescription ?? "finishWriting failed" }
     }
 
     private func configure(with pixelBuffer: CVPixelBuffer) {
@@ -57,6 +68,11 @@ final class VideoWriter {
         let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
 
         guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return }
+        // Fragmented MP4: write a moov up front + a moof fragment every few seconds, so the file stays
+        // PLAYABLE even if finishWriting never completes or the app is killed. Without this, an
+        // unfinalised capture is a dead `ftyp+mdat` with no moov (the whole 32-min first capture was lost
+        // this way). 6 s keeps the fragment overhead negligible.
+        writer.movieFragmentInterval = CMTime(seconds: 6, preferredTimescale: 600)
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
