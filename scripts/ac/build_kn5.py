@@ -128,10 +128,13 @@ def build(track_dir: Path) -> Path:
     #    AND the kn5 gets the right shader.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import pbr
+    overrides = pbr.load_overrides(track_dir)   # real captured textures (scripts/capture/textures.py)
+    if overrides:
+        print(f"[build_kn5] real-world texture overrides: {sorted(overrides)}")
     mat_file = data / "materials.json"
     mats = json.loads(mat_file.read_text())["materials"] if mat_file.exists() else {}
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
-        mat = pbr.setup_material(bpy, ob)
+        mat = pbr.setup_material(bpy, ob, overrides=overrides)
         prefix = next((p for p in mats if ob.name.upper().startswith(p.upper())), None)
         if prefix:
             mat["shaderName"] = mats[prefix]["shader"]  # read by AC Blender Tools

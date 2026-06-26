@@ -9,6 +9,7 @@ Not a Blender entry point — import it (``from scripts.ac import pbr``) and cal
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 # name-prefix -> (diffuse, normal, roughness, fallback_rgba, metallic, water)
@@ -46,21 +47,44 @@ def texture_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "assets" / "textures"
 
 
-def setup_material(bpy, obj, tex_dir: Path | None = None):
+def load_overrides(project_dir: str | Path) -> dict[str, dict]:
+    """Real-world captured textures to use in place of the stock ``assets/textures`` set, keyed by mesh
+    prefix. Read from ``<project>/source/realworld_capture.json`` (texture_overrides[], written by
+    scripts/capture/textures.py); paths resolve relative to the project. Empty when no capture exists →
+    the build uses the stock textures unchanged. Pure (no bpy) so it's unit-testable."""
+    project_dir = Path(project_dir)
+    cap = project_dir / "source" / "realworld_capture.json"
+    if not cap.exists():
+        return {}
+    out: dict[str, dict] = {}
+    for o in json.loads(cap.read_text()).get("texture_overrides", []):
+        ent = {}
+        if o.get("diffuse"):
+            ent["diffuse"] = str(project_dir / o["diffuse"])
+        if o.get("normal"):
+            ent["normal"] = str(project_dir / o["normal"])
+        if ent:
+            out[str(o["material"]).upper()] = ent
+    return out
+
+
+def setup_material(bpy, obj, tex_dir: Path | None = None, overrides: dict | None = None):
     """Assign a Principled material (diffuse + normal from ``tex_dir``) to ``obj`` by name prefix.
+    ``overrides`` (from :func:`load_overrides`) swaps in real captured textures for matching prefixes.
     Returns the material so callers can stamp AC metadata (e.g. ``mat['shaderName']``) on it."""
     tex_dir = Path(tex_dir) if tex_dir else texture_dir()
     name = obj.name.upper()
     key = next((k for k in TEXTURES if name.startswith(k)), None)
     diff, norm, rough, color, metal, water = TEXTURES.get(
         key, (None, None, 0.8, (0.5, 0.5, 0.5, 1), 0.0, False))
+    ov = (overrides or {}).get(key or "", {})
 
     mat = bpy.data.materials.new(obj.name + "_mat")
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
 
-    dpath = tex_dir / diff if diff else None
+    dpath = Path(ov["diffuse"]) if ov.get("diffuse") else (tex_dir / diff if diff else None)
     if dpath and dpath.exists():
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = bpy.data.images.load(str(dpath), check_existing=True)
@@ -80,7 +104,7 @@ def setup_material(bpy, obj, tex_dir: Path | None = None):
     if water and "Transmission Weight" in bsdf.inputs:
         bsdf.inputs["Transmission Weight"].default_value = 0.4
 
-    npath = tex_dir / norm if norm else None
+    npath = Path(ov["normal"]) if ov.get("normal") else (tex_dir / norm if norm else None)
     if npath and npath.exists():
         ntex = nt.nodes.new("ShaderNodeTexImage")
         nimg = bpy.data.images.load(str(npath), check_existing=True)
