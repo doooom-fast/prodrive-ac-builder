@@ -19,6 +19,7 @@ import math
 import sys
 from pathlib import Path
 
+from scripts.capture import evidence
 from scripts.config import load_config
 from scripts.geometry import kerbs, ribbon
 from scripts.geometry.build_mesh import ROAD_LIFT_M, project_grid, read_npy, render_iso, write_mtl, write_obj
@@ -363,6 +364,13 @@ def build(project_dir: str | Path) -> dict:
     elev0 = local["origin"]["elev_m"]
     loop = [tuple(p) for p in local["points_xyz_m"]]
     widths = local["widths_m"]
+
+    # REAL ELEVATION (must match build_mesh): correct the road-surface Y from a Prodrive Scan capture
+    # where it confidently diverges from the heightfield, so the terrain conforms to the real road.
+    # No capture → loop unchanged (byte-identical). Applied pre-mirror (Y only; mirror is X-only).
+    cap = evidence.load_capture(project_dir)
+    if cap is not None:
+        loop, _estats = evidence.corrected_elevation(loop, cap)
 
     # MIRROR_X (must match build_mesh): mirror the east axis of everything so the scenery lines up with
     # the mirrored track. Visual mesh winding is reversed at the end (a mirror flips it inside-out).

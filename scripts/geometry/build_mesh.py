@@ -17,6 +17,7 @@ import struct
 import sys
 from pathlib import Path
 
+from scripts.capture import evidence
 from scripts.geometry import dummies as dummies_mod
 from scripts.geometry import kerbs, ribbon, road_text
 from scripts.geometry import profile as profile_mod
@@ -181,7 +182,17 @@ def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
     local = json.loads((data / "centerline.local.json").read_text(encoding="utf-8"))
-    centerline = round_sharp_corners(smooth_centerline([tuple(p) for p in local["points_xyz_m"]]))
+    raw_pts = [tuple(p) for p in local["points_xyz_m"]]
+    # REAL ELEVATION: where a Prodrive Scan capture exists, correct the road-surface Y where it
+    # confidently diverges from the bare-earth heightfield (bridges/overpasses/cuts). No capture →
+    # raw_pts is returned unchanged, so the build stays byte-identical. (Y only; X/Z untouched.)
+    cap = evidence.load_capture(project_dir)
+    if cap is not None:
+        raw_pts, estats = evidence.corrected_elevation(raw_pts, cap)
+        if estats["n_corrected"]:
+            print(f"  elevation: corrected {estats['n_corrected']} centerline pts from capture "
+                  f"(max {estats['max_corr_m']:.1f} m, offset {estats['offset_m']:.1f} m)")
+    centerline = round_sharp_corners(smooth_centerline(raw_pts))
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
