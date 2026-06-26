@@ -103,6 +103,60 @@ def road_shoulder(centerline_m: list[Vertex], widths_m: list[float], *, lift: fl
     return {"vertices": verts, "uvs": uvs, "tris": tris}
 
 
+def curb_sidewalk(centerline_m: list[Vertex], widths_m: list[float], *, lift: float = 0.1,
+                  curb_h: float = 0.15, curb_face_w: float = 0.08, sidewalk_w: float = 1.5,
+                  grade_w: float = 1.0, grass_clearance: float = 0.25, tile_m: float = 2.0,
+                  bank_at=None) -> dict:
+    """A continuous urban edge swept along BOTH road sides as ONE strip so road, curb, sidewalk and
+    grass share seam vertices and nothing can hover. Per side, the cross-section is four profile points
+    out from the lane edge:
+      0  lane edge   — identical to the road-ribbon edge (road height, ``lift`` proud) → road↔curb meets
+      1  curb top    — raised ``curb_h`` over a slight ``curb_face_w`` batter (mountable, not a wall)
+      2  sidewalk back— flat walkway ``sidewalk_w`` wide at curb-top height
+      3  grass meet   — graded down ``grade_w`` to the grass-conform height (road edge − ``grass_clearance``)
+    Heights are referenced to the BANKED road edge (``side*half*tan(bank)``) — the same height the grass is
+    conformed to — so the outer lip lands exactly on the graded terrain on cambered corners too. Physical
+    (``1KERB_sidewalk`` in build_mesh). UVs: U across the profile, V along the road (m/``tile_m``)."""
+    pts = centerline_m
+    n = len(pts)
+    closed = abs(pts[0][0] - pts[-1][0]) < 1e-6 and abs(pts[0][2] - pts[-1][2]) < 1e-6
+    m = n - 1 if closed else n
+    # (offset beyond half-width, height above the banked road edge)
+    profile = [(0.0, lift), (curb_face_w, lift + curb_h),
+               (curb_face_w + sidewalk_w, lift + curb_h),
+               (curb_face_w + sidewalk_w + grade_w, -grass_clearance)]
+    total_w = profile[-1][0] or 1e-9
+    P = len(profile)
+    verts: list[Vertex] = []
+    uvs: list[tuple[float, float]] = []
+    tris: list[tuple[int, int, int]] = []
+    for side in (1.0, -1.0):
+        rows: list[int] = []
+        arc = 0.0
+        for i in range(m):
+            if i > 0:
+                arc += math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+            x, y, z = pts[i]
+            tx, tz = _horiz_tangent(pts, i, closed)
+            nx, nz = -tz * side, tx * side  # outward normal on this side
+            half = widths_m[i] / 2.0
+            edge_bank = side * half * (math.tan(bank_at(arc)) if bank_at else 0.0)
+            r = len(verts)
+            for off, h in profile:
+                o = half + off
+                verts.append((x + nx * o, y + edge_bank + h, z + nz * o))
+                uvs.append((off / total_w, arc / tile_m))
+            rows.append(r)
+        last = m if closed else m - 1
+        for k in range(last):
+            a = rows[k]
+            b = rows[(k + 1) % m]
+            for p in range(P - 1):                      # curb face, sidewalk top, back grade
+                tris.append((a + p, a + p + 1, b + p + 1))
+                tris.append((a + p, b + p + 1, b + p))
+    return {"vertices": verts, "uvs": uvs, "tris": tris}
+
+
 def _road_surface_samples(centerline_m: list[Vertex], widths_m: list[float] | None, bank_at=None):
     """Centre + both edge points per station, each tagged with its lap index. Grading to these — not
     just the centreline — makes the terrain meet the road at its real edges; with ``bank_at`` the edge

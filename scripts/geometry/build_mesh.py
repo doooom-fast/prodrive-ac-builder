@@ -248,11 +248,23 @@ def build(project_dir: str | Path) -> dict:
     road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]
     grass = ribbon.grass_terrain(grid_xyz)
-    # Paved asphalt SHOULDER that ramps the lane edge down to the terrain (kills the floating-ribbon
-    # hard edge AND gives a tarmac border instead of grass right at the edge). Lift baked in so its
-    # inner lip meets the road edge exactly.
-    shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk,
-                                    ground_drop=GRASS_CLEARANCE_M)
+    # ROAD EDGE — config-gated. Default: a paved asphalt SHOULDER that ramps the lane edge down to the
+    # terrain (kills the floating-ribbon hard edge). `road_edge.profile == "sidewalk"` instead sweeps a
+    # continuous curb→sidewalk→grass profile that shares seam vertices with the road and the grass (urban
+    # streets, e.g. Sand Creek). Both are physical so there is no gap to drop into; both bake the lift so
+    # the inner lip meets the road edge exactly. Other tracks (no road_edge) build byte-identically.
+    edge_cfg = cfg_raw.get("road_edge", {})
+    if edge_cfg.get("profile") == "sidewalk":
+        shoulder = ribbon.curb_sidewalk(centerline, widths, lift=ROAD_LIFT_M,
+                                        grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk,
+                                        curb_h=float(edge_cfg.get("curb_h", 0.15)),
+                                        sidewalk_w=float(edge_cfg.get("sidewalk_w", 1.5)),
+                                        grade_w=float(edge_cfg.get("grade_w", 1.0)))
+        edge_group, edge_mat = "1KERB_sidewalk", "kerb"
+    else:
+        shoulder = ribbon.road_shoulder(centerline, widths, lift=ROAD_LIFT_M, bank_at=bnk,
+                                        ground_drop=GRASS_CLEARANCE_M)
+        edge_group, edge_mat = "1ROAD_shoulder", "road"
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
@@ -320,7 +332,7 @@ def build(project_dir: str | Path) -> dict:
     # 1GRASS (not GRASS): the leading digit makes the terrain a PHYSICAL surface keyed to
     # surfaces.ini GRASS, so you don't fall through the world off the racing line either.
     # (Orientation confirmed in-game — the temporary CALIB calibration poles are removed.)
-    groups = [("1GRASS", "grass", grass), ("1ROAD_shoulder", "road", shoulder),
+    groups = [("1GRASS", "grass", grass), (edge_group, edge_mat, shoulder),
               ("1RUNOFF_corners", "road", runoff), ("1ROAD_main", "road", road),
               ("1KERB_corners", "kerb", kerb), ("MARKINGS", "kerb", marks),
               ("MARKINGS_crosswalk", "kerb", xwalk)]
