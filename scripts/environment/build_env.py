@@ -580,9 +580,10 @@ def build(project_dir: str | Path) -> dict:
     # field of identical grey boxes. Big footprints stay metal/concrete WAREHOUSES.
     COMMERCIAL = ["BUILDINGS", "BRICK", "STUCCO"]   # group name -> pbr prefix (BUILDING/BRICK/STUCCO)
     WAREHOUSES = ["WAREHOUSE", "WHMETAL"]           # weathered concrete + corrugated metal (real C.C. mix)
-    roof_meshes, nbld = [], 0
+    nbld = 0
     commercial = {g: [] for g in COMMERCIAL}
     warehouse = {g: [] for g in WAREHOUSES}
+    roof = {"ROOFS": [], "RFMETAL": []}             # PVC flat roofs; metal sheds get corrugated roofs
     for b in bld:
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
         if len(foot) < 3 or _poly_area(foot) < 35:  # skip tiny sheds / noise
@@ -601,14 +602,15 @@ def build(project_dir: str | Path) -> dict:
         if _poly_area(foot) > 700:
             g = WAREHOUSES[int(abs(round(cx) * 5 + round(cz) * 11)) % len(WAREHOUSES)]
             warehouse[g].append(box["walls"])
+            roof["RFMETAL" if g == "WHMETAL" else "ROOFS"].append(box["roof"])  # metal shed -> metal roof
         else:
             g = COMMERCIAL[int(abs(round(cx) * 7 + round(cz) * 13)) % len(COMMERCIAL)]
             commercial[g].append(box["walls"])
-        roof_meshes.append(box["roof"])
+            roof["ROOFS"].append(box["roof"])
         nbld += 1
     bld_comm = {g: _merge(v) for g, v in commercial.items()}
     bld_wh = {g: _merge(v) for g, v in warehouse.items()}
-    bld_roofs = _merge(roof_meshes)
+    bld_roof = {k: _merge(v) for k, v in roof.items()}
 
     # --- shipping-container stacks in the warehouse yards (industrial Commerce City character) ---
     _rc = random.Random(99)
@@ -643,7 +645,7 @@ def build(project_dir: str | Path) -> dict:
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
-        for _m in (water, *bld_comm.values(), *bld_wh.values(), bld_roofs, trees, bushes, lights,
+        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes, lights,
                    hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
@@ -652,7 +654,7 @@ def build(project_dir: str | Path) -> dict:
               [("WATER", "grass", water), ("BUILDINGS", "road", bld_comm["BUILDINGS"]),
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
-               ("ROOFS", "road", bld_roofs),
+               ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
@@ -662,7 +664,8 @@ def build(project_dir: str | Path) -> dict:
                 ("buildings", (0.58, 0.55, 0.50), bld_comm["BUILDINGS"]), ("brick", (0.52, 0.30, 0.24), bld_comm["BRICK"]),
                 ("stucco", (0.62, 0.34, 0.30), bld_comm["STUCCO"]), ("warehouse", (0.50, 0.52, 0.55), bld_wh["WAREHOUSE"]),
                 ("whmetal", (0.58, 0.60, 0.62), bld_wh["WHMETAL"]),
-                ("roofs", (0.42, 0.42, 0.45), bld_roofs), ("road", (0.82, 0.83, 0.86), road),
+                ("roofs", (0.30, 0.36, 0.48), bld_roof["ROOFS"]), ("rfmetal", (0.55, 0.57, 0.60), bld_roof["RFMETAL"]),
+                ("road", (0.82, 0.83, 0.86), road),
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
                 ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights)],
                {}, data / "dressed_render.svg")

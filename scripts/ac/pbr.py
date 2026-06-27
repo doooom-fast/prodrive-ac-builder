@@ -32,6 +32,7 @@ TEXTURES = {
     "BARRIER": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.74, 0.74, 0.72, 1), 0.0, False),  # concrete jersey K-rail
     "CONTAINER": ("container_diffuse.jpg", "container_normal.jpg", 0.70, (0.55, 0.30, 0.26, 1), 0.0, False),  # mined Hamburg shipping-container stacks (warehouse yards)
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
+    "RFMETAL": ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.60, (0.55, 0.57, 0.60, 1), 0.15, False),  # corrugated-metal roof (on metal warehouses)
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
     "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
