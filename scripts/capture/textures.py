@@ -1,15 +1,16 @@
-"""Harvest real material textures from a Prodrive Scan capture video (OpenCV).
+"""Harvest the real ROAD-surface texture from a Prodrive Scan capture video (OpenCV).
 
-Not just asphalt — the windshield footage holds the whole scene, so this segments each frame by material
-and synthesises a tileable texture per class. The road is perspective-rectified to top-down and built
-from a TEMPORAL MEDIAN over only the asphalt-masked pixels: the car's lane drifts frame-to-frame, so
-every top-down spot sees clean asphalt in most frames and the lane lines / cars / hood get masked out
-and filled from the others — no blur, no contamination. Grass is harvested from the verge the same way
-(by colour mask). Each result is flattened (lighting removed), made seamless, and a normal map derived.
+The road is perspective-rectified to top-down and built from a TEMPORAL MEDIAN over only the
+asphalt-masked pixels: the car's lane drifts frame-to-frame, so every top-down spot sees clean asphalt
+in most frames and the lane lines / cars / hood get masked out and filled from the others — no blur, no
+contamination. The result is flattened (lighting removed), made seamless (roll + inpaint the centre
+seam), and a normal map derived. Frames where the road mask is sparse (the phone fell → sky/dash) are
+auto-skipped.
 
-Frames where the road mask is sparse (the phone fell → sky/dash) are auto-skipped. Outputs go to
-``projects/<slug>/source/textures/`` and are wired into the build via texture_overrides in
-realworld_capture.json. Needs numpy + opencv (pip --user). See [[companion-app-plan]].
+All OTHER materials (grass/building/sidewalk/fence) come from segment_textures.py (semantic segmentation
+— colour heuristics only work for the road). Both share the synthesis helpers here and emit
+texture_overrides in realworld_capture.json that the build consumes. Needs numpy + opencv (pip --user).
+See [[companion-app-plan]].
 
 Run:  python -m scripts.capture.textures projects/<slug> <bundle-dir>
 """
@@ -70,15 +71,6 @@ def _asphalt_mask(bgr: np.ndarray) -> np.ndarray:
     return ((s < 55) & (v > 45) & (v < 210)).astype(bool)
 
 
-def _grass_mask(bgr: np.ndarray) -> np.ndarray:
-    """Verge vegetation/dry ground: vegetation green OR dry-tan, moderately saturated, textured."""
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    hh, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
-    green = (hh > 30) & (hh < 90) & (s > 35) & (v > 30)
-    dry = (hh > 15) & (hh < 40) & (s > 40) & (v > 60) & (v < 220)
-    return (green | dry)
-
-
 # --------------------------------------------------------------------------- synthesis
 
 
@@ -92,14 +84,16 @@ def _flatten(bgr: np.ndarray) -> np.ndarray:
 
 
 def _make_seamless(bgr: np.ndarray) -> np.ndarray:
-    """Offset by half so the original borders meet in the centre, then feather the centre cross."""
+    """Roll by half — that makes the TILE BORDER continuous (its new edges are adjacent original rows/
+    cols) — then INPAINT away the centre cross (the only remaining discontinuity). Cleaner than feather:
+    no visible seam, full grain preserved away from the thin healed lines."""
     h, w = bgr.shape[:2]
     off = np.roll(np.roll(bgr, h // 2, 0), w // 2, 1)
-    fw = w // 6
-    mx = np.minimum(np.abs(np.arange(w) - w // 2), fw) / fw
-    my = np.minimum(np.abs(np.arange(h) - h // 2), fw) / fw
-    a = np.minimum(mx[None, :], my[:, None])[:, :, None]          # 0 at the seam → 1 away
-    return (off * (1 - a) + bgr * a).astype(np.uint8)
+    mask = np.zeros((h, w), np.uint8)
+    t = max(2, w // 100)
+    mask[h // 2 - t:h // 2 + t, :] = 255
+    mask[:, w // 2 - t:w // 2 + t] = 255
+    return cv2.inpaint(off, mask, 3, cv2.INPAINT_TELEA)
 
 
 def _normal_map(bgr: np.ndarray, strength: float = 2.0) -> np.ndarray:
@@ -146,31 +140,6 @@ def _harvest_road(frames: list[Path]) -> tuple[np.ndarray, int]:
     return cv2.resize(tex, (OUT, OUT), interpolation=cv2.INTER_LANCZOS4), len(tops)
 
 
-def _harvest_grass(frames: list[Path]) -> tuple[np.ndarray, int]:
-    """Pick the verge patch with the most grass coverage and the most detail; flatten + tile."""
-    best, best_score = None, -1.0
-    used = 0
-    for p in frames:
-        im = cv2.imread(str(p))
-        if im is None:
-            continue
-        h, w = im.shape[:2]
-        verge = im[int(0.55 * h):int(0.74 * h), int(0.66 * w):w]   # right-side ground
-        m = _grass_mask(verge)
-        cov = m.mean()
-        if cov < 0.5:
-            continue
-        used += 1
-        detail = cv2.Laplacian(cv2.cvtColor(verge, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
-        score = cov * detail
-        if score > best_score:
-            best_score, best = score, verge
-    if best is None:
-        raise ValueError("no grassy verge frames found")
-    sq = cv2.resize(best, (OUT, OUT), interpolation=cv2.INTER_LANCZOS4)
-    return _make_seamless(_flatten(sq)), used
-
-
 # --------------------------------------------------------------------------- driver
 
 
@@ -189,8 +158,7 @@ def build(project_dir: str | Path, bundle_dir: str | Path) -> dict:
     with tempfile.TemporaryDirectory() as td:
         frames = _extract(v, idxs, Path(td))
         stats["frames"] = len(frames)
-        for mat, prefix, harvest in (("road", "1ROAD", _harvest_road),
-                                     ("grass", "1GRASS", _harvest_grass)):
+        for mat, prefix, harvest in (("road", "1ROAD", _harvest_road),):  # grass+ via segment_textures.py
             try:
                 tex, used = harvest(frames)
             except ValueError as e:

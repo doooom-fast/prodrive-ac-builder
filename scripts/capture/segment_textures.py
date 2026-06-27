@@ -27,13 +27,15 @@ from scripts.capture import textures as tx
 
 MODEL_ID = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
 N_FRAMES = 40
-# track material prefix → the Cityscapes class ids to harvest it from.
+# track material prefix → (Cityscapes class ids, prefer_plain). prefer_plain biases toward a PLAIN patch
+# (façade/concrete — avoid door/window/sign edges that tile badly); now safe because the brightness gate
+# rejects the dark degenerate patches that broke this before. Grain-rich ground keeps prefer_plain=False.
 # (Vegetation/trees = class 8 are alpha-cutout BILLBOARDS, a separate atlas — not tiling overrides.)
 MATERIALS = {
-    "1GRASS":   {9},      # terrain → the dry verge / ground
-    "BUILDING": {2},      # building façades → warehouses / industrial walls
-    "1KERB":    {1},      # sidewalk → the curb/sidewalk concrete
-    "BARRIER":  {4},      # fence → barriers / guardrails (often thin → may skip)
+    "1GRASS":   ({9}, False),   # terrain → the dry verge / ground (grain wanted)
+    "BUILDING": ({2}, True),    # building façades → plain warehouse wall, not the door/window
+    "1KERB":    ({1}, True),    # sidewalk → plain concrete
+    "BARRIER":  ({4}, False),   # fence → keep the rail/mesh structure
 }
 TRANSIENT = {11, 12, 13, 14, 15, 16, 17, 18}   # person/rider/car/truck/bus/train/motorcycle/bicycle
 
@@ -74,9 +76,10 @@ def _largest_square(mask: np.ndarray) -> tuple[int, int, int] | None:
     return loc[0], loc[1], half
 
 
-def _harvest(frames, class_ids, torch, proc, model):
+def _harvest(frames, class_ids, torch, proc, model, prefer_plain=False):
     """Best clean single-class patch across frames → flattened, seamless texture + frames used.
-    Brightness-gated (rejects shadow/blown patches) and scored by size × grain."""
+    Brightness-gated (rejects shadow/blown patches); scored by size and either grain (ground) or
+    plainness (façades — prefer_plain=True, to dodge door/window/sign edges that tile badly)."""
     best, best_score, used = None, -1.0, 0
     for p in frames:
         im = cv2.imread(str(p))
@@ -101,7 +104,8 @@ def _harvest(frames, class_ids, torch, proc, model):
         if bright < 50 or bright > 225:        # reject shadow / blown-out degenerate patches
             continue
         detail = cv2.Laplacian(cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
-        score = (half * half) * (detail + 1.0)  # big AND grainy (representative material patch)
+        # façades: big + PLAIN (low edge content → no door/window). ground: big + grainy.
+        score = (half * half) / (detail + 1.0) if prefer_plain else (half * half) * (detail + 1.0)
         if score > best_score:
             best_score, best = score, patch
     if best is None:
@@ -127,10 +131,10 @@ def build(project_dir, bundle_dir, materials: dict | None = None) -> dict:
     with tempfile.TemporaryDirectory() as td:
         frames = tx._extract(v, idxs, Path(td))
         stats["frames"] = len(frames)
-        for prefix, class_ids in materials.items():
+        for prefix, (class_ids, plain) in materials.items():
             mat = prefix.lower().lstrip("1")
             try:
-                tex, used = _harvest(frames, class_ids, torch, proc, model)
+                tex, used = _harvest(frames, class_ids, torch, proc, model, prefer_plain=plain)
             except ValueError as e:
                 stats[prefix] = f"skipped: {e}"
                 continue
