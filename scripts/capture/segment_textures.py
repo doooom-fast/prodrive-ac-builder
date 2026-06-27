@@ -27,11 +27,13 @@ from scripts.capture import textures as tx
 
 MODEL_ID = "nvidia/segformer-b0-finetuned-cityscapes-1024-1024"
 N_FRAMES = 40
-# track material prefix → the Cityscapes class ids to harvest it from. (Vegetation/trees = class 8 are
-# alpha-cutout BILLBOARDS, a separate atlas pipeline — not a tiling override — so they're not here.)
+# track material prefix → the Cityscapes class ids to harvest it from.
+# (Vegetation/trees = class 8 are alpha-cutout BILLBOARDS, a separate atlas — not tiling overrides.)
 MATERIALS = {
-    "1GRASS": {9},        # terrain → the dry verge / ground
+    "1GRASS":   {9},      # terrain → the dry verge / ground
     "BUILDING": {2},      # building façades → warehouses / industrial walls
+    "1KERB":    {1},      # sidewalk → the curb/sidewalk concrete
+    "BARRIER":  {4},      # fence → barriers / guardrails (often thin → may skip)
 }
 TRANSIENT = {11, 12, 13, 14, 15, 16, 17, 18}   # person/rider/car/truck/bus/train/motorcycle/bicycle
 
@@ -73,7 +75,8 @@ def _largest_square(mask: np.ndarray) -> tuple[int, int, int] | None:
 
 
 def _harvest(frames, class_ids, torch, proc, model):
-    """Best clean single-class patch across frames → flattened, seamless texture + frames used."""
+    """Best clean single-class patch across frames → flattened, seamless texture + frames used.
+    Brightness-gated (rejects shadow/blown patches) and scored by size × grain."""
     best, best_score, used = None, -1.0, 0
     for p in frames:
         im = cv2.imread(str(p))
@@ -94,8 +97,11 @@ def _harvest(frames, class_ids, torch, proc, model):
         patch = im[cy - half:cy + half, cx - half:cx + half]
         if patch.shape[0] < 48 or patch.shape[1] < 48:
             continue
+        bright = float(patch.mean())
+        if bright < 50 or bright > 225:        # reject shadow / blown-out degenerate patches
+            continue
         detail = cv2.Laplacian(cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
-        score = (half * half) * (detail + 1.0)        # big AND detailed
+        score = (half * half) * (detail + 1.0)  # big AND grainy (representative material patch)
         if score > best_score:
             best_score, best = score, patch
     if best is None:

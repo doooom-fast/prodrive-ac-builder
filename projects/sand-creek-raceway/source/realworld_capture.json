@@ -36191,6 +36191,18 @@
       "diffuse": "source/textures/sand_creek_raceway_building_diffuse.jpg",
       "normal": "source/textures/sand_creek_raceway_building_normal.jpg",
       "source": "prodrive-scan-20260626T012652Z-c7be2c"
+    },
+    {
+      "material": "1KERB",
+      "diffuse": "source/textures/sand_creek_raceway_kerb_diffuse.jpg",
+      "normal": "source/textures/sand_creek_raceway_kerb_normal.jpg",
+      "source": "prodrive-scan-20260626T012652Z-c7be2c"
+    },
+    {
+      "material": "BARRIER",
+      "diffuse": "source/textures/sand_creek_raceway_barrier_diffuse.jpg",
+      "normal": "source/textures/sand_creek_raceway_barrier_normal.jpg",
+      "source": "prodrive-scan-20260626T012652Z-c7be2c"
     }
   ],
   "origin": {
