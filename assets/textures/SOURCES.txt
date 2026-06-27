@@ -5,8 +5,6 @@ Texture sources — all CC0 (public domain); credited as good practice. (machine
                                              close-up tiling. Road UV tile is 15 m (build_mesh.py).
   grass_diffuse.jpg   / grass_normal.jpg     ambientCG "Grass001" (2K)            https://ambientcg.com/view?id=Grass001
   kerb_diffuse.png                           generated (red/white stripe, scripts pipeline)
-  building_diffuse.jpg / building_normal.jpg  ambientCG "Concrete034" (2K)        https://ambientcg.com/view?id=Concrete034
-  roof_diffuse.jpg    / roof_normal.jpg       ambientCG "CorrugatedSteel002"      https://ambientcg.com/view?id=CorrugatedSteel002
   tree_diffuse.png                            REPLACE-ME (billboard placeholder; swap for a CC0 atlas)
 
 Normal maps are OpenGL convention (Poly Haven "nor_gl" / ambientCG "NormalGL").
@@ -24,3 +22,9 @@ trees_atlas.png — curated 3x2 cutout atlas from Colorado (AC mod) 2013colorado
 container_diffuse.jpg + container_normal.jpg — weathered shipping-container stack, from Hamburg by 4r
   (container.kn5, material 'container'). Skinned onto generated container-yard boxes. Mined via
   scripts/modkit/extract_kn5.py, PERSONAL/non-distributed use (repo private).
+
+Building set — mined from Hamburg by 4r (nhh_detail.kn5) via scripts/modkit/extract_kn5.py. The mod
+  embeds TextureCom/KitBash3D PBR maps (each albedo + normal); used PERSONAL/non-distributed (repo private):
+  building_diffuse.jpg / building_normal.jpg   material 'concretebunker'  (TCom_Wall_ConcreteBunker2 — tilt-up concrete)
+  warehouse_diffuse.jpg / warehouse_normal.jpg material 'concreterough'   (TCom_Wall_ConcreteBunkerWeathered — aged concrete)
+  roof_diffuse.jpg / roof_normal.jpg           material 'bluemetal'       (TCom_Roofing_PVC — flat membrane roof)
