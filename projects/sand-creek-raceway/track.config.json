@@ -93,7 +93,14 @@
     "bush_off_span_m": 33.0,
     "bush_size_min_m": 1.2,
     "bush_size_span_m": 1.4,
-    "light_spacing_m": 48.0
+    "light_spacing_m": 48.0,
+    "powerline_spacing_m": 52.0,
+    "signs": {
+      "_doc": "Street-name blade signs at each major junction (from data/street_labels.json, same legs as the painted road decals). enabled=false drops them. flip_read/flip_up are one-bit fixes if the text reads mirrored or upside-down in-game (verify on the first Windows drive).",
+      "enabled": true,
+      "flip_read": false,
+      "flip_up": false
+    }
   },
   "origin": "centroid",
   "true_north_rotation_deg": 0.0,

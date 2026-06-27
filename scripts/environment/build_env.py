@@ -697,15 +697,34 @@ def build(project_dir: str | Path) -> dict:
             ncont += 1
     containers = _merge(cont_meshes)
 
-    # --- street-name signs: DISABLED — the corner->street mapping was wrong (mislabeled) and the
-    #     panel UVs were flipped. Redo with real OSM road-name matching + corrected UVs before re-enabling.
-    #     (signs.build_signs / render_atlas remain for that pass.)
+    # --- street-name blade signs at each major junction, from the OSM street-label map
+    #     (data/street_labels.json) — the SAME leg source the painted road decals use, so the signs
+    #     name exactly the turns the pavement lettering does. UVs follow road_text's proven layout;
+    #     flip_read/flip_up in scenery.signs are one-bit fixes if text reads mirrored in-game. ---
+    signs_panels = {"vertices": [], "uvs": [], "tris": []}
+    signposts = {"vertices": [], "tris": []}
+    nsign = 0
+    sg_cfg = scn.get("signs", {})
+    labels_path = data / "street_labels.json"
+    if sg_cfg.get("enabled", True) and labels_path.exists():
+        sl = json.loads(labels_path.read_text(encoding="utf-8"))
+        min_leg = float(cfg.raw.get("road_text", {}).get("min_leg_m", 200.0))
+        placements = signs.placements_from_segments(sl["segments"], min_leg_m=min_leg)
+        if placements:
+            tex_dir = Path(__file__).resolve().parents[2] / "assets" / "textures"
+            cells = signs.render_atlas([nm for _i, nm in placements], tex_dir / "signs_atlas.png")
+            sg = signs.build_signs(loop, widths, placements, cells,
+                                   flip_read=bool(sg_cfg.get("flip_read", False)),
+                                   flip_up=bool(sg_cfg.get("flip_up", False)))
+            signs_panels, signposts = sg["SIGNS"], sg["SIGNPOST"]
+            nsign = len(placements)
+            print(f"  street signs: {nsign} -> {[nm for _i, nm in placements]}")
 
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
         for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes, lights,
-                   poles, wires, hwy_deck, hwy_struct, bridge):
+                   poles, wires, signs_panels, signposts, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
@@ -716,6 +735,7 @@ def build(project_dir: str | Path) -> dict:
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
                ("POLE", "road", poles), ("WIRE", "road", wires),
+               ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
                ("CONTAINERS", "road", containers)])
@@ -728,14 +748,15 @@ def build(project_dir: str | Path) -> dict:
                 ("road", (0.82, 0.83, 0.86), road),
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
                 ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights),
-                ("poles", (0.34, 0.24, 0.16), poles), ("wires", (0.10, 0.10, 0.12), wires)],
+                ("poles", (0.34, 0.24, 0.16), poles), ("wires", (0.10, 0.10, 0.12), wires),
+                ("signs", (0.10, 0.45, 0.20), signs_panels), ("signpost", (0.50, 0.51, 0.53), signposts)],
                {}, data / "dressed_render.svg")
 
     return {"connector_pts": len(connector["vertices"]) // 2, "water_tris": len(water["tris"]),
             "highway_deck_tris": len(hwy_deck["tris"]), "highway_struct_tris": len(hwy_struct["tris"]),
             "buildings": nbld, "trees": ntrees, "bushes": nbush, "river_trees": nriver,
-            "streetlights": nlights, "power_poles": npole, "containers": ncont,
-            "render": str(data / "dressed_render.svg")}
+            "streetlights": nlights, "power_poles": npole, "street_signs": nsign,
+            "containers": ncont, "render": str(data / "dressed_render.svg")}
 
 
 def main() -> None:
