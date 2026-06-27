@@ -28,3 +28,5 @@ Building set — mined from Hamburg by 4r (nhh_detail.kn5) via scripts/modkit/ex
   building_diffuse.jpg / building_normal.jpg   material 'concretebunker'  (TCom_Wall_ConcreteBunker2 — tilt-up concrete)
   warehouse_diffuse.jpg / warehouse_normal.jpg material 'concreterough'   (TCom_Wall_ConcreteBunkerWeathered — aged concrete)
   roof_diffuse.jpg / roof_normal.jpg           material 'bluemetal'       (TCom_Roofing_PVC — flat membrane roof)
+  brick_diffuse.jpg / brick_normal.jpg         material 'brickwall'       (TCom_Wall_BrickPlain1 — building variety)
+  stucco_diffuse.jpg / stucco_normal.jpg       material 'redstucco'       (TCom_Wall_Stucco28 — building variety)

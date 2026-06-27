@@ -575,7 +575,12 @@ def build(project_dir: str | Path) -> dict:
     # Commerce City reads as industrial: big footprints = metal WAREHOUSES (corrugated skin), smaller
     # ones = concrete/commercial. Splitting the walls by footprint area gives that variety instead of a
     # field of identical grey boxes. Bury the base 2.5 m so boxes never float off sloped ground.
-    warehouse_walls, commercial_walls, roof_meshes, nbld = [], [], [], 0
+    # Commercial (smaller) buildings get VARIED façades — tilt-up concrete / brick / stucco (all mined
+    # Hamburg) — picked deterministically per footprint, so the build is reproducible and you don't get a
+    # field of identical grey boxes. Big footprints stay metal/concrete WAREHOUSES.
+    COMMERCIAL = ["BUILDINGS", "BRICK", "STUCCO"]   # group name -> pbr prefix (BUILDING/BRICK/STUCCO)
+    warehouse_walls, roof_meshes, nbld = [], [], 0
+    commercial = {g: [] for g in COMMERCIAL}
     for b in bld:
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
         if len(foot) < 3 or _poly_area(foot) < 35:  # skip tiny sheds / noise
@@ -591,11 +596,15 @@ def build(project_dir: str | Path) -> dict:
         bury = 2.5
         base = min(y_at(lo, la) for lo, la in b["coords"]) - bury  # sink so it meets the ground on slopes
         box = buildings.extrude(foot, base, b["height_m"] + bury)   # +bury so the roof stays at true height
-        (warehouse_walls if _poly_area(foot) > 700 else commercial_walls).append(box["walls"])
+        if _poly_area(foot) > 700:
+            warehouse_walls.append(box["walls"])
+        else:
+            g = COMMERCIAL[int(abs(round(cx) * 7 + round(cz) * 13)) % len(COMMERCIAL)]
+            commercial[g].append(box["walls"])
         roof_meshes.append(box["roof"])
         nbld += 1
     bld_warehouse = _merge(warehouse_walls)
-    bld_commercial = _merge(commercial_walls)
+    bld_comm = {g: _merge(v) for g, v in commercial.items()}
     bld_roofs = _merge(roof_meshes)
 
     # --- shipping-container stacks in the warehouse yards (industrial Commerce City character) ---
@@ -631,13 +640,14 @@ def build(project_dir: str | Path) -> dict:
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
-        for _m in (water, bld_commercial, bld_warehouse, bld_roofs, trees, bushes, lights,
+        for _m in (water, *bld_comm.values(), bld_warehouse, bld_roofs, trees, bushes, lights,
                    hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
-              [("WATER", "grass", water), ("BUILDINGS", "road", bld_commercial),
+              [("WATER", "grass", water), ("BUILDINGS", "road", bld_comm["BUILDINGS"]),
+               ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_warehouse), ("ROOFS", "road", bld_roofs),
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
@@ -645,7 +655,8 @@ def build(project_dir: str | Path) -> dict:
                ("CONTAINERS", "road", containers)])
     write_mtl(data / "environment.mtl")
     render_iso([("grass", (0.30, 0.47, 0.22), grass), ("water", (0.16, 0.45, 0.74), water),
-                ("buildings", (0.58, 0.55, 0.50), bld_commercial), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),
+                ("buildings", (0.58, 0.55, 0.50), bld_comm["BUILDINGS"]), ("brick", (0.52, 0.30, 0.24), bld_comm["BRICK"]),
+                ("stucco", (0.62, 0.34, 0.30), bld_comm["STUCCO"]), ("warehouse", (0.50, 0.52, 0.55), bld_warehouse),
                 ("roofs", (0.42, 0.42, 0.45), bld_roofs), ("road", (0.82, 0.83, 0.86), road),
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
                 ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights)],
