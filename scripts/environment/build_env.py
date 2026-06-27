@@ -166,6 +166,37 @@ def _post(x, y, z, h=9.0, r=0.25):  # streetlight post (thin quad)
             "tris": [(0, 1, 2), (0, 2, 3)]}
 
 
+def _utility_pole(x, y, z, tx, tz, *, H=11.0, ch=9.6, arm=1.4, r=0.16):
+    """A wooden power pole: crossed vertical quads (reads from any angle) + a crossarm across the road
+    normal. Returns (mesh, [3 wire-attach tips] left/centre/right along the crossarm)."""
+    nx, nz = -tz, tx                                          # road normal = crossarm direction
+    v = [(x - r, y, z), (x + r, y, z), (x + r, y + H, z), (x - r, y + H, z),            # quad along X
+         (x, y, z - r), (x, y, z + r), (x, y + H, z + r), (x, y + H, z - r)]            # quad along Z
+    t = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    b = len(v)
+    v += [(x - nx * arm, y + ch, z - nz * arm), (x + nx * arm, y + ch, z + nz * arm),   # crossarm board
+          (x + nx * arm, y + ch + 0.22, z + nz * arm), (x - nx * arm, y + ch + 0.22, z - nz * arm)]
+    t += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    tips = [(x + nx * o, y + ch, z + nz * o) for o in (-arm, 0.0, arm)]
+    return {"vertices": v, "tris": t}, tips
+
+
+def _wire(p0, p1, *, sag=0.9, w=0.06, segs=4):
+    """A thin sagging cable from p0 to p1 as a slim vertical ribbon (parabolic droop)."""
+    pts = []
+    for k in range(segs + 1):
+        f = k / segs
+        pts.append((p0[0] + (p1[0] - p0[0]) * f, p0[1] + (p1[1] - p0[1]) * f - sag * 4 * f * (1 - f),
+                    p0[2] + (p1[2] - p0[2]) * f))
+    v, t = [], []
+    for k in range(segs):
+        a, c = pts[k], pts[k + 1]
+        b = len(v)
+        v += [(a[0], a[1], a[2]), (a[0], a[1] + w, a[2]), (c[0], c[1] + w, c[2]), (c[0], c[1], c[2])]
+        t += [(b, b + 1, b + 2), (b, b + 2, b + 3)]
+    return {"vertices": v, "tris": t}
+
+
 def _container_box(cx, cz, gy, yaw, *, L=12.2, H=5.2, D=2.5):
     """A stacked-shipping-container box (industrial-yard prop). Long faces map the FULL container atlas
     (rows of weathered containers); short ends a single-container slice. DOUBLE-SIDED so it renders
@@ -545,6 +576,34 @@ def build(project_dir: str | Path) -> dict:
             nlights += 1
     lights = _merge(light_meshes)
 
+    # --- overhead power lines (poles + sagging cables) — ubiquitous in industrial Commerce City; the
+    #     real-world capture shows them in nearly every frame. Poles on the LEFT verge (streetlights are
+    #     on the right), cables strung pole-to-pole down the lap. ---
+    pole_meshes, wire_meshes, npole = [], [], 0
+    pl_spacing = float(scn.get("powerline_spacing_m", 52.0))
+    prev_tips, acc = None, 0.0
+    for i in range(1, len(loop)):
+        acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
+        if acc < pl_spacing:
+            continue
+        acc = 0.0
+        x, y, z = loop[i]
+        a, b = loop[i - 1], loop[min(len(loop) - 1, i + 1)]
+        tx, tz = b[0] - a[0], b[2] - a[2]
+        tl = math.hypot(tx, tz) or 1e-6
+        tx, tz = tx / tl, tz / tl
+        nx, nz = -tz, tx
+        off = widths[i] / 2 + 3.5                      # left verge, just beyond the streetlight line
+        pole, tips = _utility_pole(x + nx * off, y, z + nz * off, tx, tz)
+        pole_meshes.append(pole)
+        npole += 1
+        if prev_tips is not None:
+            for t0, t1 in zip(prev_tips, tips):
+                wire_meshes.append(_wire(t0, t1))
+        prev_tips = tips
+    poles = _merge(pole_meshes)
+    wires = _merge(wire_meshes)
+
     # --- Front Range backdrop: hazy ridges far to the (real) WEST. Placed by real longitude so the
     #     projection + mirror drop it at true west in-game, and the physical CSP sun (true-north, real
     #     lat/lon) then SETS BEHIND it. Flat double-sided silhouettes; CSP aerial haze blurs them. ---
@@ -646,7 +705,7 @@ def build(project_dir: str | Path) -> dict:
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
         for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes, lights,
-                   hwy_deck, hwy_struct, bridge):
+                   poles, wires, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
@@ -656,6 +715,7 @@ def build(project_dir: str | Path) -> dict:
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
+               ("POLE", "road", poles), ("WIRE", "road", wires),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
                ("CONTAINERS", "road", containers)])
@@ -667,13 +727,15 @@ def build(project_dir: str | Path) -> dict:
                 ("roofs", (0.30, 0.36, 0.48), bld_roof["ROOFS"]), ("rfmetal", (0.55, 0.57, 0.60), bld_roof["RFMETAL"]),
                 ("road", (0.82, 0.83, 0.86), road),
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
-                ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights)],
+                ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights),
+                ("poles", (0.34, 0.24, 0.16), poles), ("wires", (0.10, 0.10, 0.12), wires)],
                {}, data / "dressed_render.svg")
 
     return {"connector_pts": len(connector["vertices"]) // 2, "water_tris": len(water["tris"]),
             "highway_deck_tris": len(hwy_deck["tris"]), "highway_struct_tris": len(hwy_struct["tris"]),
             "buildings": nbld, "trees": ntrees, "bushes": nbush, "river_trees": nriver,
-            "streetlights": nlights, "containers": ncont, "render": str(data / "dressed_render.svg")}
+            "streetlights": nlights, "power_poles": npole, "containers": ncont,
+            "render": str(data / "dressed_render.svg")}
 
 
 def main() -> None:
