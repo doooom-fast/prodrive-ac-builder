@@ -43,8 +43,14 @@ def generate(project_dir: str | Path) -> Path:
     # pass exceeds the Windows TDR watchdog -> whole-PC freeze. That exact bug shipped v0.12.1-v0.12.6 when
     # MOUNTAINS/HIGHWAY got auto-swept in by the old blacklist. A missing prefix here only lets grass grow
     # through something (cosmetic); an over-broad list crashes the PC, so fail safe toward FEWER occluders.
+    # Building WALLS + roofs all occlude (they sit on / rise from the grass plane and are near-field —
+    # within ~330 m of the lap, so no far-field TDR risk). The variety pass split the single BUILDINGS/
+    # WAREHOUSE/ROOFS groups into façade variants (BRICK/STUCCO, WHMETAL, RFMETAL); list every variant so
+    # the split stays occlusion-transparent (grass still doesn't grow through any building wall). CHAINLINK
+    # fences are deliberately NOT occluders (see-through + thin), nor are POLE/WIRE/SIGNS.
     OCCLUDE_PREFIXES = ("1ROAD", "1KERB", "1RUNOFF", "MARKINGS", "ROADTEXT",
-                        "BUILDINGS", "WAREHOUSE", "ROOFS", "WATER")
+                        "BUILDINGS", "BRICK", "STUCCO", "WAREHOUSE", "WHMETAL",
+                        "ROOFS", "RFMETAL", "WATER")
     occluders = [g for g in groups if g.upper().startswith(OCCLUDE_PREFIXES)]
     has_water = any(g.upper() == "WATER" for g in groups)
     has_lights = any(g.upper() == "LIGHTS" for g in groups)
