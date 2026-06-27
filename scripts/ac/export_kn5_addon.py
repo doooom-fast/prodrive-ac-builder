@@ -70,20 +70,37 @@ for mod in addon_utils.modules():
 sys.path.insert(0, str(repo / "scripts" / "ac"))
 import pbr  # noqa: E402
 
+# Real-world captured textures (realworld_capture.json) REPLACE the stock asset for their prefix. This is
+# the actual ship path: the add-on binds materials + embeds textures from THIS .ini, so the override must
+# be applied HERE (not only in build_kn5's .blend nodes) or the captured road/grass/kerb/barrier never
+# reach the kn5. `project` is absolute (resolved above), so the override paths are absolute too.
+overrides = pbr.load_overrides(project)
+if overrides:
+    print("[export] real-world texture overrides:", sorted(overrides))
+assets_tex = repo / "assets" / "textures"
+
 
 def shader_and_textures(name):
+    """(shader, [(slot, filename, source_path)]). A captured override replaces the stock asset for its
+    prefix so the SHIPPED kn5 binds to + embeds the real texture; source_path is where to stage it from."""
     key = next((k for k in pbr.TEXTURES if name.upper().startswith(k)), None)
     if key is None:
         return "ksPerPixel", []
     diff, norm = pbr.TEXTURES[key][0], pbr.TEXTURES[key][1]
+    ov = overrides.get(key, {})
     tx = []
-    if diff:
-        tx.append(("txDiffuse", diff))
-    if norm:
-        tx.append(("txNormal", norm))
+    if ov.get("diffuse"):
+        p = Path(ov["diffuse"]); tx.append(("txDiffuse", p.name, str(p)))
+    elif diff:
+        tx.append(("txDiffuse", diff, str(assets_tex / diff)))
+    if ov.get("normal"):
+        p = Path(ov["normal"]); tx.append(("txNormal", p.name, str(p)))
+    elif norm:
+        tx.append(("txNormal", norm, str(assets_tex / norm)))
+    has_norm = bool(norm or ov.get("normal"))
     if key in pbr.BILLBOARD:            # trees / bushes / road-text are alpha-cutout billboards
         return "ksTree", tx
-    return ("ksPerPixelMultiMap" if norm else "ksPerPixel"), tx
+    return ("ksPerPixelMultiMap" if has_norm else "ksPerPixel"), tx
 
 
 # 4. write the persistence .ini the add-on reads (clear any stray .ini first)
@@ -92,7 +109,7 @@ for old in build.glob("*.ini"):
 texdir = build / "texture"
 texdir.mkdir(exist_ok=True)
 lines = ["[HEADER]", "VERSION=4", ""]
-needed = set()
+needed = {}                                # basename -> source path (stock asset OR captured override)
 i = 0
 for mat in bpy.data.materials:
     if mat.name.startswith("__") or mat.users == 0:
@@ -102,18 +119,19 @@ for mat in bpy.data.materials:
     at = 1 if shader == "ksTree" else 0   # tree/bush/text billboards are alpha-cutout
     lines += [f"[MATERIAL_{i}]", f"NAME={mat.name}", f"SHADER={shader}",
               "ALPHABLEND=0", f"ALPHATEST={at}", "DEPTHMODE=0", "VARCOUNT=0", f"RESCOUNT={len(tx)}"]
-    for j, (slot, fname) in enumerate(tx):
+    for j, (slot, fname, srcpath) in enumerate(tx):
         lines += [f"RES_{j}_NAME={slot}", f"RES_{j}_SLOT={j}", f"RES_{j}_TEXTURE={fname}"]
-        needed.add(fname)
+        needed[fname] = srcpath
     lines.append("")
     i += 1
 (build / f"{slug}.ini").write_text("\n".join(lines))
 
 # 5. stage the textures into build/texture/ (the add-on reads RES_*_TEXTURE from there)
-src = repo / "assets" / "textures"
-for fn in needed:
-    if (src / fn).exists():
-        shutil.copyfile(src / fn, texdir / fn)
+for fn, srcpath in needed.items():
+    if Path(srcpath).exists():
+        shutil.copyfile(srcpath, texdir / fn)
+    else:
+        print(f"[export] WARNING: texture source missing, not staged: {srcpath}")
 print(f"INI materials={i} textures_staged={len(needed)}")
 
 # 5.4 orient drivable surfaces FACE-UP (+Z in Blender = +Y in AC). A down-wound drivable surface

@@ -15,13 +15,19 @@ from pathlib import Path
 
 
 def _track_dir_from_argv(argv: list[str]) -> Path:
-    """Blender passes script args after a literal ``--``."""
+    """Blender passes script args after a literal ``--``.
+
+    Resolve to an ABSOLUTE path: Blender's ``bpy.data.images.load`` resolves a relative path against its
+    own base (not the python CWD), turning a relative override like ``projects/<slug>/source/textures/x.jpg``
+    into ``/projects/...`` (filesystem root) — the image loads empty and the kn5 exporter then crashes
+    writing a 0-byte file. Making track_dir absolute keeps every derived path (data/, overrides, build/)
+    valid regardless of Blender's working directory. Stock textures already use an absolute texture_dir()."""
     if "--" not in argv:
         raise SystemExit("usage: blender --background --python build_kn5.py -- <track-dir>")
     rest = argv[argv.index("--") + 1:]
     if not rest:
         raise SystemExit("missing <track-dir> after '--'")
-    return Path(rest[0])
+    return Path(rest[0]).resolve()
 
 
 def build(track_dir: Path) -> Path:
