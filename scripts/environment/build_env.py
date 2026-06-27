@@ -197,6 +197,34 @@ def _wire(p0, p1, *, sag=0.9, w=0.06, segs=4):
     return {"vertices": v, "tris": t}
 
 
+def _fence_ring(foot, ground_y, *, off=2.5, h=2.3, tile_m=1.6):
+    """A chain-link fence around a building footprint, pushed ``off`` m outward from its centroid (a
+    fenced industrial yard). Double-sided alpha-cutout quads (CHAINLINK material); ``u`` tiles by edge
+    length / ``tile_m`` and ``v`` by height / ``tile_m`` so the diamond stays square at any edge length."""
+    cx = sum(p[0] for p in foot) / len(foot)
+    cz = sum(p[1] for p in foot) / len(foot)
+    ring = []
+    for x, z in foot:
+        dx, dz = x - cx, z - cz
+        d = math.hypot(dx, dz) or 1e-6
+        ring.append((x + dx / d * off, z + dz / d * off))
+    v, uv, t = [], [], []
+    vt = h / tile_m
+    for i in range(len(ring)):
+        x0, z0 = ring[i]
+        x1, z1 = ring[(i + 1) % len(ring)]
+        seg = math.hypot(x1 - x0, z1 - z0)
+        if seg < 0.5:
+            continue
+        u = seg / tile_m
+        y0, y1 = ground_y(x0, z0), ground_y(x1, z1)
+        b = len(v)
+        v += [(x0, y0, z0), (x1, y1, z1), (x1, y1 + h, z1), (x0, y0 + h, z0)]
+        uv += [(0.0, 0.0), (u, 0.0), (u, vt), (0.0, vt)]
+        t += [(b, b + 1, b + 2), (b, b + 2, b + 3), (b, b + 2, b + 1), (b, b + 3, b + 2)]  # double-sided
+    return {"vertices": v, "uvs": uv, "tris": t}
+
+
 def _container_box(cx, cz, gy, yaw, *, L=12.2, H=5.2, D=2.5):
     """A stacked-shipping-container box (industrial-yard prop). Long faces map the FULL container atlas
     (rows of weathered containers); short ends a single-container slice. DOUBLE-SIDED so it renders
@@ -643,6 +671,7 @@ def build(project_dir: str | Path) -> dict:
     commercial = {g: [] for g in COMMERCIAL}
     warehouse = {g: [] for g in WAREHOUSES}
     roof = {"ROOFS": [], "RFMETAL": []}             # PVC flat roofs; metal sheds get corrugated roofs
+    fence_meshes = []                                # chain-link around the big (warehouse) yards
     for b in bld:
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
         if len(foot) < 3 or _poly_area(foot) < 35:  # skip tiny sheds / noise
@@ -662,6 +691,7 @@ def build(project_dir: str | Path) -> dict:
             g = WAREHOUSES[int(abs(round(cx) * 5 + round(cz) * 11)) % len(WAREHOUSES)]
             warehouse[g].append(box["walls"])
             roof["RFMETAL" if g == "WHMETAL" else "ROOFS"].append(box["roof"])  # metal shed -> metal roof
+            fence_meshes.append(_fence_ring(foot, ground_y))                    # fenced industrial yard
         else:
             g = COMMERCIAL[int(abs(round(cx) * 7 + round(cz) * 13)) % len(COMMERCIAL)]
             commercial[g].append(box["walls"])
@@ -670,6 +700,7 @@ def build(project_dir: str | Path) -> dict:
     bld_comm = {g: _merge(v) for g, v in commercial.items()}
     bld_wh = {g: _merge(v) for g, v in warehouse.items()}
     bld_roof = {k: _merge(v) for k, v in roof.items()}
+    fences = _merge(fence_meshes)
 
     # --- shipping-container stacks in the warehouse yards (industrial Commerce City character) ---
     _rc = random.Random(99)
@@ -724,7 +755,7 @@ def build(project_dir: str | Path) -> dict:
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
     if mirror_x:
         for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes, lights,
-                   poles, wires, signs_panels, signposts, hwy_deck, hwy_struct, bridge):
+                   poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
@@ -736,6 +767,7 @@ def build(project_dir: str | Path) -> dict:
                ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
+               ("CHAINLINK", "grass", fences),
                ("MOUNTAINS", "grass", mountains), ("HIGHWAY", "road", hwy_deck),
                ("HWYSTRUCT", "road", hwy_struct), ("HWYSTRUCT_bridge", "road", bridge),
                ("CONTAINERS", "road", containers)])
@@ -749,14 +781,16 @@ def build(project_dir: str | Path) -> dict:
                 ("connector", (0.74, 0.76, 0.80), connector), ("kerb", (0.88, 0.24, 0.20), kerb),
                 ("trees", (0.18, 0.42, 0.16), trees), ("lights", (0.95, 0.85, 0.35), lights),
                 ("poles", (0.34, 0.24, 0.16), poles), ("wires", (0.10, 0.10, 0.12), wires),
-                ("signs", (0.10, 0.45, 0.20), signs_panels), ("signpost", (0.50, 0.51, 0.53), signposts)],
+                ("signs", (0.10, 0.45, 0.20), signs_panels), ("signpost", (0.50, 0.51, 0.53), signposts),
+                ("fences", (0.62, 0.63, 0.66), fences)],
                {}, data / "dressed_render.svg")
 
     return {"connector_pts": len(connector["vertices"]) // 2, "water_tris": len(water["tris"]),
             "highway_deck_tris": len(hwy_deck["tris"]), "highway_struct_tris": len(hwy_struct["tris"]),
             "buildings": nbld, "trees": ntrees, "bushes": nbush, "river_trees": nriver,
             "streetlights": nlights, "power_poles": npole, "street_signs": nsign,
-            "containers": ncont, "render": str(data / "dressed_render.svg")}
+            "yard_fences": len(fence_meshes), "containers": ncont,
+            "render": str(data / "dressed_render.svg")}
 
 
 def main() -> None:

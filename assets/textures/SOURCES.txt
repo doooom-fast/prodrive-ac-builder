@@ -5,6 +5,7 @@ Texture sources — all CC0 (public domain); credited as good practice. (machine
                                              close-up tiling. Road UV tile is 15 m (build_mesh.py).
   grass_diffuse.jpg   / grass_normal.jpg     ambientCG "Grass001" (2K)            https://ambientcg.com/view?id=Grass001
   kerb_diffuse.png                           generated (red/white stripe, scripts pipeline)
+  chainlink_diffuse.png                      generated (procedural alpha-cutout chain-link, scripts/environment/make_chainlink.py)
   warehouse_metal_diffuse.jpg / warehouse_metal_normal.jpg  ambientCG "CorrugatedSteel002"  https://ambientcg.com/view?id=CorrugatedSteel002
                                              corrugated-metal warehouse skin (the real C.C. mix is metal + concrete)
   tree_diffuse.png                            REPLACE-ME (billboard placeholder; swap for a CC0 atlas)

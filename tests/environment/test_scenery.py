@@ -7,7 +7,9 @@ industrial Commerce City look — there was no coverage for build_env before.
 
 from __future__ import annotations
 
-from scripts.environment.build_env import _utility_pole, _wire
+import math
+
+from scripts.environment.build_env import _fence_ring, _utility_pole, _wire
 
 
 def _indices_in_range(mesh):
@@ -41,3 +43,33 @@ def test_wire_droops_between_equal_height_tips():
     # lowest point is near mid-span, not at an end
     lowest = min(w["vertices"], key=lambda v: v[1])
     assert 0.0 < lowest[0] < 52.0
+
+
+def test_fence_ring_offsets_outward_and_tiles_square():
+    foot = [(-10.0, -8.0), (10.0, -8.0), (10.0, 8.0), (-10.0, 8.0)]   # 20x16 footprint
+    f = _fence_ring(foot, lambda x, z: 1.0, off=2.5, h=2.3, tile_m=1.6)
+    assert _indices_in_range(f)
+    assert len(f["tris"]) == 16                                       # 4 edges, double-sided (4 tris each)
+    # every fence vertex sits farther from the centroid than the footprint corners -> pushed outward
+    cx = sum(p[0] for p in foot) / 4
+    cz = sum(p[1] for p in foot) / 4
+    foot_r = max(math.hypot(x - cx, z - cz) for x, z in foot)
+    fence_r = max(math.hypot(v[0] - cx, v[2] - cz) for v in f["vertices"])
+    assert fence_r > foot_r
+    # base sits on the ground (y0=1.0), top a fence-height above; v tiles by h/tile_m so diamonds stay square
+    ys = [v[1] for v in f["vertices"]]
+    assert min(ys) == 1.0 and abs(max(ys) - (1.0 + 2.3)) < 1e-9
+    assert any(abs(v - 2.3 / 1.6) < 1e-9 for _u, v in f["uvs"])
+
+
+def test_chainlink_texture_is_pot_with_holes():
+    from pathlib import Path
+
+    from scripts.geometry.road_text import _read_png
+    png = Path(__file__).resolve().parents[2] / "assets" / "textures" / "chainlink_diffuse.png"
+    W, H, ch, rows = _read_png(png)
+    assert ch == 4                                                    # RGBA (alpha cutout)
+    assert W & (W - 1) == 0 and H & (H - 1) == 0                      # power-of-two (AC hard-crashes otherwise)
+    opaque = sum(1 for y in range(0, H, 4) for x in range(0, W, 4) if rows[y][x * ch + 3] > 127)
+    frac = opaque / ((H // 4) * (W // 4))
+    assert 0.05 < frac < 0.4                                          # wire present, mostly transparent holes
