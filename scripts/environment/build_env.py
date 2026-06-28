@@ -277,11 +277,14 @@ def _resample_xz(pts, step=8.0):
     return out
 
 
-def _build_highways(env, project, ground_y, *, half_w=11.0, parapet=0.85, pier_w=1.4,
+def _build_highways(env, project, ground_y, on_track=None, *, half_w=11.0, parapet=0.85, pier_w=1.4,
                     pier_step=24.0, min_len=240.0, smooth_win=22, bridge_gap=2.5):
     """Re-build the I-70 / US-36 decks ALONGSIDE the route from real OSM geometry. The deck rides the
     terrain crests but stays LEVEL over the dips, carried on PIERS (bridges) — instead of the old flat
-    +5 m deck that floated over everything. Returns (deck[asphalt], struct[concrete parapets+slab+piers])."""
+    +5 m deck that floated over everything. ``on_track(x, z)`` (when given) marks the drivable corridor:
+    deck points falling inside it are clipped out and a deck is rebuilt for each surviving run still long
+    enough to read as a highway — so frontage roads/ramps tagged ``highway`` that hug the route don't lay
+    a 22 m slab on the street. Returns (deck[asphalt], struct[concrete parapets+slab+piers])."""
     dv, duv, dt = [], [], []
     sv, suv, stt = [], [], []
 
@@ -301,14 +304,7 @@ def _build_highways(env, project, ground_y, *, half_w=11.0, parapet=0.85, pier_w
             j = (i + 1) % 4
             stt.extend([(base + i, base + j, base + j + 4), (base + i, base + j + 4, base + i + 4)])
 
-    for f in env:
-        if f.get("cls") != "highway" or f.get("kind") != "line" or len(f.get("coords", [])) < 2:
-            continue
-        raw = [project(lo, la) for lo, la in f["coords"]]
-        if sum(math.hypot(raw[i][0] - raw[i - 1][0], raw[i][2] - raw[i - 1][2])
-               for i in range(1, len(raw))) < min_len:
-            continue
-        pts = _resample_xz(raw)
+    def emit_deck(pts):
         terr = [ground_y(x, z) for x, _, z in pts]
         sm = [sum(terr[max(0, i - smooth_win):i + smooth_win + 1]) /
               len(terr[max(0, i - smooth_win):i + smooth_win + 1]) for i in range(len(terr))]
@@ -341,6 +337,36 @@ def _build_highways(env, project, ground_y, *, half_w=11.0, parapet=0.85, pier_w
             if C[1] - t > bridge_gap and acc >= pier_step:
                 acc = 0.0
                 column(C[0], C[2], t - 0.4, C[1] - 0.6, pier_w)                                  # bridge pier
+
+    def _run_len(run):
+        return sum(math.hypot(run[i][0] - run[i - 1][0], run[i][2] - run[i - 1][2])
+                   for i in range(1, len(run)))
+
+    for f in env:
+        if f.get("cls") != "highway" or f.get("kind") != "line" or len(f.get("coords", [])) < 2:
+            continue
+        raw = [project(lo, la) for lo, la in f["coords"]]
+        if sum(math.hypot(raw[i][0] - raw[i - 1][0], raw[i][2] - raw[i - 1][2])
+               for i in range(1, len(raw))) < min_len:
+            continue
+        pts = _resample_xz(raw)
+        # split the resampled centerline into runs CLEAR of the drivable corridor; drop on-track points
+        if on_track is None:
+            runs = [pts]
+        else:
+            runs, cur = [], []
+            for p in pts:
+                if on_track(p[0], p[2]):
+                    if len(cur) >= 2:
+                        runs.append(cur)
+                    cur = []
+                else:
+                    cur.append(p)
+            if len(cur) >= 2:
+                runs.append(cur)
+        for run in runs:                      # only a run still long enough to read as a highway
+            if _run_len(run) >= min_len:
+                emit_deck(run)
     return {"vertices": dv, "uvs": duv, "tris": dt}, {"vertices": sv, "uvs": suv, "tris": stt}
 
 
@@ -493,17 +519,8 @@ def build(project_dir: str | Path) -> dict:
     water = _merge([_line_ribbon(f["coords"], project, 4.0, -0.3) if f["kind"] == "line"
                     else _fan(f["coords"], project, -0.3)
                     for f in env if f["cls"] == "water"])
-    # --- highways: I-70 / US-36 decks ALONGSIDE the route (real OSM geometry), riding the terrain
-    #     crests but staying LEVEL over the dips on piers (bridges). Re-enabled + fixed (the old version
-    #     floated a flat +5 m deck over the track). hwy_struct = parapets + underside slab + piers. ---
-    hwy_deck, hwy_struct = _build_highways(env, project, ground_y)
-    # Quebec-over-Sand-Creek bridge: parapets + underside + piers around the route's creek crossing.
-    bridge = _creek_bridge(loop, widths, env, project, ground_y)
-
-    # --- scenery knobs (per-track, config-driven; defaults reproduce the original Sand Creek look) and
-    #     the road-corridor index that keeps every scatter OFF the asphalt for ANY track ---
-    import random
-    scn = cfg.raw.get("scenery", {})
+    # connector centerlines (interior-grid layout roads) in the mirrored frame — feed the road-corridor
+    # rejecters below (scatter exclusion + highway-deck clipping).
     connector_lines = []
     cpath = data / "connectors.local.json"
     if cpath.exists():
@@ -513,6 +530,23 @@ def build(project_dir: str | Path) -> dict:
             if mirror_x:
                 cp = [(-p[0], p[1], p[2]) for p in cp]
             connector_lines.append((cp, cw))
+
+    # --- highways: I-70 / US-36 decks ALONGSIDE the route (real OSM geometry), riding the terrain crests
+    #     but staying LEVEL over the dips on piers. hwy_struct = parapets + underside slab + piers. CLIP
+    #     every deck OUT of the drivable corridor: many OSM "highway" ways here are frontage roads / ramps
+    #     that run right on top of 46th (one is 3 m from the lane), and a 22 m-wide deck there reads as
+    #     concrete cruft sitting on the street. margin 16 m clears the deck EDGES too (deck half-width is
+    #     11 m, so a centreline kept at the corridor edge still throws an edge ~5 m onto the road at a
+    #     smaller margin). The real I-70 mainline runs farther off and keeps its backdrop.
+    hwy_corridor = _corridor_rejecter(loop, widths, connector_lines, margin=16.0)
+    hwy_deck, hwy_struct = _build_highways(env, project, ground_y, on_track=hwy_corridor)
+    # creek bridges (E 56th + Quebec over Sand Creek): parapets + underside + piers at the crossings.
+    bridge = _creek_bridge(loop, widths, env, project, ground_y)
+
+    # --- scenery knobs (per-track, config-driven; defaults reproduce the original Sand Creek look) and
+    #     the road-corridor index that keeps every scatter OFF the asphalt for ANY track ---
+    import random
+    scn = cfg.raw.get("scenery", {})
     on_road = _corridor_rejecter(loop, widths, connector_lines,
                                  margin=float(scn.get("corridor_margin_m", 3.0)))
 
