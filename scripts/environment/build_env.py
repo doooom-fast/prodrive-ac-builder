@@ -22,7 +22,9 @@ from pathlib import Path
 from scripts.capture import evidence
 from scripts.config import load_config
 from scripts.geometry import kerbs, ribbon
-from scripts.geometry.build_mesh import ROAD_LIFT_M, project_grid, read_npy, render_iso, write_mtl, write_obj
+from scripts.geometry import profile as profile_mod
+from scripts.geometry.build_mesh import (
+    ROAD_LIFT_M, finished_centerline, project_grid, read_npy, render_iso, write_mtl, write_obj)
 from scripts.geometry.projection import _meters_per_degree
 from scripts.environment import buildings, signs
 
@@ -355,10 +357,24 @@ def _box_column(cx, cz, y0, y1, w):
 
 
 def _creek_bridge(loop, widths, env, project, ground_y, *, parapet=1.0, thick=0.7, pad=4):
-    """Dress the route's creek crossing (Quebec over Sand Creek) as a bridge: concrete parapets along
-    both road edges, an underside slab, and piers down into the water. The drivable road surface stays
-    (it's the track mesh); this is the structure around/under it. Returns a concrete mesh."""
-    wp = [project(lo, la) for f in env if f.get("cls") == "water" for lo, la in f.get("coords", [])]
+    """Dress every actual creek crossing as a bridge: concrete parapets along both road edges, an
+    underside slab, and piers down into the water. Sand Creek is crossed twice — at E 56th and at Quebec.
+    The drivable road surface stays (it's the track mesh); this is the structure around/under it. Returns
+    a concrete mesh."""
+    # Densify the water polylines so the nearest-point test below approximates PERPENDICULAR distance to
+    # the creek LINE, not to its (sparsely sampled) vertices. Each crossing sits ~0.9 m from the line but
+    # up to ~23 m from the nearest mapped vertex, so a bare-vertex test bridged only Quebec and missed 56th.
+    wp = []
+    for f in env:
+        if f.get("cls") != "water":
+            continue
+        cs = [project(lo, la) for lo, la in f.get("coords", [])]
+        for a, b in zip(cs, cs[1:]):
+            seg = math.hypot(b[0] - a[0], b[2] - a[2])
+            steps = max(1, int(seg / 4.0))
+            for k in range(steps + 1):
+                t = k / steps
+                wp.append((a[0] + (b[0] - a[0]) * t, 0.0, a[2] + (b[2] - a[2]) * t))
     from collections import defaultdict
     C = 40.0
     wb = defaultdict(list)
@@ -429,14 +445,17 @@ def build(project_dir: str | Path) -> dict:
     # No capture → loop unchanged (byte-identical). Applied pre-mirror (Y only; mirror is X-only).
     cap = evidence.load_capture(project_dir)
     if cap is not None and evidence.use_capture_elevation(project_dir):
-        loop, _estats = evidence.corrected_elevation(loop, cap)
+        loop, _estats = evidence.corrected_elevation(loop, cap, bridges=evidence.bridge_spans(project_dir))
 
     # MIRROR_X (must match build_mesh): mirror the east axis of everything so the scenery lines up with
     # the mirrored track. Visual mesh winding is reversed at the end (a mirror flips it inside-out).
     mirror_x = bool(cfg.raw.get("mirror_x", False))
     sx = -1.0 if mirror_x else 1.0
-    if mirror_x:
-        loop = [(-x, y, z) for (x, y, z) in loop]
+
+    # Run the SAME centerline pipeline as the shipped road (corner-round + mirror + bake the corkscrew
+    # dip). Without this the scenery anchored to the raw loop — poles/signs/bridge floated ~2 m over the
+    # dipped road through the corkscrew. dip_of feeds the terrain bowl below.
+    loop, dip_of, _bank_at, profile_active = finished_centerline(loop, cfg.raw, mirror_x=mirror_x)
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text())
@@ -457,7 +476,9 @@ def build(project_dir: str | Path) -> dict:
 
     # --- track + interior connector ---
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
-    ribbon.conform_terrain_to_road(grid_xyz, loop, widths)  # grade terrain to the road (no dipping)
+    if profile_active:   # sink the terrain into the corkscrew bowl (match build_mesh) before grading
+        profile_mod.apply_dip_bowl(grid_xyz, loop, dip_of)
+    ribbon.conform_terrain_to_road(grid_xyz, loop, widths)  # grade terrain to the (dipped) road
     grass = ribbon.grass_terrain(grid_xyz)
     road = ribbon.road_ribbon(loop, widths)
     road["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in road["vertices"]]

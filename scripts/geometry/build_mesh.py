@@ -178,6 +178,29 @@ def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
     return out
 
 
+def finished_centerline(raw_pts: list[Vertex], cfg_raw: dict, *, mirror_x: bool):
+    """The exact centerline the road is swept over: corner-rounded, mirrored to the AC frame, and with the
+    hand-authored ``road_profile`` dip (the Sand Creek corkscrew) baked into Y.
+
+    Both build_mesh AND build_env call this so the dressing (power-line poles, street signs, the creek
+    bridge, the terrain conform) anchors to the SAME road the kn5 ships — not the un-dipped raw loop, which
+    left poles floating ~2 m over the road through the corkscrew. The caller applies the capture-elevation
+    correction to ``raw_pts`` first (Y only, guarded/independent). Returns
+    (centerline, dip_of, bank_at, profile_active); ``bank_at`` rolls the swept cross-sections, ``dip_of``
+    drives the terrain bowl. Vertex count (and the parallel widths) is preserved throughout."""
+    centerline = round_sharp_corners(smooth_centerline(raw_pts))
+    if mirror_x:
+        centerline = [(-x, y, z) for (x, y, z) in centerline]
+    dip_of, bank_at, profile_active = profile_mod.build_profile(cfg_raw.get("road_profile"))
+    if profile_active:
+        cst = [0.0]
+        for i in range(1, len(centerline)):
+            cst.append(cst[-1] + math.hypot(centerline[i][0] - centerline[i - 1][0],
+                                            centerline[i][2] - centerline[i - 1][2]))
+        centerline = [(x, y - dip_of(cst[i]), z) for i, (x, y, z) in enumerate(centerline)]
+    return centerline, dip_of, bank_at, profile_active
+
+
 def build(project_dir: str | Path) -> dict:
     project_dir = Path(project_dir)
     data = project_dir / "data"
@@ -188,13 +211,14 @@ def build(project_dir: str | Path) -> dict:
     # raw_pts is returned unchanged, so the build stays byte-identical. (Y only; X/Z untouched.)
     cap = evidence.load_capture(project_dir)
     if cap is not None and evidence.use_capture_elevation(project_dir):
-        raw_pts, estats = evidence.corrected_elevation(raw_pts, cap)
+        raw_pts, estats = evidence.corrected_elevation(raw_pts, cap,
+                                                       bridges=evidence.bridge_spans(project_dir))
         if estats["n_corrected"]:
             print(f"  elevation: corrected {estats['n_corrected']} centerline pts from capture "
-                  f"(max {estats['max_corr_m']:.1f} m, offset {estats['offset_m']:.1f} m)")
+                  f"(max {estats['max_corr_m']:.1f} m, off-bridge ≤{estats['max_offbridge_m']:.1f} m, "
+                  f"{estats['n_outliers']} spikes rejected, offset {estats['offset_m']:.1f} m)")
     elif cap is not None:
         print("  elevation: capture present but capture.use_elevation=false — road follows USGS heightfield")
-    centerline = round_sharp_corners(smooth_centerline(raw_pts))
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
@@ -205,20 +229,13 @@ def build(project_dir: str | Path) -> dict:
     # as matrices (that's what broke the spawn before). orient_up re-faces the drivable surfaces.
     cfg_raw = json.loads((project_dir / "track.config.json").read_text())
     mirror_x = bool(cfg_raw.get("mirror_x", False))
-    if mirror_x:
-        centerline = [(-x, y, z) for (x, y, z) in centerline]
 
-    # ROAD PROFILE: hand-authored dip + camber drama (the Sand Creek corkscrew). dip_of/bank_at are
+    # ROAD PROFILE: corner-round, mirror, and bake the hand-authored dip (the Sand Creek corkscrew) into
+    # the centerline Y. Shared with build_env so the scenery anchors to the SAME road. dip_of/bank_at are
     # keyed by lap station (metres from pts[0]); bank rolls every swept cross-section, the dip is baked
-    # into the centerline Y here so the terrain grade, the grass conform and the dummies all follow it.
-    dip_of, bank_at, profile_active = profile_mod.build_profile(cfg_raw.get("road_profile"))
+    # into the centerline Y so the terrain grade, the grass conform and the dummies all follow it.
+    centerline, dip_of, bank_at, profile_active = finished_centerline(raw_pts, cfg_raw, mirror_x=mirror_x)
     bnk = bank_at if profile_active else None     # None => flat path is byte-identical to before
-    if profile_active:
-        cst = [0.0]
-        for i in range(1, len(centerline)):
-            cst.append(cst[-1] + math.hypot(centerline[i][0] - centerline[i - 1][0],
-                                            centerline[i][2] - centerline[i - 1][2]))
-        centerline = [(x, y - dip_of(cst[i]), z) for i, (x, y, z) in enumerate(centerline)]
 
     # INTERIOR-GRID connector roads (the 2nd layout's extra streets, from connectors.local.json) — they
     # share this one mesh, laid flat asphalt (the corkscrew is main-loop only). Mirror to the same frame.
