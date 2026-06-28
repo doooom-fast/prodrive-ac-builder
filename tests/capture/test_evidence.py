@@ -86,3 +86,17 @@ def test_load_capture_guard():
         (proj / "source" / evidence.CAPTURE_NAME).write_text(
             json.dumps({"stations": [{"station_m": 0, "alt_m": 1.0, "n": 9}]}))
         assert evidence.load_capture(proj) is not None       # has evidence
+
+
+def test_use_capture_elevation_flag():
+    """capture.use_elevation in track.config.json gates whether captured altitude is applied; default
+    True, missing config True. (Sand Creek sets it false — GPS/baro altitude is too noisy on flat terrain.)"""
+    with tempfile.TemporaryDirectory() as d:
+        proj = Path(d)
+        assert evidence.use_capture_elevation(proj) is True            # no config -> default on
+        (proj / "track.config.json").write_text(json.dumps({"slug": "t"}))
+        assert evidence.use_capture_elevation(proj) is True            # key absent -> default on
+        (proj / "track.config.json").write_text(json.dumps({"capture": {"use_elevation": False}}))
+        assert evidence.use_capture_elevation(proj) is False           # explicit opt-out
+        (proj / "track.config.json").write_text(json.dumps({"capture": {"use_elevation": True}}))
+        assert evidence.use_capture_elevation(proj) is True

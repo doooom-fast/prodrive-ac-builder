@@ -32,6 +32,21 @@ def load_capture(project_dir: str | Path) -> dict[str, Any] | None:
     return doc if doc.get("stations") else None
 
 
+def use_capture_elevation(project_dir: str | Path) -> bool:
+    """Whether to apply the captured road-surface elevation to the centerline Y.
+
+    The phone's GPS/baro altitude is too noisy on flat terrain: on Sand Creek it injected fake dips where
+    the phone physically fell and metre-scale bumps along the 56th/45th/Sand Creek corridors (GPS drift) —
+    exactly where it diverges most from the accurate USGS 3DEP heightfield, which is where this correction
+    trusts it most. A track opts out with ``capture.use_elevation = false`` in track.config.json, and the
+    road then follows the clean heightfield. Captured TEXTURES + lateral evidence are unaffected. Defaults
+    True so tracks without the key keep the prior guarded behaviour."""
+    cfg = Path(project_dir) / "track.config.json"
+    if not cfg.exists():
+        return True
+    return bool(json.loads(cfg.read_text(encoding="utf-8")).get("capture", {}).get("use_elevation", True))
+
+
 def corrected_elevation(
     points_xyz: list[Vertex],
     capture: dict[str, Any],

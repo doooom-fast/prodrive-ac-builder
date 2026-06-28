@@ -1,8 +1,12 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "mirror_x": true,
+  "capture": {
+    "_doc": "How committed source/realworld_capture.json evidence is consumed. use_elevation=false IGNORES the captured road-surface altitude: the phone's GPS/baro elevation is too noisy on flat Commerce City terrain — it baked in fake dips where the phone fell (Sand Creek ~idx 1240) and metre-scale bumps along 56th/45th/Sand Creek + a drop on N Ash St (turn 2). With it off the road follows the accurate USGS 3DEP heightfield. Captured TEXTURES and lateral evidence are unaffected. Re-enable once evidence.corrected_elevation gains outlier rejection / flat-terrain noise gating.",
+    "use_elevation": false
+  },
   "road_text": {
     "_doc": "Big painted street-name decals at each turn-onto. mode 'along' = lengthwise down the lane (drive over it, head-tilt to read); 'across' = sign-flat facing the driver (wraps the road type to a 2nd line). cap_m = letter height across the road. flip_read/flip_up mirror the axes if it reads backwards in-game. min_leg_m = shortest street leg that gets a label.",
     "mode": "along",

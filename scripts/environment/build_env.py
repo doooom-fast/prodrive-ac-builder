@@ -428,7 +428,7 @@ def build(project_dir: str | Path) -> dict:
     # where it confidently diverges from the heightfield, so the terrain conforms to the real road.
     # No capture → loop unchanged (byte-identical). Applied pre-mirror (Y only; mirror is X-only).
     cap = evidence.load_capture(project_dir)
-    if cap is not None:
+    if cap is not None and evidence.use_capture_elevation(project_dir):
         loop, _estats = evidence.corrected_elevation(loop, cap)
 
     # MIRROR_X (must match build_mesh): mirror the east axis of everything so the scenery lines up with

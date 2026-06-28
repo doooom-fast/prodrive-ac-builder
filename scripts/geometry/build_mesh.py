@@ -187,11 +187,13 @@ def build(project_dir: str | Path) -> dict:
     # confidently diverges from the bare-earth heightfield (bridges/overpasses/cuts). No capture →
     # raw_pts is returned unchanged, so the build stays byte-identical. (Y only; X/Z untouched.)
     cap = evidence.load_capture(project_dir)
-    if cap is not None:
+    if cap is not None and evidence.use_capture_elevation(project_dir):
         raw_pts, estats = evidence.corrected_elevation(raw_pts, cap)
         if estats["n_corrected"]:
             print(f"  elevation: corrected {estats['n_corrected']} centerline pts from capture "
                   f"(max {estats['max_corr_m']:.1f} m, offset {estats['offset_m']:.1f} m)")
+    elif cap is not None:
+        print("  elevation: capture present but capture.use_elevation=false — road follows USGS heightfield")
     centerline = round_sharp_corners(smooth_centerline(raw_pts))
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
