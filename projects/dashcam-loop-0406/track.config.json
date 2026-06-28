@@ -1,0 +1,74 @@
+{
+  "name": "Dashcam Loop (2026-04-06)",
+  "slug": "dashcam_loop_0406",
+  "version": "0.1.0",
+  "mirror_x": true,
+  "source": {
+    "type": "gps_track",
+    "_doc": "PROTOTYPE: built from a recorded dashcam drive (REDTIGER, 2026-04-06 18:41, 4 clips) via scripts/gps/from_track \u2014 no screenshot/KML. Demonstrates the 'any drive -> AC track' path. Raw-GPS centerline (smoothed); OSM map-matching is the quality upgrade."
+  },
+  "location": {
+    "lat": 39.7883,
+    "lon": -104.9393,
+    "timezone": "America/Denver",
+    "city": "Commerce City",
+    "country": "United States"
+  },
+  "route": {
+    "bbox": [
+      39.76692,
+      -104.95042,
+      39.80963,
+      -104.92819
+    ]
+  },
+  "loop": true,
+  "default_width_m": 9.0,
+  "road_edge": {
+    "profile": "sidewalk",
+    "curb_h": 0.15,
+    "sidewalk_w": 1.5,
+    "grade_w": 1.0
+  },
+  "scenery": {
+    "corridor_margin_m": 3.0,
+    "tree_step_m": 28.0,
+    "tree_cap": 700,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 6.0,
+    "bush_density": 0.55,
+    "bush_off_min_m": 7.0,
+    "bush_off_span_m": 33.0,
+    "bush_size_min_m": 1.2,
+    "bush_size_span_m": 1.4,
+    "light_spacing_m": 48.0,
+    "powerline_spacing_m": 52.0,
+    "signs": {
+      "enabled": false,
+      "flip_read": false,
+      "flip_up": false
+    }
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "full",
+      "ai": "ai/full",
+      "uses_connectors": []
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ]
+  }
+}
