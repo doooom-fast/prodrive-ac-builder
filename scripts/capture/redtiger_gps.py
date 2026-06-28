@@ -46,6 +46,17 @@ def _ddmm(v: float) -> float:
     return d + (v - d * 100.0) / 60.0
 
 
+def _datetime(b: bytes) -> str | None:
+    """Find the 6 consecutive LE int32 (hour,min,sec,year,month,day) in a freeGPS block and return an
+    ISO-8601 string. Located by structural validation rather than a fixed year anchor, so it works across
+    years (the card spans 2025→2026). The 6-field datetime pattern is specific enough to be unambiguous."""
+    for off in range(8, len(b) - 24):
+        hh, mm, ss, yr, mo, dd = struct.unpack_from("<IIIIII", b, off)
+        if 0 <= hh < 24 and 0 <= mm < 60 and 0 <= ss < 60 and 2020 <= yr <= 2035 and 1 <= mo <= 12 and 1 <= dd <= 31:
+            return f"{yr:04d}-{mo:02d}-{dd:02d}T{hh:02d}:{mm:02d}:{ss:02d}"
+    return None
+
+
 def _find_all(data: bytes, sub: bytes) -> list[int]:
     out, i = [], data.find(sub)
     while i != -1:
@@ -77,14 +88,8 @@ def parse_fixes(path: str | Path) -> list[dict[str, Any]]:
             lat = -lat
         if ew == "W":
             lon = -lon
-        ya = b.find(YEAR_LE)
-        if ya >= 12:
-            hh, mm, ss = struct.unpack_from("<III", b, ya - 12)
-            mo, dd = struct.unpack_from("<II", b, ya + 4)
-            if not (0 <= hh < 24 and 0 <= mm < 60 and 0 <= ss < 60 and 1 <= mo <= 12 and 1 <= dd <= 31):
-                continue
-            t = f"2026-{mo:02d}-{dd:02d}T{hh:02d}:{mm:02d}:{ss:02d}"
-        else:
+        t = _datetime(b)        # 6 LE int32 (h,m,s,year,month,day) located structurally (year varies)
+        if t is None:
             continue
         fixes.append({"t": t, "lat": round(lat, 6), "lon": round(lon, 6)})
 
