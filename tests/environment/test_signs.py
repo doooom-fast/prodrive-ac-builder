@@ -27,6 +27,17 @@ def _straight_loop(n=20):
     return [(float(i), 0.0, 0.0) for i in range(n)], [8.0] * n     # along +X, 8 m wide
 
 
+def test_reject_drops_signs_whose_base_lands_on_road():
+    loop, widths = _straight_loop()
+    cells = {"A": (0.1, 0.2, 0.9, 0.8)}
+    # post base sits one half-width + 1.5 m off the line on the LEFT normal; for a +X loop that is -Z.
+    on = signs.build_signs(loop, widths, [(10, "A")], cells)
+    assert on["kept"] == ["A"] and len(on["SIGNPOST"]["vertices"]) == 8   # ungated baseline: placed
+    rejected = signs.build_signs(loop, widths, [(10, "A")], cells, reject=lambda x, z: True)
+    assert rejected["kept"] == []                                          # gate drops it
+    assert rejected["SIGNS"]["vertices"] == [] and rejected["SIGNPOST"]["vertices"] == []
+
+
 def test_panel_uv_orientation_and_geometry():
     loop, widths = _straight_loop()
     cells = {"A": (0.1, 0.2, 0.9, 0.8)}                            # (u0, v0=top, u1, v1=bottom)
