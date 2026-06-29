@@ -86,19 +86,22 @@ def placements_from_segments(segments: list[dict], *, min_leg_m: float = 200.0) 
 def build_signs(loop: list[Vertex], widths_m: list[float], placements: list[tuple[int, str]],
                 cells: dict[str, tuple[float, float, float, float]], *,
                 panel_w: float = 2.6, panel_h: float = 0.62, panel_top: float = 2.9,
-                flip_read: bool = False, flip_up: bool = False) -> dict[str, dict]:
+                flip_read: bool = False, flip_up: bool = False, reject=None) -> dict[str, dict]:
     """Place a post + name panel at each ``(corner_index, street_name)`` placement, the panel turned
     flat to face the approaching driver and UV-mapped to its atlas cell.
 
     UV/orientation mirror scripts/geometry/road_text's confirmed-working "across" layout: reading runs
     driver-left→right (increasing u), glyph tops point up (+Y), and the cell's top row (v0) maps to the
     panel top. ``flip_read``/``flip_up`` mirror the two axes — a one-bit fix if it reads mirrored or
-    upside-down in-game. Returns ``{"SIGNS": panel_mesh(uv->atlas), "SIGNPOST": post_mesh}``."""
+    upside-down in-game. ``reject(x, z)`` (optional) drops any sign whose post base lands on the road —
+    signs sit AT junctions, where a crossing/fold-back leg can run under the chosen verge offset.
+    Returns ``{"SIGNS": panel_mesh(uv->atlas), "SIGNPOST": post_mesh}``."""
     pv: list[Vertex] = []
     puv: list[tuple[float, float]] = []
     pt: list[tuple[int, int, int]] = []
     sv: list[Vertex] = []
     st: list[tuple[int, int, int]] = []
+    kept: list[str] = []
     n = len(loop)
     for ci, nm in placements:
         u0, v0, u1, v1 = cells.get(nm, (0.0, 0.0, 1.0, 1.0))
@@ -114,6 +117,9 @@ def build_signs(loop: list[Vertex], widths_m: list[float], placements: list[tupl
         nx, nz = -tz, tx                              # left normal -> outside verge
         off = widths_m[ci] / 2.0 + 1.5
         bx, bz = x + nx * off, z + nz * off           # post base on the verge
+        if reject is not None and reject(bx, bz):     # base on a crossing/fold-back road at the junction — skip
+            continue
+        kept.append(nm)
         cy = y + panel_top                            # panel centre height
         top = cy + panel_h / 2.0
 
@@ -135,4 +141,5 @@ def build_signs(loop: list[Vertex], widths_m: list[float], placements: list[tupl
         pt += [(base, base + 1, base + 2), (base, base + 2, base + 3),   # front
                (base, base + 2, base + 1), (base, base + 3, base + 2)]   # back (double-sided)
     return {"SIGNS": {"vertices": pv, "uvs": puv, "tris": pt},
-            "SIGNPOST": {"vertices": sv, "tris": st}}
+            "SIGNPOST": {"vertices": sv, "tris": st},
+            "kept": kept}

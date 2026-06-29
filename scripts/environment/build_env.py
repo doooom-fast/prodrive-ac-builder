@@ -549,6 +549,11 @@ def build(project_dir: str | Path) -> dict:
     scn = cfg.raw.get("scenery", {})
     on_road = _corridor_rejecter(loop, widths, connector_lines,
                                  margin=float(scn.get("corridor_margin_m", 3.0)))
+    # Verge furniture (streetlights/poles/signs) is placed deliberately CLOSE to the road edge — inside
+    # the foliage keep-back. Gate it with a tight on-SURFACE test instead: drop a placement only when it
+    # lands on the actual pavement of a DIFFERENT road (a fold-back/crossing leg at a junction), never on
+    # the edge of the road it hugs (its own offset of 1.5–2 m always clears this 0.3 m margin).
+    on_surface = _corridor_rejecter(loop, widths, connector_lines, margin=0.3)
 
     # --- trees scattered in green/wetland polygons (capped) ---
     tree_meshes, ntrees = [], 0
@@ -655,7 +660,10 @@ def build(project_dir: str | Path) -> dict:
             tl = math.hypot(tx, tz) or 1e-6
             nx, nz = -tz / tl, tx / tl
             off = widths[i] / 2 + 2.0
-            light_meshes.append(_post(x - nx * off, y, z - nz * off))
+            px, pz = x - nx * off, z - nz * off
+            if on_surface(px, pz):                     # verge offset landed on a crossing/fold-back road — skip
+                continue
+            light_meshes.append(_post(px, y, pz))
             nlights += 1
     lights = _merge(light_meshes)
 
@@ -677,7 +685,11 @@ def build(project_dir: str | Path) -> dict:
         tx, tz = tx / tl, tz / tl
         nx, nz = -tz, tx
         off = widths[i] / 2 + 3.5                      # left verge, just beyond the streetlight line
-        pole, tips = _utility_pole(x + nx * off, y, z + nz * off, tx, tz)
+        bx, bz = x + nx * off, z + nz * off
+        if on_surface(bx, bz):                         # base would sit on a crossing/fold-back road — skip the
+            continue                                   # pole (the wire then spans to the next kept pole, i.e. an
+                                                       # overhead crossing — realistic, and wires are visual-only)
+        pole, tips = _utility_pole(bx, y, bz, tx, tz)
         pole_meshes.append(pole)
         npole += 1
         if prev_tips is not None:
@@ -801,10 +813,10 @@ def build(project_dir: str | Path) -> dict:
             cells = signs.render_atlas([nm for _i, nm in placements], tex_dir / "signs_atlas.png")
             sg = signs.build_signs(loop, widths, placements, cells,
                                    flip_read=bool(sg_cfg.get("flip_read", False)),
-                                   flip_up=bool(sg_cfg.get("flip_up", False)))
+                                   flip_up=bool(sg_cfg.get("flip_up", False)), reject=on_surface)
             signs_panels, signposts = sg["SIGNS"], sg["SIGNPOST"]
-            nsign = len(placements)
-            print(f"  street signs: {nsign} -> {[nm for _i, nm in placements]}")
+            nsign = len(sg["kept"])
+            print(f"  street signs: {nsign}/{len(placements)} -> {sg['kept']}")
 
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
