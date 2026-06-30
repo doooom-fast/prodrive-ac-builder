@@ -30,10 +30,21 @@ def _obj_groups(path: Path) -> list[str]:
 def generate(project_dir: str | Path) -> Path:
     project_dir = Path(project_dir)
     data = project_dir / "data"
-    slug = json.loads((project_dir / "track.config.json").read_text())["slug"]
+    cfg_raw = json.loads((project_dir / "track.config.json").read_text())
+    slug = cfg_raw["slug"]
+    # Light pollution is town-specific — read it from config (lighting.light_pollution) so each track
+    # gets its own night sky glow instead of a hardcoded one. Defaults below = a big coastal metro
+    # (warm-white, broad, faint) which suits San Diego; a small industrial loop can override to a tight
+    # amber sodium glow. COLOR is r,g,b (0..1) only.
+    lp = (cfg_raw.get("lighting", {}) or {}).get("light_pollution", {}) or {}
+    lp_color = lp.get("color", [1.0, 0.86, 0.66])
+    lp_density = lp.get("density", 0.22)
+    lp_radius_km = lp.get("radius_km", 6.0)
+    lp_rel = lp.get("relative_position", [-1.5, 0, -2.0])    # bias toward the brightest sky (downtown)
+    lp_note = lp.get("_note", "broad warm-white metro glow")
     groups = _obj_groups(data / "track.obj") + _obj_groups(data / "environment.obj")
 
-    grass_meshes = [g for g in groups if g.upper().startswith("1GRASS")] or ["1GRASS"]
+    grass_meshes = [g for g in groups if g.upper().startswith(("1GRASS", "1LAWN"))] or ["1GRASS"]
     # GrassFX OCCLUDING_MESHES = ONLY ground-level solid surfaces that sit on the grass plane (so grass
     # doesn't grow through them). This is a deliberate ALLOW-LIST. Anything else MUST NOT be an occluder:
     # foliage billboards (TREES/BUSHES), the far-field MOUNTAINS backdrop, elevated HIGHWAY/HWYSTRUCT decks,
@@ -92,10 +103,10 @@ def generate(project_dir: str | Path) -> Path:
            "; COLOR is r,g,b (0..1) ONLY — no 4th term. CSP auto-gates it to night.",
            "[LIGHT_POLLUTION]",
            "ACTIVE = 1",
-           "COLOR = 1.0, 0.62, 0.28      ; high-pressure-sodium amber (industrial corridor)",
-           "DENSITY = 0.28",
-           "RADIUS_KM = 1.2",
-           "RELATIVE_POSITION = -2.0, 0, -3.0  ; bias toward Denver (SW); keeps the W Front Range darker",
+           f"COLOR = {', '.join(str(c) for c in lp_color)}      ; {lp_note}",
+           f"DENSITY = {lp_density}",
+           f"RADIUS_KM = {lp_radius_km}",
+           f"RELATIVE_POSITION = {', '.join(str(p) for p in lp_rel)}  ; bias toward the brightest sky",
            "",
            "; --- Global night lighting: lift emissive response a hair -------------------",
            "[LIGHTING]",

@@ -20,7 +20,8 @@ TEXTURES = {
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
     "MARKINGS": (None, None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines + crosswalk (shape = geometry)
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
-    "1GRASS":  ("ground_dry_diffuse.jpg", None,              0.95, (0.42, 0.38, 0.29, 1), 0.0, False),  # dry dirt/prairie (LA Canyons lac_dirt_ground)
+    "1LAWN":   ("grass_diffuse.jpg", "grass_normal.jpg",     0.90, (0.30, 0.42, 0.20, 1), 0.0, False),  # irrigated suburban green turf (SoCal neighbourhood tiles)
+    "1GRASS":  ("ground_dry_diffuse.jpg", None,              0.95, (0.42, 0.38, 0.29, 1), 0.0, False),  # dry dirt/chaparral (canyon/hill/freeway-cut tiles)
     "BUSHES":  ("bushes_atlas.png", None, 0.9, (0.36, 0.37, 0.24, 1), 0.0, False),  # dry scrub billboards (LA Canyons bo_bushes_11)
     "HIGHWAY": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.80, (0.30, 0.30, 0.32, 1), 0.0, False),  # I-70 deck
     "HWYSTRUCT": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete parapets/piers
@@ -35,6 +36,10 @@ TEXTURES = {
     "ROOF":    ("roof_diffuse.jpg",    "roof_normal.jpg",    0.55, (0.26, 0.32, 0.45, 1), 0.10, False),  # PVC membrane roof (mined Hamburg)
     "RFMETAL": ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.60, (0.55, 0.57, 0.60, 1), 0.15, False),  # corrugated-metal roof (on metal warehouses)
     "WATER":   (None, None, 0.04, (0.02, 0.10, 0.20, 1), 0.0, True),
+    "GUARDRAIL": ("guardrail_diffuse.png", "guardrail_normal.png", 0.45, (0.74, 0.75, 0.77, 1), 0.35, False),  # swept freeway W-beam guardrail (metal)
+    "GANTRY":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.50, (0.66, 0.68, 0.70, 1), 0.40, False),  # galvanized-steel overhead sign portal (SRP-style expressway gantry)
+    "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel
+    "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)
     "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
     "LIGHTS":  (None, None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),
     "SIGNS":   ("signs_atlas.png", None, 0.55, (0.12, 0.40, 0.18, 1), 0.0, False),  # green street-name panels
@@ -47,7 +52,7 @@ TEXTURES = {
 # materials drawn as alpha-cutout — wire the texture alpha + clip the transparent bg (trees as
 # billboards; painted street names as flat road decals). The export addon also reads this set to set
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
-BILLBOARD = {"TREES", "ROADTEXT", "BUSHES", "CHAINLINK"}
+BILLBOARD = {"TREES", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS"}
 
 
 def texture_dir() -> Path:

@@ -43,7 +43,7 @@ def _shader_and_textures(pbr, obj_name: str):
         tx["txDiffuse"] = {"textureName": diff}
     if norm:
         tx["txNormal"] = {"textureName": norm}
-    if key == "TREES":
+    if key in pbr.BILLBOARD and diff:   # TREES/PALMS/BUSHES — crossed cutout cards use the tree shader
         return "ksTree", tx
     return ("ksPerPixelMultiMap" if norm else "ksPerPixel"), tx
 
@@ -97,16 +97,37 @@ def main() -> None:
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         mat = pbr.setup_material(bpy, ob)
         shader, tx = _shader_and_textures(pbr, ob.name)
-        is_tree = ob.name.upper().startswith("TREES")
+        is_billboard = any(ob.name.upper().startswith(k) for k in pbr.BILLBOARD)
         settings["materials"][mat.name] = {
             "shaderName": shader,
-            "alphaBlendMode": "AlphaToCoverage" if is_tree else "Opaque",
-            "alphaTested": is_tree,
+            "alphaBlendMode": "AlphaToCoverage" if is_billboard else "Opaque",
+            "alphaTested": is_billboard,
             "depthMode": "DepthNormal",
             "properties": {},
             "textures": tx,
         }
     (out / "settings.json").write_text(json.dumps(settings, indent=1))
+
+    # Stage referenced textures into build/texture/ — the kn5 export add-on resolves each material's
+    # textureName to <kn5_dir>/texture/<name> and embeds it from there. Without this it embeds 0
+    # textures and every surface renders flat (the road/grass look untextured). Copy each unique
+    # texture named in settings.json from assets/textures/ into the staging dir.
+    import shutil
+    texdir = out / "texture"
+    texdir.mkdir(exist_ok=True)
+    staged = 0
+    for mat_def in settings["materials"].values():
+        for slot in mat_def.get("textures", {}).values():
+            fn = slot.get("textureName")
+            if not fn:
+                continue
+            src = pbr.texture_dir() / fn
+            if src.exists() and not (texdir / fn).exists():
+                shutil.copyfile(src, texdir / fn)
+                staged += 1
+            elif not src.exists():
+                print(f"[kn5_native] WARNING: texture missing, not staged: {src}")
+    print(f"[kn5_native] staged {staged} textures into {texdir}")
 
     import export_kn5
     for ob in bpy.data.objects:
