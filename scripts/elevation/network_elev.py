@@ -72,13 +72,19 @@ def build(project_dir: str | Path) -> dict:
         "edges": edges_elev,
     }), encoding="utf-8")
 
-    # --- coarse terrain grid over the whole bbox ----
+    # --- coarse terrain grid over the whole bbox (config can OVERRIDE to include peaks + the coast) ----
     lons = [c[0] for f in F for c in f["geometry"]["coordinates"]]
     lats = [c[1] for f in F for c in f["geometry"]["coordinates"]]
     midlat = (min(lats) + max(lats)) / 2
-    mlat = GRID_MARGIN_M / 111_000.0
-    mlon = GRID_MARGIN_M / (111_000.0 * math.cos(math.radians(midlat)))
-    s, w, n, e = min(lats) - mlat, min(lons) - mlon, max(lats) + mlat, max(lons) + mlon
+    from scripts.config import load_config  # noqa: E402
+    terr = (load_config(proj).raw.get("scenery", {}) or {}).get("terrain", {}) or {}
+    if terr.get("bbox_swne"):
+        s, w, n, e = terr["bbox_swne"]
+        print(f"terrain bbox OVERRIDE from config: {terr['bbox_swne']}")
+    else:
+        mlat = GRID_MARGIN_M / 111_000.0
+        mlon = GRID_MARGIN_M / (111_000.0 * math.cos(math.radians(midlat)))
+        s, w, n, e = min(lats) - mlat, min(lons) - mlon, max(lats) + mlat, max(lons) + mlon
     gy = GRID_SPACING_M / 111_000.0
     gx = GRID_SPACING_M / (111_000.0 * math.cos(math.radians(midlat)))
     ny = int((n - s) / gy) + 1

@@ -145,19 +145,19 @@ def _skirt(grid_xyz: list[list[Vertex]], *, skirt_m: float = 800.0) -> dict:
     return {"vertices": verts, "tris": tris}
 
 
-def _viaduct_lift(pts, terr_y, *, smooth_win=60, max_lift=26.0, taper_frac=0.16):
-    """Lift a freeway edge onto an elevated deck that BRIDGES canyon dips (rides a smoothed profile
-    over the low spots) while staying at-grade where the ground keeps up. Tapered to 0 at both ends so
-    the edge still meets its junctions at terrain level (no broken ramps). Returns a per-vertex lift[]."""
+def _viaduct_lift(pts, terr_y, *, smooth_win=60, max_lift=26.0, taper_frac=0.16, base_lift=0.0):
+    """Lift a freeway edge onto an elevated deck. Two components: (1) BRIDGE — ride a smoothed profile
+    over canyon dips; (2) BASE — a constant Shutoko-style elevation so the expressway runs up on a deck
+    even over flat ground. Both tapered to 0 at the ends so the edge still meets its junctions at grade
+    (ramps connect there). Returns a per-vertex lift[]."""
     n = len(pts)
     natural = [p[1] for p in pts]
-    # heavy moving average -> a smooth grade; in a dip this sits ABOVE the natural (sunken) road
     half = smooth_win // 2
     smooth = []
     for i in range(n):
         lo, hi = max(0, i - half), min(n, i + half + 1)
         smooth.append(sum(natural[lo:hi]) / (hi - lo))
-    lift = [max(0.0, min(max_lift, smooth[i] - natural[i])) for i in range(n)]
+    lift = [min(max_lift, base_lift + max(0.0, smooth[i] - natural[i])) for i in range(n)]
     # taper the ends to 0 so junctions stay at grade
     t = max(1, int(n * taper_frac))
     for i in range(n):
@@ -228,6 +228,14 @@ def build(project_dir: str | Path) -> dict:
     def to_local(lon, lat, z):
         return (sx * (lon - lon0) * m_lon, z - elev0, (lat - lat0) * m_lat)
 
+    # viaduct knobs (config-driven): base_lift = constant Shutoko-style deck height even over flat ground;
+    # bridge component adds more over canyon dips; both taper to grade at junctions.
+    _vcfg = (cfg.raw.get("scenery", {}) or {}).get("viaduct", {}) or {}
+    via_base = float(_vcfg.get("base_lift_m", 0.0))
+    via_max = float(_vcfg.get("max_lift_m", 26.0))
+    via_win = int(_vcfg.get("smooth_win", 60))
+    via_taper = float(_vcfg.get("taper_frac", 0.16))
+
     # --- terrain sampler (local, mirror-aware) so freeway edges can ride an elevated deck over canyons ---
     raw_grid = read_npy(data / "heightfield.npy")
     raw_meta = json.loads((data / "heightfield.meta.json").read_text())
@@ -257,7 +265,8 @@ def build(project_dir: str | Path) -> dict:
         is_fw = f["properties"].get("road_class") in FREEWAY_CLS
         deck_pts = pts
         if is_fw:
-            lift = _viaduct_lift(pts, terr_y)
+            lift = _viaduct_lift(pts, terr_y, base_lift=via_base, max_lift=via_max,
+                                 smooth_win=via_win, taper_frac=via_taper)
             if max(lift) > 1.0:
                 deck_pts = [(x, y + lift[i], z2) for i, (x, y, z2) in enumerate(pts)]
                 viaduct_meshes.append(_viaduct_struct(deck_pts, terr_y, w / 2.0))
@@ -300,6 +309,20 @@ def build(project_dir: str | Path) -> dict:
                     if (cx - sx2) ** 2 + (cz - sz2) ** 2 < 160.0 * 160.0:
                         return True
         return False
+
+    # OCEAN BASIN: 3DEP returns nodata over water (filled by interpolation -> spurious "land" at the
+    # coast). Carve any terrain west of the coast longitude down below sea level so the ocean plane
+    # (build_network_env) reads as water, not a flat plain. real-lon = lon0 + sx*x/m_lon.
+    _oc = (cfg.raw.get("scenery", {}) or {}).get("ocean", {}) or {}
+    if _oc.get("enabled"):
+        coast_lon = float(_oc.get("lon_from", -117.238))
+        sea_local = float(_oc.get("sea_level_m", 0.0)) - elev0 - 4.0
+        for row in grid_xyz:
+            for k in range(len(row)):
+                gx, gy, gz = row[k]
+                lon = lon0 + sx * gx / m_lon
+                if lon < coast_lon:                  # west of the coast -> ocean floor
+                    row[k] = (gx, min(gy, sea_local), gz)
 
     grass_tiles = _grass_tiles(grid_xyz, is_lawn=is_lawn)
     for _n, g in grass_tiles:

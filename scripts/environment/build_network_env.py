@@ -293,6 +293,22 @@ def build(project_dir: str | Path) -> dict:
         wy = y_at(lk["center_lon"], lk["center_lat"]) - 1.0
         waters.append(_water_disc(lx, wy, lz, float(lk.get("radius_m", 600))))
 
+    # Pacific ocean backdrop: a big flat sea-level quad out to the WEST (the coast is ~1 km past the
+    # map edge). Double-sided. CSP water shader + aerial haze sell it as the distant ocean.
+    oc = scn.get("ocean", {})
+    if oc.get("enabled"):
+        all_lat = [pt[1] for f in fc["features"] for pt in f["geometry"]["coordinates"]]
+        lat_s, lat_n = min(all_lat), max(all_lat)
+        pad = float(oc.get("lat_pad_m", 4000)) / 111_000.0
+        sea = float(oc.get("sea_level_m", 0.0))
+        lon_a, lon_b = float(oc["lon_from"]), float(oc["lon_to"])
+        corners = [(lon_a, lat_s - pad), (lon_b, lat_s - pad), (lon_b, lat_n + pad), (lon_a, lat_n + pad)]
+        V = [to_local(lo, la, sea) for lo, la in corners]
+        # seat the ocean a touch below sea-level datum so the coastline DEM meets it cleanly
+        V = [(x, y - 1.0, z) for x, y, z in V]
+        waters.append({"vertices": V, "uvs": [(0, 0), (1, 0), (1, 1), (0, 1)],
+                       "tris": _ds([(0, 1, 2), (0, 2, 3)])})
+
     groups = []
     groups += _pack("GUARDRAIL", "GUARDRAIL", guardrails)
     groups += _pack("GANTRY", "GANTRY", gantry_metal)
