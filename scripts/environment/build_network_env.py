@@ -24,7 +24,10 @@ from scripts.geometry import ribbon  # noqa: E402
 from scripts.geometry.build_mesh import read_npy, write_obj  # noqa: E402
 from scripts.geometry.projection import _meters_per_degree  # noqa: E402
 
-VCAP = 60000
+# Cap by TRIANGLES (not verts): the kn5 exporter expands to ~3 verts/tri then auto-splits >65,535,
+# giving the halves DUPLICATE names — which makes AC drop the duplicate from the scene. Stay under
+# ~21,800 tris/mesh so names remain unique.
+TRI_CAP = 21000
 FREEWAY = {"motorway", "trunk"}
 
 
@@ -43,13 +46,14 @@ def _merge(meshes):
 
 
 def _pack(prefix, material, meshes, billboard=False):
-    """Bin meshes into <VCAP-vert merged groups."""
-    groups, bucket, vc, part = [], [], 0, 0
+    """Bin meshes into merged groups each under TRI_CAP triangles, with a unique name per group (so the
+    exporter never auto-splits into duplicate-named nodes)."""
+    groups, bucket, tc, part = [], [], 0, 0
     for m in meshes:
-        nv = len(m["vertices"])
-        if vc + nv > VCAP and bucket:
-            groups.append((f"{prefix}_{part}", material, _merge(bucket))); part += 1; bucket, vc = [], 0
-        bucket.append(m); vc += nv
+        nt = len(m["tris"])
+        if tc + nt > TRI_CAP and bucket:
+            groups.append((f"{prefix}_{part}", material, _merge(bucket))); part += 1; bucket, tc = [], 0
+        bucket.append(m); tc += nt
     if bucket:
         groups.append((f"{prefix}_{part}", material, _merge(bucket)))
     return groups

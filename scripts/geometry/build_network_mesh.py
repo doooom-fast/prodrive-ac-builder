@@ -28,8 +28,13 @@ from scripts.geometry.projection import _meters_per_degree, centroid  # noqa: E4
 Vertex = tuple[float, float, float]
 ROAD_LIFT_M = 0.12
 GRASS_CLEARANCE_M = 0.30
-VCAP = 60000               # keep every emitted mesh comfortably under AC's 65,535-vert limit
-GRASS_TILE = 110           # cells per grass tile edge -> (111)^2 ~ 12k verts/tile
+# The kn5 exporter expands every mesh to ~3 unique verts PER TRIANGLE (per-corner normals/uvs), then
+# AUTO-SPLITS any mesh whose expanded verts exceed 65,535 — and names BOTH halves the same, producing
+# DUPLICATE node names. AC keys physical meshes by name, so a duplicate-named ground mesh gets dropped
+# from collision -> the car falls through. So cap every emitted mesh by TRIANGLES (3*tris < 65,535 ->
+# tris < 21,845) to guarantee the exporter never splits and every name stays unique.
+TRI_CAP = 21000
+GRASS_TILE = 95            # cells/tile -> 2*95^2 = 18,050 tris/tile (< TRI_CAP, no split)
 FREEWAY_CLS = {"motorway", "trunk"}
 
 
@@ -45,31 +50,33 @@ def _merge(meshes: list[dict]) -> dict:
 
 
 def _pack_groups(prefix: str, material: str, meshes: list[tuple[str, dict]]) -> list[tuple[str, str, dict]]:
-    """Bin (name, mesh) ribbons into merged groups each < VCAP verts. Returns write_obj groups."""
+    """Bin (name, mesh) meshes into merged groups each under TRI_CAP triangles, with a UNIQUE name per
+    group, so the kn5 exporter never auto-splits (which would duplicate names and break collision)."""
     groups = []
     bucket: list[dict] = []
-    vcount = 0
+    tcount = 0
     part = 0
     for _name, m in meshes:
-        nv = len(m["vertices"])
-        if nv > VCAP:  # a single huge edge: emit alone (still under cap if edge < ~120k verts; split if not)
+        nt = len(m["tris"])
+        if nt > TRI_CAP:                       # a single oversize mesh: split it into uniquely-named subs
             for sub in _split_ribbon(m):
                 groups.append((f"{prefix}_{part}", material, sub)); part += 1
             continue
-        if vcount + nv > VCAP and bucket:
+        if tcount + nt > TRI_CAP and bucket:
             groups.append((f"{prefix}_{part}", material, _merge(bucket))); part += 1
-            bucket, vcount = [], 0
-        bucket.append(m); vcount += nv
+            bucket, tcount = [], 0
+        bucket.append(m); tcount += nt
     if bucket:
         groups.append((f"{prefix}_{part}", material, _merge(bucket)))
     return groups
 
 
 def _split_ribbon(m: dict) -> list[dict]:
-    """Split one long ribbon (cross-sections of 2 verts) into chunks under VCAP, sharing the seam row."""
+    """Split one long ribbon (cross-sections of 2 verts) into chunks under TRI_CAP triangles, sharing
+    the seam row so there's no gap between chunks."""
     V, U, T = m["vertices"], m.get("uvs") or [], m["tris"]
     rows = len(V) // 2
-    max_rows = VCAP // 2
+    max_rows = max(2, TRI_CAP // 2)            # 2 tris per row pair
     out = []
     start = 0
     while start < rows - 1:
