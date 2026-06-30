@@ -368,33 +368,51 @@ def build(project_dir: str | Path) -> dict:
 
 
 def _freeroam_dummies(cfg, edge_local, to_local) -> dict[str, list[float]]:
-    """Spawn the car at the childhood home, facing down the nearest street. Emits the AC dummies CM
-    needs (START/HOTLAP/PIT + two TIME gates) even though a freeroam has no real lap."""
+    """Spawn the car SOLIDLY on a normal street near the childhood home, facing down the road.
+
+    Must land on a continuous road ribbon: NOT at an edge tip (the ragged end of a ribbon — the car
+    drops through there), NOT on a freeway (could be an elevated viaduct), and ABOVE the road surface
+    (the ribbon sits ROAD_LIFT_M above the centreline + a spawn clearance, so the car drops onto it
+    rather than spawning embedded under the one-sided collision plane)."""
     hl = cfg.location
     home = to_local(hl["lon"], hl["lat"], 0.0)
-    # nearest edge endpoint to home, and its local direction there
-    best = None; best_d = 1e18; best_dir = (1.0, 0.0); best_pts = None; best_w = 9.0
-    for _pr, pts, w in edge_local:
-        for end_i, di in ((0, 1), (len(pts) - 1, -1)):
-            p = pts[end_i]
-            d = (p[0] - home[0]) ** 2 + (p[2] - home[2]) ** 2
+    SPAWN_CLEAR = 0.6   # car origin this far ABOVE the road surface -> settles down onto solid road
+
+    # nearest INTERIOR vertex of a non-freeway edge (>= 12 pts so there's a solid mid-section)
+    best_pts = best_i = None; best_d = 1e18; best_w = 9.0
+    for pr, pts, w in edge_local:
+        if pr.get("road_class") in FREEWAY_CLS or len(pts) < 12:
+            continue
+        lo, hi = 5, len(pts) - 6   # stay well clear of both tips
+        for i in range(lo, hi):
+            d = (pts[i][0] - home[0]) ** 2 + (pts[i][2] - home[2]) ** 2
             if d < best_d:
-                j = min(max(end_i + di, 0), len(pts) - 1)
-                dx, dz = pts[j][0] - p[0], pts[j][2] - p[2]
-                L = math.hypot(dx, dz) or 1.0
-                best_d, best, best_dir, best_pts, best_w = d, p, (dx / L, dz / L), pts, w
-    sp = best or home
-    y = sp[1]
+                best_d, best_pts, best_i, best_w = d, pts, i, w
+    if best_pts is None:   # fallback: any edge interior
+        for pr, pts, w in edge_local:
+            if len(pts) < 4:
+                continue
+            i = len(pts) // 2
+            d = (pts[i][0] - home[0]) ** 2 + (pts[i][2] - home[2]) ** 2
+            if d < best_d:
+                best_d, best_pts, best_i, best_w = d, pts, i, w
+
+    sp = best_pts[best_i]
+    j = min(best_i + 1, len(best_pts) - 1)
+    dx, dz = best_pts[j][0] - sp[0], best_pts[j][2] - sp[2]
+    L = math.hypot(dx, dz) or 1.0
+    dx, dz = dx / L, dz / L
+    nx, nz = -dz, dx
+    y = sp[1] + ROAD_LIFT_M + SPAWN_CLEAR    # above the actual road surface
     out: dict[str, list[float]] = {}
     out["AC_START_0"] = [round(sp[0], 3), round(y, 3), round(sp[2], 3)]
     out["AC_HOTLAP_START_0"] = list(out["AC_START_0"])
-    # two timing gates a little ahead along the home street (keeps CM happy)
-    dx, dz = best_dir
-    nx, nz = -dz, dx
     for k, ahead in ((0, 12.0), (1, 60.0)):
-        gx, gz = sp[0] + dx * ahead, sp[2] + dz * ahead
-        out[f"AC_TIME_{k}_L"] = [round(gx + nx * best_w / 2, 3), round(y, 3), round(gz + nz * best_w / 2, 3)]
-        out[f"AC_TIME_{k}_R"] = [round(gx - nx * best_w / 2, 3), round(y, 3), round(gz - nz * best_w / 2, 3)]
+        gi = min(best_i + int(ahead / 4), len(best_pts) - 1)   # step along the ribbon (~4 m spacing)
+        gx, gy, gz = best_pts[gi]
+        gy = gy + ROAD_LIFT_M + SPAWN_CLEAR
+        out[f"AC_TIME_{k}_L"] = [round(gx + nx * best_w / 2, 3), round(gy, 3), round(gz + nz * best_w / 2, 3)]
+        out[f"AC_TIME_{k}_R"] = [round(gx - nx * best_w / 2, 3), round(gy, 3), round(gz - nz * best_w / 2, 3)]
     for p in range(4):
         out[f"AC_PIT_{p}"] = [round(sp[0] + nx * (best_w / 2 + 3.0 + p * 0.1), 3), round(y, 3),
                               round(sp[2] - dx * (6.0 + p * 6.0), 3)]
