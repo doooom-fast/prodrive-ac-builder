@@ -126,6 +126,8 @@ def build_network(project_dir: str | Path) -> dict:
     step = float(net.get("resample_m", 4.0))
     min_edge = float(net.get("min_edge_m", 18.0))
     smooth_iters = int(net.get("smooth_iters", 3))
+    clip_radius = float(net.get("clip_radius_m", 0) or 0)   # 0 = no clip; else truncate to <r of home
+    home_ll = (cfg.location["lon"], cfg.location["lat"])
 
     kml_files = cfg.source.get("kml_files") or [cfg.source.get("kml")]
     lines: list[list[tuple[float, float]]] = []
@@ -213,38 +215,55 @@ def build_network(project_dir: str | Path) -> dict:
             a, _b = keys[ki]
             edges.append({"pts": walk_chain(a, ki)})
 
+    # CLIP: truncate every edge to the portion within clip_radius of home, splitting into contiguous
+    # runs (so a freeway that only grazes the neighbourhood keeps just its near stretch, not its 19 km
+    # tail). Bounds the whole track to a small, light extent.
+    home_m = to_m(*home_ll) if clip_radius else None
+
+    def _clip_runs(pts):
+        if not clip_radius:
+            return [pts]
+        runs, cur = [], []
+        for p in pts:
+            if (p[0] - home_m[0]) ** 2 + (p[1] - home_m[1]) ** 2 <= clip_radius * clip_radius:
+                cur.append(p)
+            elif cur:
+                runs.append(cur); cur = []
+        if cur:
+            runs.append(cur)
+        return runs
+
     # smooth + resample, drop degenerate, record stats
     feats = []
     total_m = 0.0
     eid = 0
     for e in edges:
-        pts = e["pts"]
-        if len(pts) < 2:
-            continue
-        L0 = sum(_hav(a, b) for a, b in zip(pts, pts[1:]))
-        if L0 < min_edge:
-            # keep only if it bridges two distinct junctions (preserve connectivity), else skip stub
-            if _hav(pts[0], pts[-1]) < min_edge * 0.5:
+        for pts in _clip_runs(e["pts"]):
+            if len(pts) < 2:
                 continue
-        pts = _smooth(pts, smooth_iters)
-        pts = _resample(pts, step)
-        L = sum(_hav(a, b) for a, b in zip(pts, pts[1:]))
-        total_m += L
-        coords = [list(to_ll(x, y)) for x, y in pts]
-        feats.append({
-            "type": "Feature",
-            "properties": {
-                "id": eid,
-                "kind": "edge",
-                "length_m": round(L, 1),
-                "point_count": len(coords),
-                "road_class": None,      # filled by scripts/gps/classify.py (OSM)
-                "name": None,
-                "width_m": None,
-            },
-            "geometry": {"type": "LineString", "coordinates": coords},
-        })
-        eid += 1
+            L0 = sum(_hav(a, b) for a, b in zip(pts, pts[1:]))
+            if L0 < min_edge:
+                if _hav(pts[0], pts[-1]) < min_edge * 0.5:   # tiny stub
+                    continue
+            pts = _smooth(pts, smooth_iters)
+            pts = _resample(pts, step)
+            L = sum(_hav(a, b) for a, b in zip(pts, pts[1:]))
+            total_m += L
+            coords = [list(to_ll(x, y)) for x, y in pts]
+            feats.append({
+                "type": "Feature",
+                "properties": {
+                    "id": eid,
+                    "kind": "edge",
+                    "length_m": round(L, 1),
+                    "point_count": len(coords),
+                    "road_class": None,      # filled by scripts/gps/classify.py (OSM)
+                    "name": None,
+                    "width_m": None,
+                },
+                "geometry": {"type": "LineString", "coordinates": coords},
+            })
+            eid += 1
 
     fc = {
         "type": "FeatureCollection",

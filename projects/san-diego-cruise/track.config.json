@@ -1,7 +1,7 @@
 {
   "name": "San Diego Cruise",
   "slug": "san_diego_cruise",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "Open-world FREEROAM cruise of Kevin's childhood neighborhood (Del Cerro / San Carlos / Allied Gardens / La Mesa), built by MERGING two Google My Maps 'Directions' exports into one drivable road network. Keeps the I-8 / SR-125 freeways. Not a circuit - drive anywhere. Vibe over realism: bright SoCal golden hour, SRP-style freeway furniture, California-highway palms on the surface streets, Lake Murray as water.",
@@ -27,6 +27,8 @@
     "resample_m": 4.0,
     "min_edge_m": 18.0,
     "smooth_iters": 3,
+    "clip_radius_m": 3000,
+    "_clip_doc": "Truncate the network to within this radius of home (location.lat/lon) -> a small, light, Sand-Creek-scale NEIGHBORHOOD cruise that loads fast. Far freeway tails go to a separate freeway-loop track. 0/absent = full 27km.",
     "class_widths_m": {
       "motorway": 22.0,
       "trunk": 16.0,
@@ -74,17 +76,11 @@
       "taper_frac": 0.16
     },
     "terrain": {
-      "_doc": "Override the terrain-grid bbox so real peaks + the coast are inside the map: Cowles Mtn (N), Mt Helix (E), the Pacific (W). Per-edge road elevation is unchanged; only the surrounding ground grid extends. [s, w, n, e].",
-      "bbox_swne": [
-        32.73,
-        -117.272,
-        32.827,
-        -116.982
-      ]
+      "_doc": "(bbox override removed; auto-computed from the clipped neighborhood network)"
     },
     "ocean": {
       "_doc": "Distant Pacific backdrop to the real WEST: a flat sea-level water plane from the coast out to the horizon. Sea level is elevation 0 (the DEM dives to it at the coast).",
-      "enabled": true,
+      "enabled": false,
       "sea_level_m": 0.0,
       "lon_from": -117.238,
       "lon_to": -117.36,
