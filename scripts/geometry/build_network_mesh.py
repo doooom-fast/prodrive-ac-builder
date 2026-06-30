@@ -34,8 +34,17 @@ GRASS_CLEARANCE_M = 0.30
 # from collision -> the car falls through. So cap every emitted mesh by TRIANGLES (3*tris < 65,535 ->
 # tris < 21,845) to guarantee the exporter never splits and every name stays unique.
 TRI_CAP = 21000
-GRASS_TILE = 95            # cells/tile -> 2*95^2 = 18,050 tris/tile (< TRI_CAP, no split)
+GRASS_TILE = 70            # cells/tile -> DOUBLE-SIDED tile = 4*70^2 = 19,600 tris (< TRI_CAP, no split)
 FREEWAY_CLS = {"motorway", "trunk"}
+
+
+def _doubleside(m: dict) -> dict:
+    """Make a ground mesh DOUBLE-SIDED (append reversed-winding tris). AC renders + collides on ONE
+    side keyed to winding, so a single-sided ground wound the wrong way is an invisible backface with
+    no top collision (the car falls through). The environment props that DID render are double-sided —
+    so doubling the road/grass/terrain makes them render and collide regardless of winding."""
+    m["tris"] = list(m["tris"]) + [(a, c, b) for a, b, c in m["tris"]]
+    return m
 
 
 def _merge(meshes: list[dict]) -> dict:
@@ -280,7 +289,7 @@ def build(project_dir: str | Path) -> dict:
                 viaduct_profiles[str(f["properties"]["id"])] = [round(v, 2) for v in lift]
         rib = ribbon.road_ribbon(deck_pts, [w] * len(deck_pts), tile_m=8.0)
         rib["vertices"] = [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in rib["vertices"]]
-        orient_up(rib)
+        _doubleside(rib)
         road_meshes.append((f"e{f['properties']['id']}", rib))
         edge_local.append((f["properties"], pts, w))   # AT-GRADE pts: terrain conforms to the ground, not the deck
 
@@ -333,9 +342,9 @@ def build(project_dir: str | Path) -> dict:
 
     grass_tiles = _grass_tiles(grid_xyz, is_lawn=is_lawn)
     for _n, g in grass_tiles:
-        orient_up(g)
+        _doubleside(g)
     skirt = _skirt(grid_xyz)
-    orient_up(skirt)
+    _doubleside(skirt)
 
     # viaduct structure (concrete underside slab + piers) — double-sided (seen from below), HWYSTRUCT
     # maps to the concrete building texture in pbr.py. Packed under the vertex cap.

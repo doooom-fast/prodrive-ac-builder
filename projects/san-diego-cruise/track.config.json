@@ -1,7 +1,7 @@
 {
   "name": "San Diego Cruise",
   "slug": "san_diego_cruise",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "Open-world FREEROAM cruise of Kevin's childhood neighborhood (Del Cerro / San Carlos / Allied Gardens / La Mesa), built by MERGING two Google My Maps 'Directions' exports into one drivable road network. Keeps the I-8 / SR-125 freeways. Not a circuit - drive anywhere. Vibe over realism: bright SoCal golden hour, SRP-style freeway furniture, California-highway palms on the surface streets, Lake Murray as water.",
