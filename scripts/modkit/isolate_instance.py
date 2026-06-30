@@ -72,7 +72,37 @@ def isolate(in_obj, out_obj, pick="median"):
     return dx, dy, dz
 
 
+def isolate_window(in_obj, out_obj, win_m, *, cell=2.0):
+    """Crop ONE instance by a spatial window around the densest XZ cluster — robust when instances are
+    WELDED (share verts) so connected-components can't separate them (mined SRP/RT map-batches). Keeps
+    only faces whose every vertex lies in a ``win_m``-radius square around the densest cell, recenters."""
+    V, F = _load(in_obj)
+    from collections import Counter
+    dens = Counter((round(x / cell), round(z / cell)) for x, _y, z in V)
+    (ci, cj), _ = dens.most_common(1)[0]
+    cx0, cz0 = ci * cell, cj * cell
+    inwin = [abs(x - cx0) <= win_m and abs(z - cz0) <= win_m for x, _y, z in V]
+    keep = [f for f in F if all(inwin[v] for v in f)]
+    used = sorted({v for f in keep for v in f})
+    remap = {old: k for k, old in enumerate(used)}
+    sub = [V[u] for u in used]
+    xs = [p[0] for p in sub]; ys = [p[1] for p in sub]; zs = [p[2] for p in sub]
+    cx = (min(xs) + max(xs)) / 2; cz = (min(zs) + max(zs)) / 2; y0 = min(ys)
+    sub = [(x - cx, y - y0, z - cz) for x, y, z in sub]
+    lines = [f"# window-isolated instance from {Path(in_obj).name} (win {win_m} m, {len(keep)} tris)"]
+    lines += [f"v {x:.4f} {y:.4f} {z:.4f}" for x, y, z in sub]
+    lines += ["f " + " ".join(str(remap[v] + 1) for v in f) for f in keep]
+    Path(out_obj).write_text("\n".join(lines) + "\n")
+    dx, dy, dz = max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs)
+    print(f"window-isolate: {len(keep)} tris, instance {dx:.1f}x{dy:.1f}x{dz:.1f} m -> {out_obj}")
+    return dx, dy, dz
+
+
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    pick = "largest" if "--pick" in sys.argv and sys.argv[sys.argv.index("--pick") + 1] == "largest" else "median"
-    isolate(args[0], args[1], pick)
+    if "--window" in sys.argv:
+        win = float(sys.argv[sys.argv.index("--window") + 1])
+        isolate_window(args[0], args[1], win)
+    else:
+        pick = "largest" if "--pick" in sys.argv and sys.argv[sys.argv.index("--pick") + 1] == "largest" else "median"
+        isolate(args[0], args[1], pick)

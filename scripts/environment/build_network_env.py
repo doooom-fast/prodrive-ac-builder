@@ -188,6 +188,12 @@ def build(project_dir: str | Path) -> dict:
     def to_local(lon, lat, z):
         return (sx * (lon - lon0) * m_lon, z - elev0, (lat - lat0) * m_lat)
 
+    # shared viaduct lift (written by build_network_mesh) so freeway furniture rides the elevated deck
+    via = {}
+    vpath = data / "network.viaduct.json"
+    if vpath.exists():
+        via = json.loads(vpath.read_text())
+
     # project all edges + collect (class, pts, half) and a road-corridor rejecter
     edges = []
     for f in fc["features"]:
@@ -195,13 +201,17 @@ def build(project_dir: str | Path) -> dict:
         if len(z) != len(c):
             z = (z + [z[-1]] * len(c))[:len(c)]
         pts = [to_local(lon, lat, zz) for (lon, lat), zz in zip(c, z)]
+        lift = via.get(str(f["properties"]["id"]))
+        if lift and len(lift) == len(pts):
+            pts = [(x, y + lift[i], z2) for i, (x, y, z2) in enumerate(pts)]   # ride the viaduct deck
         w = float(f["properties"].get("width_m") or 9.0)
         edges.append((f["properties"]["road_class"], pts, w / 2.0))
 
     on_road = _corridor(edges, margin=float(scn.get("corridor_margin_m", 3.5)))
 
     rnd = random.Random(2025)
-    guardrails, palms, trees, posts, poles, gantry_metal, gantry_sign = [], [], [], [], [], [], []
+    guardrails, palms, trees, posts, poles, gantry_metal, gantry_sign, bushes = [], [], [], [], [], [], [], []
+    nbush = 0
     pole_V, pole_T = _load_obj(proj / "assets" / "props" / "freeway" / "srp_lightpole_lamp101.obj")
 
     light_step = float(scn.get("light_spacing_m", 60.0))
@@ -240,6 +250,19 @@ def build(project_dir: str | Path) -> dict:
                 acc_l = 0.0
                 ox, oz = x - nx * (half + 1.8), z - nz * (half + 1.8)
                 posts.append(_post(ox, y, oz)); npost += 1
+            # low SoCal shrubs/chaparral on ALL verges (incl. freeway cuts) — sparse, off the road
+            if acc_v >= 13.0:
+                for side in (1.0, -1.0):
+                    if rnd.random() > 0.40:
+                        continue
+                    off = half + 2.5 + rnd.random() * 11.0
+                    bx, bz = x + nx * off * side, z + nz * off * side
+                    if on_road(bx, bz):
+                        continue
+                    gy = y_at(lon0 + sx * bx / m_lon, lat0 + bz / m_lat) - 0.25
+                    sz = 1.1 + rnd.random() * 1.8
+                    bushes.append(_billboard_cell(bx, gy, bz, rnd.randint(0, 1), rnd.randint(0, 1),
+                                                  2, 2, sz * 0.8, sz, rnd.random() * math.pi)); nbush += 1
             # vegetation on surface streets only (freeways get furniture, not trees)
             if not is_fw:
                 veg_step = 24.0 if cls in ("primary", "secondary") else 34.0
@@ -278,6 +301,7 @@ def build(project_dir: str | Path) -> dict:
     groups += _pack("LIGHTS_post", "LIGHTS", posts)
     groups += _pack("PALMS", "PALMS", palms)
     groups += _pack("TREES", "TREES", trees)
+    groups += _pack("BUSHES", "BUSHES", bushes)
     if waters:
         groups.append(("WATER", "WATER", _merge(waters)))
 
@@ -285,7 +309,7 @@ def build(project_dir: str | Path) -> dict:
     _write_mtl(data / "environment.mtl")
     stats = {"guardrail_groups": sum(1 for g in groups if g[0].startswith("GUARDRAIL")),
              "gantries": ngantry, "srp_poles": npole, "streetlights": npost,
-             "palms": npalm, "trees": ntree, "lake": bool(waters),
+             "palms": npalm, "trees": ntree, "bushes": nbush, "lake": bool(waters),
              "env_vertices": nv, "env_tris": nf}
     print("network env:", json.dumps(stats))
     return stats
@@ -341,7 +365,7 @@ def _write_mtl(path: Path) -> None:
     path.write_text("newmtl GUARDRAIL\nKd 0.74 0.75 0.77\n\nnewmtl GANTRY\nKd 0.66 0.68 0.70\n\n"
                     "newmtl FWSIGN\nKd 0.06 0.30 0.16\n\nnewmtl LIGHTS\nKd 0.30 0.30 0.32\n\n"
                     "newmtl PALMS\nKd 0.20 0.34 0.14\n\nnewmtl TREES\nKd 0.13 0.30 0.11\n\n"
-                    "newmtl WATER\nKd 0.05 0.20 0.34\n", encoding="utf-8")
+                    "newmtl BUSHES\nKd 0.30 0.34 0.18\n\nnewmtl WATER\nKd 0.05 0.20 0.34\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

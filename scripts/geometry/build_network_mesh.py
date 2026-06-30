@@ -145,6 +145,67 @@ def _skirt(grid_xyz: list[list[Vertex]], *, skirt_m: float = 800.0) -> dict:
     return {"vertices": verts, "tris": tris}
 
 
+def _viaduct_lift(pts, terr_y, *, smooth_win=60, max_lift=26.0, taper_frac=0.16):
+    """Lift a freeway edge onto an elevated deck that BRIDGES canyon dips (rides a smoothed profile
+    over the low spots) while staying at-grade where the ground keeps up. Tapered to 0 at both ends so
+    the edge still meets its junctions at terrain level (no broken ramps). Returns a per-vertex lift[]."""
+    n = len(pts)
+    natural = [p[1] for p in pts]
+    # heavy moving average -> a smooth grade; in a dip this sits ABOVE the natural (sunken) road
+    half = smooth_win // 2
+    smooth = []
+    for i in range(n):
+        lo, hi = max(0, i - half), min(n, i + half + 1)
+        smooth.append(sum(natural[lo:hi]) / (hi - lo))
+    lift = [max(0.0, min(max_lift, smooth[i] - natural[i])) for i in range(n)]
+    # taper the ends to 0 so junctions stay at grade
+    t = max(1, int(n * taper_frac))
+    for i in range(n):
+        f = min(1.0, i / t, (n - 1 - i) / t)
+        lift[i] *= f
+    return lift
+
+
+def _viaduct_struct(pts, terr_y, half, *, pier_step=24.0, gap_min=3.0, deck_thick=0.9, pier_w=1.5):
+    """Concrete viaduct structure under a lifted freeway: an underside slab + square piers down to the
+    ground every ~pier_step where the deck clears the terrain by gap_min. pts are the LIFTED deck pts."""
+    import math as _m
+    V, T = [], []
+
+    def quad(a, b, c, d):
+        o = len(V); V.extend([a, b, c, d]); T.extend([(o, o + 1, o + 2), (o, o + 2, o + 3)])
+
+    def column(cx, cz, y0, y1):
+        h = pier_w / 2
+        c = [(cx - h, cz - h), (cx + h, cz - h), (cx + h, cz + h), (cx - h, cz + h)]
+        o = len(V)
+        V.extend([(x, y0, z) for x, z in c] + [(x, y1, z) for x, z in c])
+        for k in range(4):
+            j = (k + 1) % 4
+            T.extend([(o + k, o + j, o + j + 4), (o + k, o + j + 4, o + k + 4)])
+    rows = []
+    for i in range(len(pts)):
+        x, y, z = pts[i]
+        a = pts[max(0, i - 1)]; b = pts[min(len(pts) - 1, i + 1)]
+        tx, tz = b[0] - a[0], b[2] - a[2]; tl = _m.hypot(tx, tz) or 1.0
+        nx, nz = -tz / tl, tx / tl
+        rows.append(((x + nx * half, y - deck_thick, z + nz * half),
+                     (x - nx * half, y - deck_thick, z - nz * half), (x, y, z)))
+    for k in range(len(rows) - 1):       # underside slab
+        L0, R0, _ = rows[k]; L1, R1, _ = rows[k + 1]
+        quad(R0, L0, L1, R1)
+    acc = pier_step
+    for i in range(len(pts)):
+        if i > 0:
+            acc += _m.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+        x, y, z = pts[i]
+        gy = terr_y(x, z)
+        if y - gy > gap_min and acc >= pier_step:
+            acc = 0.0
+            column(x, z, gy - 0.5, y - deck_thick)
+    return {"vertices": V, "tris": T}
+
+
 def build(project_dir: str | Path) -> dict:
     proj = Path(project_dir)
     data = proj / "data"
@@ -167,9 +228,23 @@ def build(project_dir: str | Path) -> dict:
     def to_local(lon, lat, z):
         return (sx * (lon - lon0) * m_lon, z - elev0, (lat - lat0) * m_lat)
 
-    # --- sweep each edge into a ribbon ---
+    # --- terrain sampler (local, mirror-aware) so freeway edges can ride an elevated deck over canyons ---
+    raw_grid = read_npy(data / "heightfield.npy")
+    raw_meta = json.loads((data / "heightfield.meta.json").read_text())
+    _s, _w, _n, _e = raw_meta["bbox_swne"]; _nx, _ny, _sp = raw_meta["nx"], raw_meta["ny"], raw_meta["spacing_m"]
+    _gy = _sp / 111_000.0; _gx = _sp / (111_000.0 * math.cos(math.radians((_s + _n) / 2)))
+
+    def terr_y(x, z):
+        lon = lon0 + sx * x / m_lon; lat = lat0 + z / m_lat
+        j = min(_ny - 1, max(0, int(round((_n - lat) / _gy))))
+        i = min(_nx - 1, max(0, int(round((lon - _w) / _gx))))
+        return raw_grid[j][i] - elev0
+
+    # --- sweep each edge into a ribbon (freeway edges lifted onto a viaduct deck where they bridge dips) ---
     road_meshes: list[tuple[str, dict]] = []
-    edge_local: list[tuple[dict, list[Vertex], float]] = []  # (props, local pts, width) for conform+dummies
+    edge_local: list[tuple[dict, list[Vertex], float]] = []  # (props, AT-GRADE pts, width) for conform+dummies
+    viaduct_meshes: list[dict] = []
+    viaduct_profiles: dict[str, list[float]] = {}   # edge_id -> per-vertex lift (shared with build_network_env)
     for f in F:
         c = f["geometry"]["coordinates"]
         z = zmap.get(f["properties"]["id"]) or [0.0] * len(c)
@@ -179,16 +254,22 @@ def build(project_dir: str | Path) -> dict:
         w = float(f["properties"].get("width_m") or cfg.default_width_m)
         if len(pts) < 2:
             continue
-        rib = ribbon.road_ribbon(pts, [w] * len(pts), tile_m=8.0)
+        is_fw = f["properties"].get("road_class") in FREEWAY_CLS
+        deck_pts = pts
+        if is_fw:
+            lift = _viaduct_lift(pts, terr_y)
+            if max(lift) > 1.0:
+                deck_pts = [(x, y + lift[i], z2) for i, (x, y, z2) in enumerate(pts)]
+                viaduct_meshes.append(_viaduct_struct(deck_pts, terr_y, w / 2.0))
+                viaduct_profiles[str(f["properties"]["id"])] = [round(v, 2) for v in lift]
+        rib = ribbon.road_ribbon(deck_pts, [w] * len(deck_pts), tile_m=8.0)
         rib["vertices"] = [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in rib["vertices"]]
         orient_up(rib)
         road_meshes.append((f"e{f['properties']['id']}", rib))
-        edge_local.append((f["properties"], pts, w))
+        edge_local.append((f["properties"], pts, w))   # AT-GRADE pts: terrain conforms to the ground, not the deck
 
-    # --- terrain grid: project, upsample for road-hugging, conform to ALL edges ---
-    grid = read_npy(data / "heightfield.npy")
-    meta = json.loads((data / "heightfield.meta.json").read_text())
-    grid, meta = ribbon.upsample_grid(grid, meta, 2)   # 55 m -> ~27 m
+    # --- terrain grid: project, upsample for road-hugging, conform to ALL edges (at-grade) ---
+    grid, meta = ribbon.upsample_grid(raw_grid, raw_meta, 2)   # 55 m -> ~27 m
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
     # conform: grade terrain to the nearest road sample across the whole network. corridor must exceed
     # the grid half-diagonal (~19 m at 27 m spacing); 22 m keeps near-road nodes pinned to road height.
@@ -226,17 +307,29 @@ def build(project_dir: str | Path) -> dict:
     skirt = _skirt(grid_xyz)
     orient_up(skirt)
 
+    # viaduct structure (concrete underside slab + piers) — double-sided (seen from below), HWYSTRUCT
+    # maps to the concrete building texture in pbr.py. Packed under the vertex cap.
+    via_groups = []
+    if viaduct_meshes:
+        for m in viaduct_meshes:
+            m["tris"] = m["tris"] + [(a, c, b) for a, b, c in m["tris"]]   # double-side
+            m["uvs"] = [(0.0, 0.0)] * len(m["vertices"])
+        via_groups = _pack_groups("HWYSTRUCT_via", "concrete", [(f"v{i}", m) for i, m in enumerate(viaduct_meshes)])
+
     # --- pack under the vertex cap ---
     groups: list[tuple[str, str, dict]] = []
     groups += [(n, ("lawn" if n.startswith("1LAWN") else "grass"), g) for n, g in grass_tiles]
     groups.append(("1GRASS_skirt", "grass", skirt))
     groups += _pack_groups("1ROAD_part", "road", road_meshes)
+    groups += via_groups
 
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     _write_mtl(data / "track.mtl")
 
     dummies = _freeroam_dummies(cfg, edge_local, to_local)
     (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
+    # share the viaduct lift so build_network_env raises guardrails/poles/gantries onto the deck
+    (data / "network.viaduct.json").write_text(json.dumps(viaduct_profiles), encoding="utf-8")
 
     cfg.write_back(true_north_rotation_deg=0.0)
     _write_local_meta(data, origin, elev0, mirror_x, len(F))
@@ -244,8 +337,8 @@ def build(project_dir: str | Path) -> dict:
     road_groups = sum(1 for g in groups if g[0].startswith("1ROAD"))
     grass_groups = sum(1 for g in groups if g[0].startswith("1GRASS"))
     stats = {"edges": len(road_meshes), "vertices": nv, "triangles": nf,
-             "road_groups": road_groups, "grass_groups": grass_groups,
-             "grid": f"{meta['nx']}x{meta['ny']}", "dummies": len(dummies),
+             "road_groups": road_groups, "grass_groups": grass_groups, "viaducts": len(viaduct_meshes),
+             "viaduct_groups": len(via_groups), "grid": f"{meta['nx']}x{meta['ny']}", "dummies": len(dummies),
              "origin_lonlat": [round(lon0, 6), round(lat0, 6)], "elev0_m": round(elev0, 1)}
     print("network mesh:", json.dumps(stats))
     return stats
@@ -298,6 +391,7 @@ def _write_mtl(path: Path) -> None:
         "newmtl road\nKd 0.22 0.22 0.24\nKa 0.05 0.05 0.05\n\n"
         "newmtl grass\nKd 0.42 0.43 0.24\nKa 0.06 0.07 0.03\n\n"
         "newmtl lawn\nKd 0.30 0.42 0.20\nKa 0.05 0.07 0.03\n\n"
+        "newmtl concrete\nKd 0.62 0.62 0.60\nKa 0.08 0.08 0.08\n\n"
         "newmtl kerb\nKd 0.80 0.78 0.72\nKa 0.10 0.10 0.09\n",
         encoding="utf-8",
     )
