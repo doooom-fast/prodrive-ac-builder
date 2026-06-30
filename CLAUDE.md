@@ -80,6 +80,7 @@ expect mild grades, not big elevation.
 |-------|------|-------|-------|
 | 0 | Provide screenshot, location, route notes | Claude Code | — |
 | 1 | Identify roads → Overpass/KML → resampled centerline | Mac | `gps-extraction` |
+| 1-alt | **No GPS/OSM data** (private circuit)? Trace the asphalt off an aerial screenshot → georeferenced centerline | Mac | `aerial-tracing` |
 | 2 | Sample USGS 3DEP elevation + margin grid, smooth | Mac | `elevation` |
 | 3 | Project lat/lon/elev → local meters, set origin + true north | Mac | `geometry` / `lighting` |
 | 4 | Road ribbon (`1ROAD`) + grass heightfield (`GRASS`) + dummies | Mac | `geometry` / `ac` |
@@ -94,6 +95,7 @@ Phases 1–5 are fully code-driven. Phase 6 is the manual loop on Windows.
 Specialized capabilities live in `.claude/skills/`. Reach for them by name:
 
 - **`gps-extraction`** — region + rough route → clean ordered centerline (Overpass, KML, resample, width tags).
+- **`aerial-tracing`** — aerial/satellite screenshot of a circuit with no GPS/OSM data → asphalt traced + georeferenced to real lon/lat → the same `centerline.geojson` (so it stays elevation-correct).
 - **`elevation`** — sample real terrain along the line, smooth, emit a heightfield.
 - **`lighting`** — solar position, true-north orientation, CSP/Sol lighting config.
 - **`ac-track-modding`** — AC conventions, surface naming, dummies, headless Blender build & kn5 export, track folder layout.
@@ -113,9 +115,10 @@ prodrive-ac-builder/
 ├── CLAUDE.md                  # this file — conventions & pipeline
 ├── README.md
 ├── pyproject.toml
-├── .claude/skills/            # gps-extraction, elevation, lighting, ac-track-modding
+├── .claude/skills/            # gps-extraction, aerial-tracing, elevation, lighting, ac-track-modding
 ├── scripts/
 │   ├── gps/                   # overpass query, kml parse, resample, width tagging
+│   ├── aerial/               # aerial-screenshot front-end: asphalt detect, skeleton, georef → centerline
 │   ├── elevation/             # USGS 3DEP fetch, sample-along-path, heightfield, smooth
 │   ├── geometry/              # projection, road ribbon mesh, grass heightfield, dummies
 │   ├── lighting/              # solar position, true-north orient, CSP config emit

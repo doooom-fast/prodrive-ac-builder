@@ -16,6 +16,7 @@ First track: **Sand Creek Raceway** — a street loop in Commerce City, Colorado
 |-------|------|-------|-------|
 | 0 | Provide screenshot, location, route notes | Claude Code | — |
 | 1 | Identify roads → Overpass/KML → resampled centerline | Mac | `gps-extraction` |
+| 1-alt | No GPS/OSM data? Trace the asphalt off an aerial screenshot → georeferenced centerline | Mac | `aerial-tracing` |
 | 2 | Sample USGS 3DEP elevation + margin grid, smooth | Mac | `elevation` |
 | 3 | Project lat/lon/elev → local meters, set origin + true north | Mac | `geometry` / `lighting` |
 | 4 | Road ribbon (`1ROAD`) + grass heightfield (`GRASS`) + dummies | Mac | `geometry` / `ac` |
@@ -35,8 +36,8 @@ Phases 1–5 run headless on macOS; phase 6 is the manual loop on Windows (AC + 
 ## Layout
 
 ```
-scripts/        gps · elevation · geometry · lighting · ac   (pipeline code)
-.claude/skills/ gps-extraction · elevation · lighting · ac-track-modding
+scripts/        gps · aerial · elevation · geometry · lighting · ac   (pipeline code)
+.claude/skills/ gps-extraction · aerial-tracing · elevation · lighting · ac-track-modding
 projects/<slug>/source · data · blender · build · track.config.json
 ```
 
