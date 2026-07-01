@@ -1,10 +1,10 @@
 {
   "name": "Sand Creek Raceway",
   "slug": "sand_creek_raceway",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "mirror_x": true,
   "capture": {
-    "_doc": "How committed source/realworld_capture.json evidence is consumed. use_elevation applies the captured road-surface altitude to the centerline Y. evidence.corrected_elevation now reins in the phone's GPS/baro noise: it rejects transient spikes (the phone physically fell on Sand Creek ~idx 1240), gates corrections to ~0 on near-flat terrain, and permits a metre-scale lift ONLY inside a declared 'bridges' span. So off a bridge the road follows the accurate USGS 3DEP heightfield (the old fake bumps on 56th/45th/Sand Creek and the N Ash drop collapse to sub-metre); at a real crossing the level deck is preserved. Captured TEXTURES and lateral evidence are unaffected. 'bridges' = [{center_m, len_m}] in lap-station metres (same convention as road_profile.dips) — the ONLY genuine deck crossings. The route crosses the ACTUAL Sand Creek twice (0.9 m from the mapped creek line both times): E 56th over Sand Creek (station ~2485; bare earth dips ~7 m to the creek bed, the LOWEST point on the route — the deck stays level on the approach to the corkscrew turn) and Quebec over Sand Creek (station ~5950; bare earth dips ~6 m). Both also get visual bridge structure (parapets/piers) from build_env._creek_bridge.",
+    "_doc": "How committed source/realworld_capture.json evidence is consumed. use_elevation applies the captured road-surface altitude to the centerline Y. evidence.corrected_elevation now reins in the phone's GPS/baro noise: it rejects transient spikes (the phone physically fell on Sand Creek ~idx 1240), gates corrections to ~0 on near-flat terrain, and permits a metre-scale lift ONLY inside a declared 'bridges' span. So off a bridge the road follows the accurate USGS 3DEP heightfield (the old fake bumps on 56th/45th/Sand Creek and the N Ash drop collapse to sub-metre); at a real crossing the level deck is preserved. Captured TEXTURES and lateral evidence are unaffected. 'bridges' = [{center_m, len_m}] in lap-station metres (same convention as road_profile.dips) \u2014 the ONLY genuine deck crossings. The route crosses the ACTUAL Sand Creek twice (0.9 m from the mapped creek line both times): E 56th over Sand Creek (station ~2485; bare earth dips ~7 m to the creek bed, the LOWEST point on the route \u2014 the deck stays level on the approach to the corkscrew turn) and Quebec over Sand Creek (station ~5950; bare earth dips ~6 m). Both also get visual bridge structure (parapets/piers) from build_env._creek_bridge.",
     "use_elevation": true,
     "bridges": [
       {
@@ -147,5 +147,12 @@
       "noon",
       "golden_hour"
     ]
+  },
+  "kerb": {
+    "_about": "Racing-circuit kerbs: taller + rideable ramp on the lane side (vs the default 5cm street kerb).",
+    "height_m": 0.08,
+    "width_m": 1.4,
+    "top_frac": 0.6,
+    "edge_ramp": 0.25
   }
 }

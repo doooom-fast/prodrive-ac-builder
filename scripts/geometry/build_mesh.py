@@ -297,7 +297,17 @@ def build(project_dir: str | Path) -> dict:
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
-    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk)
+    # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
+    # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.
+    kerb_cfg = cfg_raw.get("kerb", {})
+    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk,
+                              kerb_h=float(kerb_cfg.get("height_m", 0.05)),
+                              kerb_w=float(kerb_cfg.get("width_m", 1.0)),
+                              top_frac=float(kerb_cfg.get("top_frac", 0.55)),
+                              edge_ramp=float(kerb_cfg.get("edge_ramp", 0.0)))
+    if kerb_cfg:
+        print(f"  racing kerbs: h={kerb_cfg.get('height_m', 0.05)}m w={kerb_cfg.get('width_m', 1.0)}m "
+              f"edge_ramp={kerb_cfg.get('edge_ramp', 0.0)}")
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]
