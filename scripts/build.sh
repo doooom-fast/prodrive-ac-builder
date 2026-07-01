@@ -74,6 +74,9 @@ if active blend || active kn5; then
   BLENDER="${BLENDER:-$("$ROOT/scripts/bootstrap_blender.sh")}"   # pin/download Blender 4.2 if needed
   active blend && run blend "$BLENDER" --background --python scripts/ac/build_kn5.py -- "$PROJ"
   active kn5   && run kn5   "$BLENDER" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ"
+  # Gate: assert the exported kn5 is actually drivable (no dup meshes, drivable surfaces face-up, spawns
+  # on the road) — every past fall-through, encoded as a check. A failure aborts BEFORE packaging/release.
+  active kn5   && run verify "$PY" -m scripts.ac.verify_kn5 "$PROJ"
 fi
 
 if active pack; then
