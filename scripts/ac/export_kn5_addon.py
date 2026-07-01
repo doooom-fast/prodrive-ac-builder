@@ -143,20 +143,15 @@ for ob in bpy.data.objects:
         me = ob.data
         bm = bmesh.new()
         bm.from_mesh(me)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])  # make winding CONSISTENT first
         bm.normal_update()
-        # PER-FACE flip-up (NOT recalc_face_normals): the drivable surfaces of a NETWORK track are
-        # multi-component (merged road ribbons, tiled grass, per-triangle lawn/dry patches). recalc
-        # orients each connected component with an arbitrary seed, so it leaves such meshes half-up /
-        # half-down -> half the ground is a backface (invisible + no collision, the fall-through).
-        # Flipping every DOWN-facing face individually makes the whole surface consistently up on any
-        # topology (a single clean loop like Sand Creek behaves identically).
-        down = [f for f in bm.faces if f.normal.z < 0.0]
-        if down:
-            bmesh.ops.reverse_faces(bm, faces=down)
+        avgz = sum(f.normal.z for f in bm.faces) / max(len(bm.faces), 1)
+        if avgz < 0.0:                                         # then flip the whole surface up
+            bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
         bm.to_mesh(me)
         bm.free()
         me.update()
-        print(f"oriented {ob.name}: flipped {len(down)}/{len(me.polygons)} faces up")
+        print(f"oriented {ob.name}: avg_z {avgz:+.2f} -> up")
 
 # 5.5 ensure every mesh has a UV map — the add-on calls calc_tangents(), which hard-errors without one
 for ob in bpy.data.objects:

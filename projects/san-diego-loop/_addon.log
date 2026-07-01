@@ -13,13 +13,13 @@ Warning: 'ACPanelCharacter' does not contain '_PT_' with prefix and suffix
 register_class(...):
 Warning: 'ACPanelExport' does not contain '_PT_' with prefix and suffix
 INI materials=8 textures_staged=6
-oriented 1GRASS: flipped 142695/230376 faces up
-oriented 1KERB_corners: flipped 10186/17100 faces up
-oriented 1ROAD_main: flipped 5136/7114 faces up
-oriented 1ROAD_shoulder: flipped 7861/14228 faces up
-oriented 1RUNOFF_corners: flipped 355/478 faces up
-oriented MARKINGS: flipped 12296/17084 faces up
-oriented MARKINGS_crosswalk: flipped 0/20 faces up
+oriented 1GRASS: avg_z -0.02 -> up
+oriented 1KERB_corners: avg_z +0.03 -> up
+oriented 1ROAD_main: avg_z -0.01 -> up
+oriented 1ROAD_shoulder: avg_z -0.00 -> up
+oriented 1RUNOFF_corners: avg_z -0.01 -> up
+oriented MARKINGS: avg_z -0.01 -> up
+oriented MARKINGS_crosswalk: avg_z +0.00 -> up
 added UV map to MARKINGS_crosswalk
 kn5 export operator: exporter.kn5
 Info: No active texture for material 'MARKINGS_crosswalk_mat' found.
@@ -27,6 +27,6 @@ Info: No active texture for material 'MARKINGS_crosswalk_mat' found.
 No active texture for material 'MARKINGS_mat' found.
 	Using default UV scaling for objects without UV maps.
 EXPORT RESULT: {'FINISHED'}
-KN5 EXISTS: True SIZE: 21108974
+KN5 EXISTS: True SIZE: 19909515
 
 Blender quit
