@@ -137,21 +137,26 @@ print(f"INI materials={i} textures_staged={len(needed)}")
 # 5.4 orient drivable surfaces FACE-UP (+Z in Blender = +Y in AC). A down-wound drivable surface
 #     makes AC's one-sided physics drop/flip the car. Flip every down-facing drivable mesh up.
 import bmesh  # noqa: E402
-DRIVABLE = ("1ROAD", "1RUNOFF", "1GRASS", "1KERB", "MARKINGS")
+DRIVABLE = ("1ROAD", "1RUNOFF", "1GRASS", "1LAWN", "1KERB", "MARKINGS")
 for ob in bpy.data.objects:
     if ob.type == "MESH" and any(ob.name.upper().startswith(p) for p in DRIVABLE):
         me = ob.data
         bm = bmesh.new()
         bm.from_mesh(me)
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])  # make winding CONSISTENT first
         bm.normal_update()
-        avgz = sum(f.normal.z for f in bm.faces) / max(len(bm.faces), 1)
-        if avgz < 0.0:                                         # then flip the whole surface up
-            bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+        # PER-FACE flip-up (NOT recalc_face_normals): the drivable surfaces of a NETWORK track are
+        # multi-component (merged road ribbons, tiled grass, per-triangle lawn/dry patches). recalc
+        # orients each connected component with an arbitrary seed, so it leaves such meshes half-up /
+        # half-down -> half the ground is a backface (invisible + no collision, the fall-through).
+        # Flipping every DOWN-facing face individually makes the whole surface consistently up on any
+        # topology (a single clean loop like Sand Creek behaves identically).
+        down = [f for f in bm.faces if f.normal.z < 0.0]
+        if down:
+            bmesh.ops.reverse_faces(bm, faces=down)
         bm.to_mesh(me)
         bm.free()
         me.update()
-        print(f"oriented {ob.name}: avg_z {avgz:+.2f} -> up")
+        print(f"oriented {ob.name}: flipped {len(down)}/{len(me.polygons)} faces up")
 
 # 5.5 ensure every mesh has a UV map — the add-on calls calc_tangents(), which hard-errors without one
 for ob in bpy.data.objects:
