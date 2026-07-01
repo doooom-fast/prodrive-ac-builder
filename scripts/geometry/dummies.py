@@ -64,9 +64,13 @@ def place_dummies(
     out["AC_START_0"] = [round(sx, 3), round(sy, 3), round(sz, 3)]
     out["AC_HOTLAP_START_0"] = [round(sx, 3), round(sy, 3), round(sz, 3)]
 
-    # Pit slots: placeholder along the start straight, offset onto the (right-side) verge.
-    # The real pit lane is the SW Quality-Restaurant-Equipment spur (TODO: model it).
+    # Pit slots ON the road along the start straight (no separate pit lane is modeled). Offsetting them
+    # onto the verge dropped the car — the graded grass sits below the road there, so a pit-spawned car
+    # fell off the edge (the hotlap start, which sits ON the road, was fine). Stagger them back along the
+    # centerline and alternate left/right WITHIN the lane so cars don't overlap, at road height like
+    # AC_START. staggered ~12 m apart (>2 car lengths), ~40% of a half-lane off-centre each side.
     for p in range(n_pits):
-        i = min(p * 5, n - 1)
-        out[f"AC_PIT_{p}"] = offset(i, -(widths_m[i] / 2.0 + 4.0))
+        i = min((p + 1) * 3, n - 1)
+        side = (widths_m[i] / 2.0) * 0.4 * (1.0 if p % 2 == 0 else -1.0)
+        out[f"AC_PIT_{p}"] = offset(i, side)
     return out
