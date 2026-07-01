@@ -124,25 +124,39 @@ def build(project_dir: str | Path) -> dict:
         # point and taper the branch's terrain-sampled height to the loop road height over ``blend_m``,
         # so you can actually turn onto it and there's no bump at the mouth. The far end stays a dead-end
         # spur (drive up + back).
-        d0, _ = nearest_loop(pts[0])
-        d1, _ = nearest_loop(pts[-1])
-        if d0 < d1:
-            pts.reverse()
-        gap, join = nearest_loop(pts[-1])
+        # Find where the connector comes CLOSEST to the loop — anywhere along it, not just an endpoint.
+        # A "Directions" round-trip (e.g. Fletcher Pkwy, 8285 -> 8285) has both ENDS at the same address
+        # far from the loop, but its MIDDLE crosses right by it; an out-and-back spur (Cowles) is closest
+        # at an end. Handling both: pick the min-gap vertex, blend the connector's terrain height toward
+        # the loop road height in a window around it (kills the step at the crossing), and only WELD a
+        # vertex onto the loop centreline when the closest point is an END with a real gap (a spur mouth).
         blend_m = 90.0
-        if gap <= 80.0:
-            pts.append([join[0], join[1], join[2]])          # weld the mouth onto the loop centreline
-            # walk back from the join, lerping y toward the loop height as we approach it
-            acc = 0.0
-            for k in range(len(pts) - 1, 0, -1):
-                acc += math.dist(pts[k][::2], pts[k - 1][::2])
-                if acc >= blend_m:
-                    break
-                t = acc / blend_m                             # 0 at the join -> 1 blend_m back
-                pts[k - 1][1] = pts[k - 1][1] * t + join[1] * (1 - t)
-            note = f"joined loop (gap {gap:.0f} m, blended {blend_m:.0f} m)"
+        gi = min(range(len(pts)), key=lambda i: nearest_loop(pts[i])[0])
+        gap, join = nearest_loop(pts[gi])
+        is_end = gi <= 1 or gi >= len(pts) - 2
+        RIBBON_OVERLAP_M = 12.0    # within this, the two road ribbons already overlap — no weld needed
+        if gap <= 120.0:
+            if is_end and gap > RIBBON_OVERLAP_M:
+                if gi <= 1:
+                    pts.insert(0, [join[0], join[1], join[2]]); gi = 0
+                else:
+                    pts.append([join[0], join[1], join[2]]); gi = len(pts) - 1
+                gap = 0.0
+            # blend Y toward the loop height outward from the junction vertex in BOTH directions
+            for step in (1, -1):
+                acc = 0.0; k = gi
+                while 0 <= k + step < len(pts):
+                    acc += math.dist(pts[k + step][::2], pts[k][::2])
+                    if acc >= blend_m:
+                        break
+                    t = acc / blend_m
+                    pts[k + step][1] = pts[k + step][1] * t + join[1] * (1 - t)
+                    k += step
+            pts[gi][1] = join[1]
+            note = f"joined loop at {'end' if is_end else 'mid-street'} (gap {gap:.0f} m, blended {blend_m:.0f} m)"
         else:
-            note = f"NOT joined (nearest loop {gap:.0f} m) — floating spur"
+            note = f"NOT joined (nearest loop {gap:.0f} m) — floating spur, SKIPPED"
+            continue
         width = float(spec.get("width_m", 10.0))
         out_connectors.append({"name": spec["name"], "points_xyz_m": [[round(c, 3) for c in p] for p in pts],
                                "widths_m": [width] * len(pts)})
