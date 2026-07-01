@@ -72,7 +72,14 @@ def build(track_dir: Path) -> Path:
                 bmesh.ops.holes_fill(bm, edges=bm.edges, sides=16)
             except Exception as e:
                 print(f"[build_kn5] holes_fill skipped on {ob.name}: {e}")
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            # Do NOT recalc/flip normals here. build_mesh authors the grass 100% face-up already, and
+            # the OBJ import + kn5 export both preserve winding — so the ONLY thing that ever corrupts
+            # it is a normal-recalc pass. recalc_face_normals guesses "outward" from mesh SHAPE and on
+            # big/steep terrain guesses DOWN, flipping the whole grass face-down -> AC has no top-side
+            # collision -> the car falls through the ground (this exact bug hit the San Diego loop with
+            # the old code, then Sand Creek's pits when the compensating flip was removed). A per-face
+            # geometric flip is no better: on spiky terrain it unshares smooth normals and splits 1GRASS
+            # past the 65,535 cap into duplicate meshes. Weld + fill holes, then leave the winding alone.
             after = sum(1 for e in bm.edges if len(e.link_faces) == 1)
             print(f"[build_kn5] 1GRASS open edges {before} -> {after} (weld 5 cm + holes_fill)")
         bm.to_mesh(ob.data)
