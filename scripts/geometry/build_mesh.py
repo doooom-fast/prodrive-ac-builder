@@ -249,7 +249,17 @@ def build(project_dir: str | Path) -> dict:
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
-    grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m (×4 blew past AC's 65,535-vert grass cap)
+    # Pick the FINEST upsample (<=3) that keeps 1GRASS under AC's 65,535 per-mesh vertex cap. Over the
+    # cap, the exporter auto-splits the grass into TWO meshes with the SAME name; AC keys physical meshes
+    # by name, so one half is dropped from collision and the car falls THROUGH the grass. Small loops
+    # (Sand Creek) still get x3; big loops (Lake Murray) drop to x2/x1 so the grass is a single,
+    # uniquely-named, fully-collidable mesh.
+    _ny0, _nx0 = len(grid), len(grid[0])
+    up = 3
+    while up > 1 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 62000:
+        up -= 1
+    grid, meta = ribbon.upsample_grid(grid, meta, up)
+    print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (< 65535)")
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
     # Sink the terrain into a wide smooth BOWL around any dip (the corkscrew) so it reads as a valley,
     # not a road in a walled trench with the surrounding grass towering overhead.
@@ -277,6 +287,7 @@ def build(project_dir: str | Path) -> dict:
         shoulder = ribbon.curb_sidewalk(centerline, widths, lift=ROAD_LIFT_M,
                                         grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk,
                                         curb_h=float(edge_cfg.get("curb_h", 0.15)),
+                                        curb_face_w=float(edge_cfg.get("curb_face_w", 0.08)),
                                         sidewalk_w=float(edge_cfg.get("sidewalk_w", 1.5)),
                                         grade_w=float(edge_cfg.get("grade_w", 1.0)))
         edge_group, edge_mat = "1KERB_sidewalk", "kerb"
@@ -287,7 +298,17 @@ def build(project_dir: str | Path) -> dict:
     # Wide tarmac RUNOFF apron on the outside of corners (replaces grass run-off / the old walls).
     runoff = kerbs.corner_runoff(centerline, widths, bank_at=bnk)
     runoff["vertices"] = [(x, y + 0.05, z) for x, y, z in runoff["vertices"]]  # clear the grass, below road
-    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk)
+    # Kerb geometry is config-driven so a track can opt into taller RACING kerbs without touching the
+    # default 5 cm street kerb. `kerb.height_m` / `kerb.width_m` / `kerb.top_frac` in track.config.json.
+    kerb_cfg = cfg_raw.get("kerb", {})
+    kerb = kerbs.corner_kerbs(centerline, widths, bank_at=bnk,
+                              kerb_h=float(kerb_cfg.get("height_m", 0.05)),
+                              kerb_w=float(kerb_cfg.get("width_m", 1.0)),
+                              top_frac=float(kerb_cfg.get("top_frac", 0.55)),
+                              edge_ramp=float(kerb_cfg.get("edge_ramp", 0.0)))
+    if kerb_cfg:
+        print(f"  racing kerbs: h={kerb_cfg.get('height_m', 0.05)}m w={kerb_cfg.get('width_m', 1.0)}m "
+              f"edge_ramp={kerb_cfg.get('edge_ramp', 0.0)}")
     kerb["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in kerb["vertices"]]  # kerb lip at road-edge height
     marks = ribbon.road_markings(centerline, widths, bank_at=bnk)
     marks["vertices"] = [(x, y + ROAD_LIFT_M + 0.012, z) for x, y, z in marks["vertices"]]

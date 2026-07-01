@@ -76,7 +76,8 @@ def _cum_stations(pts: list[Vertex]) -> list[float]:
 def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: float = 0.007,
                  min_run: int = 5, kerb_w: float = 1.0, kerb_h: float = 0.05, ridge_period: float = 0.6,
                  ridge_lo: float = 0.45, top_frac: float = 0.55, lift: float = 0.01,
-                 fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6, bank_at=None) -> dict:
+                 fine_step: float = 0.3, sharp: float = 0.05, tile_m: float = 0.6, edge_ramp: float = 0.0,
+                 bank_at=None) -> dict:
     """Real 3D **ridged** kerbs on corners — a raised, serrated rumble strip, not a flat texture plane.
     Each corner run is resampled fine (``fine_step``) and a cross-section is swept along it:
         road-edge lip (vertical, flush at the lane edge) -> raised top -> ramp back down on the verge,
@@ -107,10 +108,11 @@ def corner_kerbs(centerline_m: list[Vertex], widths_m: list[float], *, thr: floa
             # (``half``) and the raised body + ramp extend OUTWARD onto the verge (``half + kerb_w``),
             # so it never eats into the drivable lane — you clip it running wide, you don't drive over it.
             edge, top, ramp = half, half + kerb_w * top_frac, half + kerb_w
+            lip = half + kerb_w * edge_ramp        # lane-side ramp: 0 = vertical street lip; >0 = rideable racing ramp
             tb = math.tan(bank_at(base_s + arc)) if bank_at else 0.0  # roll with the cambered road
             r = len(verts)
             verts.append((x + nx * edge, y + lift + side * edge * tb, z + nz * edge))        # 0 edge bottom (road edge)
-            verts.append((x + nx * edge, y + lift + h + side * edge * tb, z + nz * edge))    # 1 edge top (vertical lip, track side)
+            verts.append((x + nx * lip, y + lift + h + side * lip * tb, z + nz * lip))       # 1 edge top (lane-side face: vertical lip or rideable ramp)
             verts.append((x + nx * top, y + lift + h + side * top * tb, z + nz * top))       # 2 top (outward)
             verts.append((x + nx * ramp, y + lift + side * ramp * tb, z + nz * ramp))        # 3 ramp bottom (verge side)
             v = arc / tile_m

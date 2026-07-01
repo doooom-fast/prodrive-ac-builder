@@ -149,7 +149,25 @@ def build(project_dir: str | Path) -> dict:
         "stats": stats,
     }), encoding="utf-8")
 
-    grid, meta = build_heightfield(coords, HF_SPACING_M, HF_MARGIN_M)
+    # Widen the sampled terrain to cover any declared connector streets (route.connectors_kml), so a
+    # branch road that leaves the loop's own bbox still has real ground under it. Connector geometry only
+    # extends the grid EXTENT here; the along-lap elevation profile above stays centerline-only.
+    bbox_coords = list(coords)
+    try:
+        from scripts.gps.connectors_from_kml import _load_kml_text, _placemark_line
+        from scripts.config import load_config
+        cfg = load_config(project_dir)
+        for spec in cfg.raw.get("route", {}).get("connectors_kml", []):
+            kml_path = (project_dir / spec["kml"]).resolve()
+            if kml_path.exists():
+                line = _placemark_line(kml_path, spec["match"])
+                bbox_coords.extend(line)
+                if line:
+                    print(f"[heightfield] +connector extent '{spec['name']}' ({len(line)} pts)")
+    except Exception as e:
+        print(f"[heightfield] connector-extent widening skipped: {e}")
+
+    grid, meta = build_heightfield(bbox_coords, HF_SPACING_M, HF_MARGIN_M)
     write_npy(data / "heightfield.npy", grid)
     (data / "heightfield.meta.json").write_text(json.dumps(meta), encoding="utf-8")
 

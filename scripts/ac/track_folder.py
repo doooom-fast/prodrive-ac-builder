@@ -42,6 +42,10 @@ def surfaces_ini() -> str:
                    "gravel.wav", 1.2),
         ("GRASS",  dict(FRICTION=0.60, DAMPING=0.1, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0),
                    "grass.wav", 1.0),
+        # LAWN = irrigated suburban turf (1LAWN_* tiles): a touch more grip than dry grass, same
+        # off-track scrub. Keeps the green neighbourhood ground physical so you don't fall through it.
+        ("LAWN",   dict(FRICTION=0.65, DAMPING=0.09, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0),
+                   "grass.wav", 1.0),
     ]
     out = []
     for i, (key, p, wav, pitch) in enumerate(blocks):
@@ -56,11 +60,19 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
     loc = cfg.raw.get("location", {})
     city = loc.get("city", "Commerce City")
     country = loc.get("country", "United States")
+    freeroam = not cfg.raw.get("loop", True)
+    desc = cfg.raw.get("ui_description") or (
+        f"Open-world freeroam cruise of {city} — a real street network ({round(length_m/1000)} km) "
+        f"merged from map exports, with real USGS terrain. Built by prodrive-ac-builder. Just drive."
+        if freeroam else
+        f"Real-world street circuit built from OpenStreetMap + USGS 3DEP by prodrive-ac-builder "
+        f"({city}, {country}).")
+    tags = ["freeroam", "cruise", "street", "open-world", "real-roads"] if freeroam else \
+        ["street", "loop", "fictional", "real-roads"]
     return {
-        "name": f"{cfg.name}" + ("" if layout == "full" else f" — {layout}"),
-        "description": f"Real-world street circuit built from OpenStreetMap + USGS 3DEP by "
-                       f"prodrive-ac-builder ({city}, {country}).",
-        "tags": ["street", "loop", "fictional", "real-roads"],
+        "name": f"{cfg.name}" + ("" if layout in ("full", "freeroam") else f" — {layout}"),
+        "description": desc,
+        "tags": tags,
         "geotags": [f"{cfg.lat}", f"{cfg.lon}"],
         "country": country, "city": city,
         "length": str(round(length_m)), "width": str(round(cfg.default_width_m)),
@@ -98,15 +110,45 @@ def map_ini(params: dict) -> str:
     return f"[PARAMETERS]\n{body}\n"
 
 
-def _track_svg(xz, geom, *, stroke: str, width: float, bg: str | None, flip_y: bool = False) -> str:
+def _network_edges_xz(project_dir: Path):
+    """For a freeroam NETWORK: return (edges_xz, length_m). Each edge is a [(x,z)...] polyline in the
+    SAME mirrored local frame the mesh used, recomputed from network.geojson + network.local.json."""
+    netp = project_dir / "data" / "network.geojson"
+    locp = project_dir / "data" / "network.local.json"
+    if not (netp.exists() and locp.exists()):
+        return None
+    loc = json.loads(locp.read_text())
+    o = loc["origin"]; lon0, lat0 = o["lon"], o["lat"]
+    sx = -1.0 if loc.get("mirror_x", True) else 1.0
+    phi = math.radians(lat0)
+    m_lat = 111132.954 - 559.822 * math.cos(2 * phi) + 1.175 * math.cos(4 * phi)
+    m_lon = 111412.84 * math.cos(phi) - 93.5 * math.cos(3 * phi) + 0.118 * math.cos(5 * phi)
+    fc = json.loads(netp.read_text())
+    edges, total = [], 0.0
+    for f in fc["features"]:
+        e = [(sx * (lon - lon0) * m_lon, (lat - lat0) * m_lat) for lon, lat in f["geometry"]["coordinates"]]
+        edges.append(e)
+        total += float(f["properties"].get("length_m") or 0.0)
+    return edges, round(total, 1)
+
+
+def _track_svg(xz, geom, *, stroke: str, width: float, bg: str | None, flip_y: bool = False,
+               multi=None) -> str:
     minx, minz, maxz, scale, ox, oz, S = (geom[k] for k in ("minx", "minz", "maxz", "scale", "ox", "oz", "S"))
 
     def px(x, z):
         py = ((maxz - z) if flip_y else (z - minz)) * scale + oz  # flip_y=True → north up (UI); else AC HUD
         return round((x - minx) * scale + ox, 1), round(py, 1)
 
-    pts = " ".join(f"{a},{b}" for a, b in (px(x, z) for x, z in xz))
     rect = f'<rect width="100%" height="100%" fill="{bg}"/>' if bg else ""
+    if multi is not None:  # freeroam network: one polyline per edge (no jumps between disjoint streets)
+        paths = "".join(
+            f'<polyline points="{" ".join(f"{a},{b}" for a, b in (px(x, z) for x, z in e))}" '
+            f'fill="none" stroke="{stroke}" stroke-width="{width}" stroke-linejoin="round" '
+            f'stroke-linecap="round"/>' for e in multi)
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}">'
+                f'{rect}{paths}</svg>')
+    pts = " ".join(f"{a},{b}" for a, b in (px(x, z) for x, z in xz))
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{S}" height="{S}" viewBox="0 0 {S} {S}">'
             f'{rect}<polyline points="{pts}" fill="none" stroke="{stroke}" stroke-width="{width}" '
             f'stroke-linejoin="round" stroke-linecap="round"/></svg>')
@@ -134,27 +176,37 @@ def _rasterize(svg: str, png: Path, size: int) -> bool:
 def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
     project_dir = Path(project_dir)
     cfg = load_config(project_dir)
-    local = json.loads((project_dir / "data" / "centerline.local.json").read_text(encoding="utf-8"))
     dummies = json.loads((project_dir / "data" / "dummies.json").read_text(encoding="utf-8")) \
         if (project_dir / "data" / "dummies.json").exists() else {}
     n_pits = sum(1 for k in dummies if k.startswith("AC_PIT_"))
     kn5_name = kn5_name or f"{cfg.slug}.kn5"
-    length_m = json.loads((project_dir / "data" / "centerline.geojson").read_text())["features"][0]["properties"]["length_m"]
+
+    # Freeroam NETWORK (this project) vs single-loop (legacy): the minimap draws every edge and the
+    # "length" is the total drivable road, not a lap.
+    net = _network_edges_xz(project_dir)
+    if net is not None:
+        edges_xz, length_m = net
+        xz = [p for e in edges_xz for p in e]      # all points (for bbox/centering)
+        multi = edges_xz
+    else:
+        local = json.loads((project_dir / "data" / "centerline.local.json").read_text(encoding="utf-8"))
+        xz = _xz(local)
+        multi = None
+        length_m = json.loads((project_dir / "data" / "centerline.geojson").read_text())["features"][0]["properties"]["length_m"]
 
     out = project_dir / "build" / cfg.slug
     (out / "data").mkdir(parents=True, exist_ok=True)
     (out / "data" / "surfaces.ini").write_text(surfaces_ini(), encoding="utf-8")
 
-    xz = _xz(local)
     params, geom = _map_params(xz)
     (out / "data" / "map.ini").write_text(map_ini(params), encoding="utf-8")
     # HUD minimap — white track, transparent, AC convention (consistent with map.ini)
-    _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None, flip_y=False),
-               out / "map.png", params["WIDTH"])
+    _rasterize(_track_svg(xz, geom, stroke="#ffffff", width=params["DRAWING_SIZE"], bg=None, flip_y=False,
+                          multi=multi), out / "map.png", params["WIDTH"])
     # preview — reuse the Phase-4 3D render (a real view of the track) if present
     render_svg = project_dir / "data" / "track_render.svg"
     preview_src = render_svg.read_text(encoding="utf-8") if render_svg.exists() else \
-        _track_svg(xz, geom, stroke="#ff3b30", width=5, bg="#0c1116", flip_y=True)
+        _track_svg(xz, geom, stroke="#ff3b30", width=5, bg="#0c1116", flip_y=True, multi=multi)
 
     layouts = [lo["id"] for lo in cfg.layouts]
     for layout in layouts:
@@ -163,7 +215,7 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
         uid.mkdir(parents=True, exist_ok=True)
         (uid / "ui_track.json").write_text(json.dumps(ui_track_json(cfg, layout, length_m, n_pits), indent=2),
                                            encoding="utf-8")
-        _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True), uid / "outline.png", params["WIDTH"])
+        _rasterize(_track_svg(xz, geom, stroke="#e8ecf0", width=3, bg="#0c1116", flip_y=True, multi=multi), uid / "outline.png", params["WIDTH"])
         _rasterize(preview_src, uid / "preview.png", 600)
         aid = out / "ai" / layout
         aid.mkdir(parents=True, exist_ok=True)

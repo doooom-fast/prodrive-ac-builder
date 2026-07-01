@@ -1,0 +1,23 @@
+{
+  "name": "San Diego \u2014 Lake Murray Loop",
+  "description": "Real-world street circuit built from OpenStreetMap + USGS 3DEP by prodrive-ac-builder (San Diego, United States).",
+  "tags": [
+    "street",
+    "loop",
+    "fictional",
+    "real-roads"
+  ],
+  "geotags": [
+    "32.782",
+    "-117.042"
+  ],
+  "country": "United States",
+  "city": "San Diego",
+  "length": "15216",
+  "width": "12",
+  "pitboxes": "4",
+  "run": "clockwise",
+  "author": "prodrive-ac-builder",
+  "version": "0.1.9",
+  "year": 2026
+}

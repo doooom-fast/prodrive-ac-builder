@@ -1,0 +1,32 @@
+Blender 4.2.9 LTS (hash a10f621e649a built 2025-04-15 01:56:59)
+Read blend: "/Users/kevinconboy/Documents/K10/racecor-prodrive/prodrive-ac-builder/.claude/worktrees/wonderful-meninsky-faa480/projects/san-diego-loop/blender/san_diego_lake_murray.blend"
+Warning: 'ACPanelMixamo' does not contain '_PT_' with prefix and suffix
+Warning: 'ACPanelCharacter' does not contain '_PT_' with prefix and suffix
+Warning: 'ACPanelExport' does not contain '_PT_' with prefix and suffix
+reloading addon meta-data: io_import_accsv '/Users/kevinconboy/Library/Application Support/Blender/4.2/scripts/addons/io_import_accsv/__init__.py' (time-stamp change detected)
+Modules Installed () from '/var/folders/j7/hm697nk16vj52jcw4tmp83mm0000gn/T/_ac_addon_vendored.zip' into '/Users/kevinconboy/Library/Application Support/Blender/4.2/scripts/addons'
+Info: Modules Installed () from '/var/folders/j7/hm697nk16vj52jcw4tmp83mm0000gn/T/_ac_addon_vendored.zip' into '/Users/kevinconboy/Library/Application Support/Blender/4.2/scripts/addons'
+register_class(...):
+Warning: 'ACPanelMixamo' does not contain '_PT_' with prefix and suffix
+register_class(...):
+Warning: 'ACPanelCharacter' does not contain '_PT_' with prefix and suffix
+register_class(...):
+Warning: 'ACPanelExport' does not contain '_PT_' with prefix and suffix
+INI materials=8 textures_staged=6
+oriented 1GRASS: avg_z -0.02 -> up
+oriented 1KERB_corners: avg_z +0.03 -> up
+oriented 1ROAD_main: avg_z -0.01 -> up
+oriented 1ROAD_shoulder: avg_z -0.00 -> up
+oriented 1RUNOFF_corners: avg_z -0.01 -> up
+oriented MARKINGS: avg_z -0.01 -> up
+oriented MARKINGS_crosswalk: avg_z +0.00 -> up
+added UV map to MARKINGS_crosswalk
+kn5 export operator: exporter.kn5
+Info: No active texture for material 'MARKINGS_crosswalk_mat' found.
+	Using default UV scaling for objects without UV maps.
+No active texture for material 'MARKINGS_mat' found.
+	Using default UV scaling for objects without UV maps.
+EXPORT RESULT: {'FINISHED'}
+KN5 EXISTS: True SIZE: 16294613
+
+Blender quit

@@ -1,0 +1,15 @@
+Blender 4.2.9 LTS (hash a10f621e649a built 2025-04-15 01:56:59)
+OBJ import of 'track.obj' took 64.23 ms
+Info: Total files 6 | Changed 6 | Failed 0
+[build_kn5] 1GRASS open edges 904 -> 904 (weld 5 cm + holes_fill)
+[build_kn5] smooth-shaded '1GRASS' (51949 positions) to fit the 65,535 render-vertex limit
+Info: Packed 6 file(s)
+Info: Saved "san_diego_lake_murray.blend"
+
+FBX export starting... '/Users/kevinconboy/Documents/K10/racecor-prodrive/prodrive-ac-builder/.claude/worktrees/wonderful-meninsky-faa480/projects/san-diego-loop/build/san_diego_lake_murray.fbx'
+export finished in 0.1831 sec.
+[build_kn5] no direct kn5 exporter found — wrote AC-standard FBX: /Users/kevinconboy/Documents/K10/racecor-prodrive/prodrive-ac-builder/.claude/worktrees/wonderful-meninsky-faa480/projects/san-diego-loop/build/san_diego_lake_murray.fbx
+           convert to .kn5 via Content Manager (track import) or ksEditor.
+[build_kn5] exported /Users/kevinconboy/Documents/K10/racecor-prodrive/prodrive-ac-builder/.claude/worktrees/wonderful-meninsky-faa480/projects/san-diego-loop/build/san_diego_lake_murray.fbx
+
+Blender quit

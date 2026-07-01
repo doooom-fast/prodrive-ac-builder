@@ -43,7 +43,7 @@ def _shader_and_textures(pbr, obj_name: str):
         tx["txDiffuse"] = {"textureName": diff}
     if norm:
         tx["txNormal"] = {"textureName": norm}
-    if key == "TREES":
+    if key in pbr.BILLBOARD and diff:   # TREES/PALMS/BUSHES — crossed cutout cards use the tree shader
         return "ksTree", tx
     return ("ksPerPixelMultiMap" if norm else "ksPerPixel"), tx
 
@@ -97,16 +97,55 @@ def main() -> None:
     for ob in [o for o in bpy.data.objects if o.type == "MESH"]:
         mat = pbr.setup_material(bpy, ob)
         shader, tx = _shader_and_textures(pbr, ob.name)
-        is_tree = ob.name.upper().startswith("TREES")
+        is_billboard = any(ob.name.upper().startswith(k) for k in pbr.BILLBOARD)
         settings["materials"][mat.name] = {
             "shaderName": shader,
-            "alphaBlendMode": "AlphaToCoverage" if is_tree else "Opaque",
-            "alphaTested": is_tree,
+            "alphaBlendMode": "AlphaToCoverage" if is_billboard else "Opaque",
+            "alphaTested": is_billboard,
             "depthMode": "DepthNormal",
             "properties": {},
             "textures": tx,
         }
     (out / "settings.json").write_text(json.dumps(settings, indent=1))
+
+    # Stage referenced textures into build/texture/ — the kn5 export add-on resolves each material's
+    # textureName to <kn5_dir>/texture/<name> and embeds it from there. Without this it embeds 0
+    # textures and every surface renders flat (the road/grass look untextured). Copy each unique
+    # texture named in settings.json from assets/textures/ into the staging dir.
+    import shutil
+    texdir = out / "texture"
+    texdir.mkdir(exist_ok=True)
+    staged = 0
+    for mat_def in settings["materials"].values():
+        for slot in mat_def.get("textures", {}).values():
+            fn = slot.get("textureName")
+            if not fn:
+                continue
+            src = pbr.texture_dir() / fn
+            if src.exists() and not (texdir / fn).exists():
+                shutil.copyfile(src, texdir / fn)
+                staged += 1
+            elif not src.exists():
+                print(f"[kn5_native] WARNING: texture missing, not staged: {src}")
+    print(f"[kn5_native] staged {staged} textures into {texdir}")
+
+    # Save the assembled scene as blender/<slug>.blend so the PROVEN 2-pass exporter
+    # (scripts/ac/export_kn5_addon.py — the path that builds the working Sand Creek) can re-export it
+    # with the add-on operator (recalc_face_normals + face-up orient + proper physics). kn5_native's own
+    # direct export_kn5.save() below is a fallback; the pipeline prefers export_kn5_addon on this .blend.
+    blend_path = project_dir / "blender" / f"{slug}.blend"
+    blend_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        bpy.ops.file.pack_all()   # PACK images into the .blend — the blender-assetto-corsa-tools kn5
+        #                           exporter (used by export_kn5_addon, the working path) hard-errors
+        #                           "Image not packed" otherwise.
+    except Exception as e:
+        print(f"[kn5_native] WARNING: pack_all failed: {e}")
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+        print(f"[kn5_native] saved packed scene -> {blend_path}")
+    except Exception as e:
+        print(f"[kn5_native] WARNING: could not save .blend: {e}")
 
     import export_kn5
     for ob in bpy.data.objects:

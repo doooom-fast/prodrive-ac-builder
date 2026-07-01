@@ -1,0 +1,128 @@
+{
+  "name": "San Diego Cruise",
+  "slug": "san_diego_cruise",
+  "version": "0.5.2",
+  "author": "prodrive-ac-builder",
+  "year": 2026,
+  "_about": "Open-world FREEROAM cruise of Kevin's childhood neighborhood (Del Cerro / San Carlos / Allied Gardens / La Mesa), built by MERGING two Google My Maps 'Directions' exports into one drivable road network. Keeps the I-8 / SR-125 freeways. Not a circuit - drive anywhere. Vibe over realism: bright SoCal golden hour, SRP-style freeway furniture, California-highway palms on the surface streets, Lake Murray as water.",
+  "location": {
+    "lat": 32.7784713,
+    "lon": -117.0598955,
+    "timezone": "America/Los_Angeles",
+    "city": "San Diego",
+    "country": "United States",
+    "_anchor": "5602 Dartford Way (Del Cerro) - childhood home; AC_START placed here."
+  },
+  "source": {
+    "type": "kml-network",
+    "_doc": "kml-network = merge N My Maps 'Directions' KML/KMZ exports into ONE deduped road graph (scripts/gps/network.py), not a single ordered loop. Each file's LineStrings are road-snapped by Google; we snap shared streets together into a node-edge network.",
+    "kml_files": [
+      "source/San Diego 1.kmz",
+      "source/San Diego 2.kml"
+    ]
+  },
+  "network": {
+    "_doc": "Graph-build + per-class road knobs read by scripts/gps/network.py and the network mesh stage.",
+    "snap_grid_m": 11.0,
+    "resample_m": 4.0,
+    "min_edge_m": 18.0,
+    "smooth_iters": 3,
+    "clip_radius_m": 3000,
+    "_clip_doc": "Truncate the network to within this radius of home (location.lat/lon) -> a small, light, Sand-Creek-scale NEIGHBORHOOD cruise that loads fast. Far freeway tails go to a separate freeway-loop track. 0/absent = full 27km.",
+    "class_widths_m": {
+      "motorway": 22.0,
+      "trunk": 16.0,
+      "primary": 13.0,
+      "secondary": 11.0,
+      "residential": 8.0,
+      "service": 6.0,
+      "default": 9.0
+    }
+  },
+  "loop": false,
+  "mirror_x": true,
+  "default_width_m": 9.0,
+  "width_overrides": [],
+  "scenery": {
+    "_doc": "Per-class scatter for the freeroam. Freeway edges get SRP-style furniture (barriers/gantries/lightpoles); surface streets get California-highway palms + dry SoCal flora. corridor_margin_m keeps scatter clear of every road edge.",
+    "corridor_margin_m": 3.5,
+    "tree_step_m": 26.0,
+    "tree_cap": 6000,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 7.0,
+    "bush_density": 0.45,
+    "bush_off_min_m": 7.0,
+    "bush_off_span_m": 30.0,
+    "bush_size_min_m": 1.2,
+    "bush_size_span_m": 1.6,
+    "light_spacing_m": 60.0,
+    "freeway_furniture": {
+      "barrier_spacing_m": 8.0,
+      "gantry_spacing_m": 320.0,
+      "lightpole_spacing_m": 55.0
+    },
+    "lake_murray": {
+      "_doc": "Water plane for Lake Murray (filled at the SW edge of the network, by Cowles Mtn Blvd / Kiowa).",
+      "center_lat": 32.78167,
+      "center_lon": -117.04222,
+      "radius_m": 650
+    },
+    "viaduct": {
+      "_doc": "Elevated freeway deck (SRP/Shutoko look). base_lift_m = constant deck height even over flat ground (tapered to grade at junctions so ramps connect); the bridge component adds more over canyon dips. Crank base_lift_m + smooth_win for taller decks.",
+      "base_lift_m": 9.0,
+      "max_lift_m": 30.0,
+      "smooth_win": 120,
+      "taper_frac": 0.16
+    },
+    "terrain": {
+      "_doc": "(bbox override removed; auto-computed from the clipped neighborhood network)"
+    },
+    "ocean": {
+      "_doc": "Distant Pacific backdrop to the real WEST: a flat sea-level water plane from the coast out to the horizon. Sea level is elevation 0 (the DEM dives to it at the coast).",
+      "enabled": false,
+      "sea_level_m": 0.0,
+      "lon_from": -117.238,
+      "lon_to": -117.36,
+      "lat_pad_m": 4000
+    }
+  },
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "freeroam",
+      "ai": "ai/freeroam",
+      "uses_connectors": [],
+      "_doc": "Single freeroam layout over the whole merged network. AC_START at the childhood home (5602 Dartford Way). No lap timing required - it's a cruise."
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "golden_hour",
+      "noon",
+      "morning"
+    ],
+    "light_pollution": {
+      "_note": "San Diego metro sky glow - broad, warm-white, faint",
+      "color": [
+        1.0,
+        0.87,
+        0.69
+      ],
+      "density": 0.2,
+      "radius_km": 7.0,
+      "relative_position": [
+        -1.5,
+        0,
+        -2.2
+      ]
+    },
+    "grassfx": false
+  }
+}
