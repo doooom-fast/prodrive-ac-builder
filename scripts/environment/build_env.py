@@ -867,8 +867,58 @@ def build(project_dir: str | Path) -> dict:
     palms = _merge(palm_meshes)
     print(f"  roadside vegetation: {npalm} palms + {nstreet} street trees along the network")
 
+    # --- real 3D HOUSES mined from LA Canyons (bo_builds atlas), scattered set-back on the verges of
+    #     every street. Unlike the SRP panels, LA Canyons ships discrete solid house meshes; the kit in
+    #     assets/props/houses/ is bo_buildings-material only so it single-atlases cleanly. Each is placed
+    #     rotated to face the road, seated on the ground, off the road (a real house on the block).
+    def _load_prop(path):
+        V, VT, Fp = [], [], []
+        for ln in Path(path).read_text().splitlines():
+            if ln.startswith("v "):
+                _, x, y, z = ln.split()[:4]; V.append((float(x), float(y), float(z)))
+            elif ln.startswith("vt "):
+                _, u, v = ln.split()[:3]; VT.append((float(u), float(v)))
+            elif ln.startswith("f "):
+                Fp.append([int(p.split("/")[0]) - 1 for p in ln.split()[1:]])
+        return V, VT, Fp
+
+    house_dir = Path(__file__).resolve().parents[2] / "assets" / "props" / "houses"
+    house_kit = [_load_prop(f) for f in sorted(house_dir.glob("*.obj"))] if house_dir.exists() else []
+    house_meshes, nhouse = [], 0
+    if house_kit:
+        _hg = random.Random(909)
+        for pts, wds in road_lines:
+            acc_h = 0.0
+            for i in range(1, len(pts)):
+                (x0, _y0, z0), (x1, _y1, z1) = pts[i - 1], pts[i]
+                seg = math.hypot(x1 - x0, z1 - z0); acc_h += seg
+                if acc_h < 45.0:
+                    continue
+                acc_h = 0.0
+                tx, tz = (x1 - x0) / (seg or 1), (z1 - z0) / (seg or 1)
+                nx, nz = -tz, tx
+                half = (wds[i] / 2.0) if i < len(wds) else 6.0
+                side = 1.0 if _hg.random() < 0.5 else -1.0
+                off = half + 12.0 + _hg.random() * 14.0             # set back into the block
+                hx, hz = x1 + nx * off * side, z1 + nz * off * side
+                if on_road(hx, hz):
+                    continue
+                V, VT, Fp = house_kit[_hg.randrange(len(house_kit))]
+                sc = 2.2 + _hg.random() * 0.8                       # shiter sheds ~3 m -> ~7-9 m houses
+                yaw = math.atan2(nx * side, nz * side) + (_hg.random() - 0.5) * 0.5   # roughly face the road
+                c, s = math.cos(yaw), math.sin(yaw)
+                gy = ground_y(hx, hz)
+                vt = {"vertices": [], "uvs": list(VT), "tris": []}
+                for (x, y, z) in V:
+                    vt["vertices"].append((hx + (x * sc) * c - (z * sc) * s, gy + y * sc, hz + (x * sc) * s + (z * sc) * c))
+                vt["tris"] = [tuple(f) for f in Fp]
+                house_meshes.append(vt)
+                nhouse += 1
+    houses = _merge(house_meshes) if house_meshes else {"vertices": [], "uvs": [], "tris": []}
+    print(f"  LA Canyons houses: {nhouse} scattered ({len(house_kit)} in kit)")
+
     if mirror_x:
-        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, palms, bushes, lights,
+        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), houses, trees, palms, bushes, lights,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
@@ -879,7 +929,7 @@ def build(project_dir: str | Path) -> dict:
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
                ("TREES", "grass", trees), ("PALMS", "grass", palms), ("BUSHES", "grass", bushes),
-               ("LIGHTS", "road", lights),
+               ("HOUSE", "road", houses), ("LIGHTS", "road", lights),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),
