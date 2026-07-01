@@ -497,7 +497,12 @@ def build(project_dir: str | Path) -> dict:
         sampling the heightfield, so scattered foliage sits on the real ground, not a mirror-image of it."""
         return y_at(origin[0] + sx * x / m_lon, origin[1] + z / m_lat)
 
-    env = json.loads((data / "environment.geojson").read_text())["features"]
+    # environment.geojson (OSM buildings/water/landuse zones) is OPTIONAL: an aerial- or GPS-sourced
+    # track (e.g. a private complex) has no OSM zones to fetch. Absent → no scenery zones, not a crash.
+    env_path = data / "environment.geojson"
+    env = json.loads(env_path.read_text())["features"] if env_path.exists() else []
+    if not env:
+        print("[build_env] no environment.geojson — building terrain/foliage only, no OSM zones")
     gj = json.loads((data / "centerline.geojson").read_text())["features"]
 
     # --- track + interior connector ---

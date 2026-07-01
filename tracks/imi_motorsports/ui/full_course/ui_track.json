@@ -1,0 +1,23 @@
+{
+  "name": "IMI Motorsports Complex \u2014 full_course",
+  "description": "Real-world street circuit built from OpenStreetMap + USGS 3DEP by prodrive-ac-builder (Dacono, United States).",
+  "tags": [
+    "street",
+    "loop",
+    "fictional",
+    "real-roads"
+  ],
+  "geotags": [
+    "40.0423",
+    "-104.9482"
+  ],
+  "country": "United States",
+  "city": "Dacono",
+  "length": "1446",
+  "width": "8",
+  "pitboxes": "4",
+  "run": "clockwise",
+  "author": "prodrive-ac-builder",
+  "version": "0.1.0",
+  "year": 2026
+}
