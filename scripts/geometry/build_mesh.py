@@ -287,6 +287,7 @@ def build(project_dir: str | Path) -> dict:
         shoulder = ribbon.curb_sidewalk(centerline, widths, lift=ROAD_LIFT_M,
                                         grass_clearance=GRASS_CLEARANCE_M, bank_at=bnk,
                                         curb_h=float(edge_cfg.get("curb_h", 0.15)),
+                                        curb_face_w=float(edge_cfg.get("curb_face_w", 0.08)),
                                         sidewalk_w=float(edge_cfg.get("sidewalk_w", 1.5)),
                                         grade_w=float(edge_cfg.get("grade_w", 1.0)))
         edge_group, edge_mat = "1KERB_sidewalk", "kerb"
