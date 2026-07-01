@@ -825,8 +825,50 @@ def build(project_dir: str | Path) -> dict:
 
     # mirroring the east axis flips every face inside-out; reverse the visual meshes' winding so they
     # render front-side again (the drivable track handles this via orient_up in build_mesh).
+    # --- SoCal roadside vegetation: fan palms + broadleaf street trees along EVERY street (loop +
+    #     connectors), on the verges, off the road. The zone-tree scatter above only fills OSM green
+    #     polygons (parks); this lines the actual streets, which is the palm-lined suburban look. Ported
+    #     from build_network_env. Palms → their own PALMS billboard group (palms_atlas); trees join TREES.
+    _pg = random.Random(202)
+    palm_meshes, npalm, nstreet = [], 0, 0
+    PNC, PNR = 2, 2                                          # palms_atlas is 2x2
+    road_lines = [(loop, widths)] + [(cp, cw) for cp, cw in connector_lines]
+    for pts, wds in road_lines:
+        acc_v = 0.0
+        for i in range(1, len(pts)):
+            (x0, _y0, z0), (x1, _y1, z1) = pts[i - 1], pts[i]
+            seg = math.hypot(x1 - x0, z1 - z0)
+            acc_v += seg
+            if acc_v < 26.0:
+                continue
+            acc_v = 0.0
+            tx, tz = (x1 - x0) / (seg or 1), (z1 - z0) / (seg or 1)
+            nx, nz = -tz, tx
+            half = (wds[i] / 2.0) if i < len(wds) else 6.0
+            for side in (1.0, -1.0):
+                if _pg.random() > 0.6:
+                    continue
+                off = half + 3.5 + _pg.random() * 8.0
+                vx, vz = x1 + nx * off * side, z1 + nz * off * side
+                if on_road(vx, vz):
+                    continue
+                gy = ground_y(vx, vz) - 0.3
+                if _pg.random() < 0.5:                       # California fan palm
+                    h = 8.5 + _pg.random() * 6.0
+                    palm_meshes.append(_billboard_cell(vx, gy, vz, _pg.randint(0, PNC - 1), _pg.randint(0, PNR - 1),
+                                                       PNC, PNR, h, h * 0.42, yaw=_pg.random() * math.pi))
+                    npalm += 1
+                else:                                        # broadleaf street tree
+                    h = 5.5 + _pg.random() * 3.5
+                    tree_meshes.append(_billboard_cell(vx, gy, vz, _pg.randint(0, t_ac - 1), _pg.randint(0, t_ar - 1),
+                                                       t_ac, t_ar, h, h * 0.9, yaw=_pg.random() * math.pi))
+                    nstreet += 1
+    trees = _merge(tree_meshes)                              # re-merge with the street trees folded in
+    palms = _merge(palm_meshes)
+    print(f"  roadside vegetation: {npalm} palms + {nstreet} street trees along the network")
+
     if mirror_x:
-        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, bushes, lights,
+        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), trees, palms, bushes, lights,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
@@ -836,7 +878,8 @@ def build(project_dir: str | Path) -> dict:
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
-               ("TREES", "grass", trees), ("BUSHES", "grass", bushes), ("LIGHTS", "road", lights),
+               ("TREES", "grass", trees), ("PALMS", "grass", palms), ("BUSHES", "grass", bushes),
+               ("LIGHTS", "road", lights),
                ("POLE", "road", poles), ("WIRE", "road", wires),
                ("SIGNS", "road", signs_panels), ("SIGNPOST", "road", signposts),
                ("CHAINLINK", "grass", fences),
