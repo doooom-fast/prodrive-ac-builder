@@ -129,6 +129,24 @@ def main() -> None:
                 print(f"[kn5_native] WARNING: texture missing, not staged: {src}")
     print(f"[kn5_native] staged {staged} textures into {texdir}")
 
+    # Save the assembled scene as blender/<slug>.blend so the PROVEN 2-pass exporter
+    # (scripts/ac/export_kn5_addon.py — the path that builds the working Sand Creek) can re-export it
+    # with the add-on operator (recalc_face_normals + face-up orient + proper physics). kn5_native's own
+    # direct export_kn5.save() below is a fallback; the pipeline prefers export_kn5_addon on this .blend.
+    blend_path = project_dir / "blender" / f"{slug}.blend"
+    blend_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        bpy.ops.file.pack_all()   # PACK images into the .blend — the blender-assetto-corsa-tools kn5
+        #                           exporter (used by export_kn5_addon, the working path) hard-errors
+        #                           "Image not packed" otherwise.
+    except Exception as e:
+        print(f"[kn5_native] WARNING: pack_all failed: {e}")
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+        print(f"[kn5_native] saved packed scene -> {blend_path}")
+    except Exception as e:
+        print(f"[kn5_native] WARNING: could not save .blend: {e}")
+
     import export_kn5
     for ob in bpy.data.objects:
         ob.select_set(ob.type == "MESH")
