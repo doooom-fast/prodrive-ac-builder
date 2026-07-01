@@ -134,24 +134,33 @@ for fn, srcpath in needed.items():
         print(f"[export] WARNING: texture source missing, not staged: {srcpath}")
 print(f"INI materials={i} textures_staged={len(needed)}")
 
-# 5.4 orient drivable surfaces FACE-UP (+Z in Blender = +Y in AC). A down-wound drivable surface
-#     makes AC's one-sided physics drop/flip the car. Flip every down-facing drivable mesh up.
+# 5.4 drivable-surface winding: DO NOTHING. build_mesh already emits every drivable surface wound
+#     face-up (+Y), the OBJ import preserves it (+Z in Blender), and the kn5 exporter preserves it
+#     again — verified end-to-end: a clean build has 1GRASS/1ROAD/1KERB all face-up in the final kn5.
+#
+#     There used to be a "re-orient face-up" pass here (recalc_face_normals + flip the whole mesh when
+#     its average normal pointed down). It was WORSE than useless: Blender's recalc_face_normals guesses
+#     an "outward" side by mesh shape, and on a big/steep track (the San Diego loop climbs a 100 m+
+#     Cowles foothill, with 300 m+ terrain in the margin) it guesses WRONG and flips the ENTIRE track
+#     face-down — which renders fine but gives AC's one-sided physics no top surface, so the car drops
+#     straight through the ground. Sand Creek's gentle terrain happened to dodge it; the loop did not.
+#     A per-face variant was no better: reversing faces on the smooth-shaded terrain unshared its
+#     vertex normals, blowing 1GRASS past the 65,535-vertex cap so the exporter split it into two
+#     duplicate-named meshes (AC then drops one from collision — the very fall-through we started with).
+#     The source winding is authoritative; leave it alone. (PRODRIVE_ORIENT=legacy restores the old
+#     heuristic for A/B diagnosis only.)
 import bmesh  # noqa: E402
 DRIVABLE = ("1ROAD", "1RUNOFF", "1GRASS", "1LAWN", "1KERB", "MARKINGS")
-for ob in bpy.data.objects:
-    if ob.type == "MESH" and any(ob.name.upper().startswith(p) for p in DRIVABLE):
-        me = ob.data
-        bm = bmesh.new()
-        bm.from_mesh(me)
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])  # make winding CONSISTENT first
-        bm.normal_update()
-        avgz = sum(f.normal.z for f in bm.faces) / max(len(bm.faces), 1)
-        if avgz < 0.0:                                         # then flip the whole surface up
-            bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-        bm.to_mesh(me)
-        bm.free()
-        me.update()
-        print(f"oriented {ob.name}: avg_z {avgz:+.2f} -> up")
+if os.environ.get("PRODRIVE_ORIENT") == "legacy":
+    for ob in bpy.data.objects:
+        if ob.type == "MESH" and any(ob.name.upper().startswith(p) for p in DRIVABLE):
+            me = ob.data
+            bm = bmesh.new(); bm.from_mesh(me)
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:]); bm.normal_update()
+            if sum(f.normal.z for f in bm.faces) / max(len(bm.faces), 1) < 0.0:
+                bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+            bm.to_mesh(me); bm.free(); me.update()
+            print(f"[legacy-orient] {ob.name}")
 
 # 5.5 ensure every mesh has a UV map — the add-on calls calc_tangents(), which hard-errors without one
 for ob in bpy.data.objects:
