@@ -103,6 +103,42 @@ def build_ring(road_lines: list[list[Vertex]]) -> tuple[list[Vertex], list[float
     return ring, corner_gaps
 
 
+def stitch_network(road_lines: list[list[Vertex]], *, loop: bool) -> list[Vertex]:
+    """Stitch ordered roads into a ring by ROUTING along the real OSM network between them.
+
+    ``build_ring`` trims each road at its nearest-neighbour junction and concatenates the raw OSM
+    geometry — which breaks on divided arterials (``merge_ways`` returns an out-and-back doubling of
+    both carriageways) and on roads that only meet a few metres apart. Here we instead drop a handful
+    of waypoints along each road (entry junction → interior → exit junction, in traversal order) and
+    Dijkstra the shortest on-pavement path through all of them (``road_route.route_waypoints``). The
+    router picks one carriageway, follows real junctions, and never doubles back — so a messy list of
+    real streets becomes one clean drivable loop. Reproducible: driven entirely by ``route.roads``.
+    """
+    from scripts.gps import road_route  # lazy: pulls the drivable network from OSM
+
+    n = len(road_lines)
+    # junction point between each road and the next (wrap for a loop)
+    seq = range(n) if loop else range(n - 1)
+    junc = {k: nearest_pair(road_lines[k], road_lines[(k + 1) % n]) for k in seq}
+
+    waypoints: list[Vertex] = []
+    for k in range(n):
+        line = road_lines[k]
+        # nearest_pair(a, b) → (idx_in_a, idx_in_b, gap). Both junction points lie on THIS road:
+        # entry = where the previous road met us ([1] of the prev pair); exit = where we meet next ([0]).
+        ia = junc[(k - 1) % n][1] if (loop or k > 0) else 0
+        ib = junc[k][0] if (loop or k < n - 1) else len(line) - 1
+        jp, jn = line[ia], line[ib]
+        seg = line[ia:ib + 1] if ia <= ib else line[ib:ia + 1][::-1]
+        if len(seg) > 4:  # entry, two interior anchors, exit — enough to pin the router onto THIS road
+            waypoints += [jp, seg[len(seg) // 3], seg[2 * len(seg) // 3], jn]
+        else:
+            waypoints += [jp, jn]
+    if loop and waypoints:
+        waypoints.append(waypoints[0])
+    return road_route.route_waypoints(waypoints, margin_m=600.0)
+
+
 def resample(pl: list[Vertex], spacing_m: float = RESAMPLE_SPACING_M) -> list[Vertex]:
     """Resample a polyline to even ``spacing_m`` spacing (linear interp; fine at metre scale)."""
     if len(pl) < 2:
@@ -161,7 +197,13 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
     if missing:
         raise SystemExit(f"No geometry returned for: {missing} — check road names/bbox in config.")
 
-    ring, corner_gaps = build_ring(road_lines)
+    if route.get("stitch") == "network":
+        # Route along the real OSM network through the ordered roads — robust to divided arterials
+        # and far-apart junctions (see stitch_network). Corner gaps are N/A (the router bridges them).
+        ring = stitch_network(road_lines, loop=cfg.loop)
+        corner_gaps = []
+    else:
+        ring, corner_gaps = build_ring(road_lines)
     if cfg.loop and ring and _key(ring[0]) != _key(ring[-1]):
         ring.append(ring[0])
     ring = resample(ring, RESAMPLE_SPACING_M)

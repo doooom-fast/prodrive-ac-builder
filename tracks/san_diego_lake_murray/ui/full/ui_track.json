@@ -13,11 +13,11 @@
   ],
   "country": "United States",
   "city": "San Diego",
-  "length": "15216",
+  "length": "15338",
   "width": "12",
   "pitboxes": "4",
   "run": "clockwise",
   "author": "prodrive-ac-builder",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "year": 2026
 }
