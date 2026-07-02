@@ -1,7 +1,7 @@
 {
   "name": "San Diego \u2014 Lake Murray Loop",
   "slug": "san_diego_lake_murray",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "A drivable LOOP around Lake Murray (Kevin's childhood neighborhood), built through the EXACT proven Sand Creek pipeline (build_kn5.py native Blender ribbon + grass -> export_kn5_addon), NOT the from-scratch network path. Source = the 'Lake Murray Blvd round-trip' loop from the My Maps export. Loop, not freeroam, because the loop pipeline is what actually collides in-game.",

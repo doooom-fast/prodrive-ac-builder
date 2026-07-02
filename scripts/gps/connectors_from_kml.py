@@ -289,6 +289,23 @@ def build(project_dir: str | Path) -> dict:
             for p, zz in zip(pts, zf):
                 p[1] = zz
         conform_to_roads(pts, placed_roads, near_m=85.0)
+        # GRADE-LIMIT the connector: even within the ±BAND clamp a short section can ramp ~30% (Baltimore
+        # did, right at its loop crossing) — a steep road ramp reads as a wall. Relax the Y series so no
+        # step between adjacent points exceeds MAX_GRADE, from the lows (a hill becomes a gentle climb).
+        MAX_GRADE = 0.12
+        for _ in range(200):
+            ch = False
+            for k in range(len(pts)):
+                lo = pts[k][1]
+                for nb in (k - 1, k + 1):
+                    if 0 <= nb < len(pts):
+                        seg = math.dist(pts[k][::2], pts[nb][::2])
+                        if pts[nb][1] + MAX_GRADE * seg < lo:
+                            lo = pts[nb][1] + MAX_GRADE * seg
+                if lo < pts[k][1] - 1e-6:
+                    pts[k][1] = lo; ch = True
+            if not ch:
+                break
         placed_roads.append([tuple(p) for p in pts])
         width = float(spec.get("width_m", 10.0))
         out_connectors.append({"name": spec["name"], "points_xyz_m": [[round(c, 3) for c in p] for p in pts],
