@@ -219,7 +219,17 @@ def build(project_dir: str | Path) -> dict:
 
     grid = read_npy(data / "heightfield.npy")
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
-    grid, meta = ribbon.upsample_grid(grid, meta, 3)  # 40 m → ~13 m (×4 blew past AC's 65,535-vert grass cap)
+    # Pick the FINEST upsample (<=3) that keeps 1GRASS under AC's 65,535 per-mesh vertex cap. A single
+    # grass mesh over the cap is auto-split by the exporter into TWO meshes with the SAME name — and AC
+    # keys physical meshes by name, so one half is dropped from collision and the car falls through the
+    # grass. Small loops (Sand Creek) still get x3; big loops (Lake Murray) drop to x2/x1 so the grass
+    # stays a single, uniquely-named, fully-collidable mesh.
+    _ny0, _nx0 = len(grid), len(grid[0])
+    up = 3
+    while up > 1 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 62000:
+        up -= 1
+    grid, meta = ribbon.upsample_grid(grid, meta, up)
+    print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (cap 65535)")
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
     # Sink the terrain into a wide smooth BOWL around any dip (the corkscrew) so it reads as a valley,
     # not a road in a walled trench with the surrounding grass towering overhead.
