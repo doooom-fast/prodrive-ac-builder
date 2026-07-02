@@ -6,6 +6,10 @@ folder — proper geometry, real elevation, accurate lighting, and multiple layo
 
 First target: **Sand Creek Raceway** — a street loop in Commerce City, Colorado (US), with optional alternate routes.
 
+> **Working on the Steam game (GALA), not an AC track?** This repo's pipeline is also the *seed* for
+> a UE5 driving-as-art game. If your task is about that game, start at [`steam-game/README.md`](steam-game/README.md)
+> — that plan is the source of truth for the game; this file governs the AC track pipeline it reuses.
+
 ---
 
 ## First principle
