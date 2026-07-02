@@ -27,6 +27,29 @@ import xml.etree.ElementTree as ET
 
 
 OVERPASS = "https://overpass-api.de/api/interpreter"
+OVERPASS_MIRRORS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.ru/api/interpreter",
+]
+
+
+def _overpass(query: str):
+    """POST an Overpass query, trying mirrors + backoff (the main endpoint 429/504s under load)."""
+    import time
+    import urllib.request
+    import urllib.parse
+    last = None
+    for attempt in range(6):
+        url = OVERPASS_MIRRORS[attempt % len(OVERPASS_MIRRORS)]
+        try:
+            req = urllib.request.Request(url, data=("data=" + urllib.parse.quote(query)).encode(),
+                                         headers={"User-Agent": "prodrive-ac-builder/1.0"})
+            return json.loads(urllib.request.urlopen(req, timeout=120).read())
+        except Exception as e:  # 429/504/timeout — try the next mirror after a pause
+            last = e
+            time.sleep(3 + attempt * 4)
+    raise RuntimeError(f"Overpass failed on all mirrors: {last}")
 
 
 def _strip(tag: str) -> str:
@@ -37,14 +60,10 @@ def _osm_way_line(road_name: str, bbox: tuple[float, float, float, float]) -> li
     """Fetch a named road from OSM and stitch its ways into ONE ordered lon/lat polyline. Cleaner than a
     Google-Directions route (no doubling-back), but a divided arterial comes back as many segments, so
     greedily chain ways by shared endpoints (~10 m) extending both ends from the longest seed."""
-    import urllib.request
-    import urllib.parse
     s, w, n, e = bbox
     q = (f'[out:json][timeout:60];way["name"="{road_name}"]["highway"]'
          f'({s},{w},{n},{e});out geom;')
-    req = urllib.request.Request(OVERPASS, data=("data=" + urllib.parse.quote(q)).encode(),
-                                 headers={"User-Agent": "prodrive-ac-builder/1.0"})
-    d = json.loads(urllib.request.urlopen(req, timeout=120).read())
+    d = _overpass(q)
     ways = [[(p["lon"], p["lat"]) for p in wy["geometry"]]
             for wy in d.get("elements", []) if wy.get("type") == "way" and "geometry" in wy]
     if not ways:

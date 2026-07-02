@@ -128,6 +128,17 @@ def build(project_dir: str | Path) -> dict:
     z_raw = usgs_3dep.sample_points(coords)
     z_smooth = smooth_profile(z_raw, spacing_m=CENTERLINE_SPACING_M)
 
+    # ELEVATION SCALE: the raw USGS DEM around Lake Murray carries Cowles Mountain and steep grades, so
+    # the neighbourhood came out as a mountain the road climbs. Compress the RELIEF (about the median
+    # centerline height) toward flat so it reads as the gently-rolling suburb it actually is — applied to
+    # BOTH the centerline profile and the terrain grid (below) so road + ground stay aligned. Config:
+    # scenery.elevation_scale (1.0 = real DEM; 0.35 = much flatter). elev0 subtracted later at projection.
+    from scripts.config import load_config as _lc
+    _escale = float(_lc(project_dir).raw.get("scenery", {}).get("elevation_scale", 1.0))
+    _eref = sorted(z_smooth)[len(z_smooth) // 2] if z_smooth else 0.0
+    if _escale != 1.0:
+        z_smooth = [_eref + (z - _eref) * _escale for z in z_smooth]
+
     dist = [0.0]
     for i in range(1, len(coords)):
         dist.append(dist[-1] + haversine(coords[i - 1], coords[i]))
@@ -168,6 +179,9 @@ def build(project_dir: str | Path) -> dict:
         print(f"[heightfield] connector-extent widening skipped: {e}")
 
     grid, meta = build_heightfield(bbox_coords, HF_SPACING_M, HF_MARGIN_M)
+    if _escale != 1.0:                                          # compress terrain relief to match the profile
+        grid = [[_eref + (v - _eref) * _escale for v in row] for row in grid]
+        print(f"[heightfield] elevation_scale {_escale}: relief compressed about {_eref:.0f} m")
     write_npy(data / "heightfield.npy", grid)
     (data / "heightfield.meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
