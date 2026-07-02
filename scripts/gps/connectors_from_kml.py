@@ -100,12 +100,31 @@ def build(project_dir: str | Path) -> dict:
         bot = g[j0 + 1][i0] * (1 - ti) + g[j0 + 1][i0 + 1] * ti
         return top * (1 - tj) + bot * tj
 
+    from scripts.elevation.heightfield import smooth_profile
+
     loop = local["points_xyz_m"]   # loop centreline in UN-mirrored local metres (x, y, z)
 
     def nearest_loop(pt):
         b = min(loop, key=lambda q: (q[0] - pt[0]) ** 2 + (q[2] - pt[2]) ** 2)
         return math.hypot(b[0] - pt[0], b[2] - pt[2]), b
 
+    def conform_to_roads(pts, roads, near_m=45.0):
+        """Where a connector passes NEAR an already-placed road, pull its height to that road's — so a
+        CROSSING becomes a flat, drivable intersection instead of a cliff (the raw terrain sample sent
+        connectors 150 m up over hills next to the loop). Weight by proximity (squared, so it stays glued
+        to road height through the whole junction), fading to the connector's own grade by ``near_m``."""
+        rpts = [q for road in roads for q in road]               # full resolution — don't miss a crossing
+        for p in pts:
+            best_d, best_y = near_m * near_m, None
+            for q in rpts:
+                d2 = (p[0] - q[0]) ** 2 + (p[2] - q[2]) ** 2
+                if d2 < best_d:
+                    best_d, best_y = d2, q[1]
+            if best_y is not None:
+                wgt = (best_d / (near_m * near_m)) ** 0.75        # 0 on the road -> 1 at near_m, firm pull
+                p[1] = p[1] * wgt + best_y * (1 - wgt)
+
+    placed_roads = [loop]                                        # conform each new connector to these
     out_connectors = []
     for spec in specs:
         kml_path = (project / spec["kml"]).resolve()
@@ -118,6 +137,15 @@ def build(project_dir: str | Path) -> dict:
         # project to UN-mirrored local metres (x east, z north); y from the shared heightfield
         pts = [[(lon - lon0) * m_lon, sample_elev(lon, lat) - elev0, (lat - lat0) * m_lat]
                for lon, lat in line]
+        # SMOOTH the grade: a connector is a street, not the racing line. Raw terrain sampling sends it
+        # up every hill and DEM spike (Fletcher hit 214 m over a hilltop next to the 16 m loop). A median
+        # deletes the spikes; a wide mean flattens hills to a gentle, drivable grade.
+        if len(pts) >= 5:
+            step_m = max(1.0, sum(math.dist(pts[i][::2], pts[i - 1][::2])
+                                  for i in range(1, len(pts))) / (len(pts) - 1))
+            zs = smooth_profile([p[1] for p in pts], spacing_m=step_m, median_m=80.0, mean_m=160.0)
+            for p, zz in zip(pts, zs):
+                p[1] = zz
         # Orient so the end that JOINS the loop is LAST, then snap+blend it flush. A Google-directions
         # line ends at an address, not a junction, so without this the branch floats ~tens of m off the
         # loop with an elevation step (unreachable / a wall). Bridge the small gap to the nearest loop
@@ -157,6 +185,22 @@ def build(project_dir: str | Path) -> dict:
         else:
             note = f"NOT joined (nearest loop {gap:.0f} m) — floating spur, SKIPPED"
             continue
+        # Keep it a STREET, not a mountain road: clamp each point to within ±BAND m of the nearest loop
+        # point's height. A "Directions" route can detour up a hill (Fletcher hit 212 m next to the 16 m
+        # loop); a suburban connector should hug the neighbourhood grade. Do this BEFORE conforming so the
+        # crossing-flatten has the final say at junctions.
+        BAND = 20.0
+        for p in pts:
+            _lg, lp = nearest_loop(p)
+            p[1] = max(lp[1] - BAND, min(lp[1] + BAND, p[1]))
+        # Smooth the clamp shoulders, THEN flatten crossings last (so junctions stay level). near_m is
+        # wide so the approach to a lower road ramps gradually instead of dropping off a cliff.
+        if len(pts) >= 5:
+            zf = smooth_profile([p[1] for p in pts], spacing_m=step_m, median_m=55.0, mean_m=110.0)
+            for p, zz in zip(pts, zf):
+                p[1] = zz
+        conform_to_roads(pts, placed_roads, near_m=85.0)
+        placed_roads.append([tuple(p) for p in pts])
         width = float(spec.get("width_m", 10.0))
         out_connectors.append({"name": spec["name"], "points_xyz_m": [[round(c, 3) for c in p] for p in pts],
                                "widths_m": [width] * len(pts)})
