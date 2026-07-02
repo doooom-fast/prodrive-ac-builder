@@ -1,7 +1,7 @@
 {
   "name": "K10 Colorado",
   "slug": "k10_colorado",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "Unified Colorado motorsports cruise. ONE kml-network mesh (san-diego-cruise precedent) that stitches the Sand Creek Raceway street loop (Commerce City) to the IMI Motorsports road course (Dacono) via a real main-road corridor up Colorado Blvd -> US-85 -> CO-52, so you can drive between them. Each track is an AC layout (its own spawn) over the single shared kn5. More Colorado complexes get added as further layouts. Faded Front Range backdrop to the true west; buildings/water/hills dressing along the corridor.",
@@ -17,9 +17,7 @@
     "type": "kml-network",
     "_doc": "kml-network = merge N KML LineString sources into ONE deduped road graph (scripts/gps/network.py). Vertices within network.snap_grid_m collapse into shared nodes, so the corridor auto-junctions onto the Sand Creek loop and the IMI course where they touch. All three files are lon/lat LineStrings; IMI's is converted from its aerial centerline.geojson.",
     "kml_files": [
-      "source/sand_creek_loop.kml",
       "source/colorado_blvd_to_imi.kml",
-      "source/imi_course.kml",
       "source/second_creek.kml",
       "source/second_creek_spur.kml",
       "source/high_plains.kml",
@@ -36,7 +34,12 @@
   "mirror_x": true,
   "default_width_m": 9.0,
   "width_overrides": [],
-  "origin": "centroid",
+  "origin": {
+    "lon": -104.9,
+    "lat": 39.82,
+    "elev_m": 1490.0,
+    "_doc": "SHARED origin so detailed merged tracks (Sand Creek, IMI) build in the SAME frame as the network connectors -> one kn5. elev_m is a floor below the lowest track."
+  },
   "true_north_rotation_deg": 180.0,
   "surfaces": {
     "road": "1ROAD",
@@ -286,5 +289,20 @@
       ],
       "_note": "Denver metro glow to the south/southwest"
     }
-  }
+  },
+  "merge_tracks": [
+    {
+      "slug": "sand_creek",
+      "project": "projects/sand-creek-raceway",
+      "kind": "loop",
+      "real_elevation": true,
+      "_doc": "Full detail (kerbs/markings/textures/buildings/creek bridges). road_profile DISABLED -> real USGS 3DEP + capture elevation (user: hand-authored corkscrew sucks)."
+    },
+    {
+      "slug": "imi",
+      "project": "projects/imi-motorsports",
+      "kind": "aerial",
+      "_doc": "Aerial->loop full detail (kerbs/edge)."
+    }
+  ]
 }

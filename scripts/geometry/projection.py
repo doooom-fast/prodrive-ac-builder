@@ -62,8 +62,16 @@ def build(project_dir: str | Path) -> dict:
     elev = json.loads((data / "centerline.elevation.json").read_text(encoding="utf-8"))
     z = elev["z_smooth_m"]
 
-    origin = centroid(coords)
-    elev0 = min(z)
+    # origin: default = centroid of THIS centerline; but config.origin may pin a SHARED origin (a
+    # {lon,lat,elev_m} dict) so a detailed track builds in another map's frame (K10 merge) — its mesh
+    # then lands directly in that frame, ready to import into one shared kn5 with no post-translation.
+    origin_cfg = cfg.raw.get("origin", "centroid")
+    if isinstance(origin_cfg, dict) and "lon" in origin_cfg and "lat" in origin_cfg:
+        origin = (float(origin_cfg["lon"]), float(origin_cfg["lat"]))
+        elev0 = float(origin_cfg.get("elev_m", min(z)))
+    else:
+        origin = centroid(coords)
+        elev0 = min(z)
     local = project_to_local(coords, z, origin, elev0)
 
     xs = [p[0] for p in local]

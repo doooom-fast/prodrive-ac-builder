@@ -244,10 +244,16 @@ def build(project_dir: str | Path) -> dict:
     elev = json.loads((data / "network.elevation.json").read_text())
     zmap = {e["id"]: e["z_smooth_m"] for e in elev["edges"]}
 
-    # origin = centroid of ALL edge vertices; elev0 = min z (so Y >= 0)
+    # origin = centroid of ALL edge vertices; elev0 = min z (so Y >= 0). config.origin may pin a SHARED
+    # {lon,lat,elev_m} origin so detailed merged tracks (loop/aerial) build in the SAME frame -> one kn5.
     all_ll = [(lon, lat) for f in F for lon, lat in f["geometry"]["coordinates"]]
-    origin = centroid(all_ll)
-    elev0 = min(min(z) for z in zmap.values())
+    _og = cfg.raw.get("origin", "centroid")
+    if isinstance(_og, dict) and "lon" in _og and "lat" in _og:
+        origin = (float(_og["lon"]), float(_og["lat"]))
+        elev0 = float(_og.get("elev_m", min(min(z) for z in zmap.values())))
+    else:
+        origin = centroid(all_ll)
+        elev0 = min(min(z) for z in zmap.values())
     lon0, lat0 = origin
     m_lon, m_lat = _meters_per_degree(lat0)
     sx = -1.0 if mirror_x else 1.0

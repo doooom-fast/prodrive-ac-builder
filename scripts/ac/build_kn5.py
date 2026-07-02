@@ -45,11 +45,15 @@ def build(track_dir: Path) -> Path:
     # 1. empty scene
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # 2. import the pre-built meshes (Y-up): the track + the dressed environment if present
-    for obj_file in ("track.obj", "environment.obj"):
-        p = data / obj_file
-        if p.exists():
-            bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
+    # 2. import ALL pre-built meshes (Y-up): the network track+environment PLUS any merged detailed
+    #    tracks (track_<slug>.obj / env_<slug>.obj, e.g. the full-detail Sand Creek + IMI built in the
+    #    same shared frame). They all combine into one kn5. Group names are pre-uniquified per track
+    #    (1ROAD_<slug>_*) so no duplicate-name collision drops a mesh from collision.
+    obj_files = sorted(set(list(data.glob("track*.obj")) + list(data.glob("environment*.obj"))
+                           + list(data.glob("env_*.obj"))), key=lambda p: p.name)
+    for p in obj_files:
+        bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
+    print(f"[build_kn5] imported {len(obj_files)} OBJ(s): {[p.name for p in obj_files]}")
 
     # 2b. Weld coincident vertices. The geometry generators emit UNWELDED triangles (3 verts each),
     #     so 1GRASS lands at ~283k verts — over AC/ksEditor's hard 65,535-per-mesh limit (16-bit
