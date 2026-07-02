@@ -939,14 +939,69 @@ def build(project_dir: str | Path) -> dict:
     houses = _merge(house_meshes) if house_meshes else {"vertices": [], "uvs": [], "tris": []}
     print(f"  LA Canyons houses: {nhouse} scattered ({len(house_kit)} in kit)")
 
+    # --- GREEN grass fill over golf-course / park / open-space OSM polygons. The base terrain grass is
+    #     dry SoCal; these zones read as lush green turf. Fan each polygon on the terrain and DROP any
+    #     triangle that lands on a road so grass never covers the pavement (user: "not over the road"). ---
+    green_meshes, ngreen = [], 0
+    if scn.get("grass_zones", False):
+        for f in env:
+            if f["cls"] not in ("green", "wetland") or f["kind"] != "poly" or len(f["coords"]) < 3:
+                continue
+            poly = [project(lo, la) for lo, la in f["coords"]]      # (x, y, z)
+            cx = sum(p[0] for p in poly) / len(poly)
+            cz = sum(p[2] for p in poly) / len(poly)
+            c = (cx, ground_y(cx, cz) + 0.07, cz)
+            verts, tris = [], []
+            for k in range(len(poly)):
+                a, b = poly[k], poly[(k + 1) % len(poly)]
+                if on_road((a[0] + b[0] + cx) / 3, (a[2] + b[2] + cz) / 3):   # keep grass off the pavement
+                    continue
+                base = len(verts)
+                verts += [c, (a[0], ground_y(a[0], a[2]) + 0.07, a[2]),
+                          (b[0], ground_y(b[0], b[2]) + 0.07, b[2])]
+                tris.append((base, base + 1, base + 2))
+            if tris:
+                green_meshes.append({"vertices": verts, "uvs": [(0.0, 0.0)] * len(verts), "tris": tris})
+                ngreen += 1
+    green = _merge(green_meshes) if green_meshes else {"vertices": [], "uvs": [], "tris": []}
+    print(f"  green grass zones: {ngreen} filled")
+
+    # --- tall fences up/down the road sides on the HILLY sections. Double-sided alpha chain-link
+    #     (CHAINLINK), offset just off each road edge, ~3 m tall, only where the grade exceeds a threshold. ---
+    if scn.get("road_fences", False):
+        fh = float(scn.get("road_fence_h_m", 3.0))
+        fthr = float(scn.get("road_fence_grade", 0.055))
+        rfence = []
+        for pts, wds in ([(loop, widths)] + [(cp, cw) for cp, cw in connector_lines]):
+            for i in range(1, len(pts)):
+                (x0, _y0, z0), (x1, _y1, z1) = pts[i - 1], pts[i]
+                seg = math.hypot(x1 - x0, z1 - z0) or 1e-6
+                if abs(pts[i][1] - pts[i - 1][1]) / seg < fthr:     # only on the hills
+                    continue
+                tx, tz = (x1 - x0) / seg, (z1 - z0) / seg
+                nx, nz = -tz, tx
+                half = (wds[i] / 2.0 if i < len(wds) else 6.0) + 1.2
+                for side in (1.0, -1.0):
+                    ax, az = x0 + nx * half * side, z0 + nz * half * side
+                    bx, bz = x1 + nx * half * side, z1 + nz * half * side
+                    ay, by = ground_y(ax, az), ground_y(bx, bz)
+                    n = len(rfence) and None  # noqa
+                    V = [(ax, ay, az), (bx, by, bz), (bx, by + fh, bz), (ax, ay + fh, az)]
+                    tl = seg / 2.0
+                    rfence.append({"vertices": V, "uvs": [(0, 0), (tl, 0), (tl, 1), (0, 1)],
+                                   "tris": [(0, 1, 2), (0, 2, 3), (0, 2, 1), (0, 3, 2)]})  # double-sided
+        if rfence:
+            fences = _merge([fences] + rfence) if fences["tris"] else _merge(rfence)
+        print(f"  road-side hill fences: {len(rfence)} panels")
+
     if mirror_x:
-        for _m in (water, bld_plain, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), houses, trees, palms, bushes, lights,
+        for _m in (water, green, bld_plain, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), houses, trees, palms, bushes, lights,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
-              [("WATER", "grass", water), ("BLDGPLAIN", "road", bld_plain),
+              [("WATER", "grass", water), ("GREEN", "grass", green), ("BLDGPLAIN", "road", bld_plain),
                ("BUILDINGS", "road", bld_comm["BUILDINGS"]),
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),

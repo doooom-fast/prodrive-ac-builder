@@ -26,8 +26,52 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 
+OVERPASS = "https://overpass-api.de/api/interpreter"
+
+
 def _strip(tag: str) -> str:
     return re.sub(r"\{.*?\}", "", tag)
+
+
+def _osm_way_line(road_name: str, bbox: tuple[float, float, float, float]) -> list[tuple[float, float]]:
+    """Fetch a named road from OSM and stitch its ways into ONE ordered lon/lat polyline. Cleaner than a
+    Google-Directions route (no doubling-back), but a divided arterial comes back as many segments, so
+    greedily chain ways by shared endpoints (~10 m) extending both ends from the longest seed."""
+    import urllib.request
+    import urllib.parse
+    s, w, n, e = bbox
+    q = (f'[out:json][timeout:60];way["name"="{road_name}"]["highway"]'
+         f'({s},{w},{n},{e});out geom;')
+    req = urllib.request.Request(OVERPASS, data=("data=" + urllib.parse.quote(q)).encode(),
+                                 headers={"User-Agent": "prodrive-ac-builder/1.0"})
+    d = json.loads(urllib.request.urlopen(req, timeout=120).read())
+    ways = [[(p["lon"], p["lat"]) for p in wy["geometry"]]
+            for wy in d.get("elements", []) if wy.get("type") == "way" and "geometry" in wy]
+    if not ways:
+        return []
+    eps2 = (10.0 / 111_000.0) ** 2
+
+    def d2(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+    chain = ways.pop(max(range(len(ways)), key=lambda i: len(ways[i])))   # seed with the longest single way
+    grew = True
+    while grew and ways:
+        grew = False
+        for at_tail in (True, False):
+            end = chain[-1] if at_tail else chain[0]
+            best = None
+            for i, sg in enumerate(ways):
+                for pt, order in ((sg[0], sg), (sg[-1], sg[::-1])):
+                    dd = d2(end, pt)
+                    if dd < eps2 and (best is None or dd < best[0]):
+                        best = (dd, i, order)
+            if best:
+                _, i, order = best
+                ways.pop(i)
+                chain = (chain + order[1:]) if at_tail else (order[::-1][:-1] + chain)
+                grew = True
+    return chain
 
 
 def _load_kml_text(p: Path) -> str:
@@ -124,14 +168,41 @@ def build(project_dir: str | Path) -> dict:
                 wgt = (best_d / (near_m * near_m)) ** 0.75        # 0 on the road -> 1 at near_m, firm pull
                 p[1] = p[1] * wgt + best_y * (1 - wgt)
 
+    def clip_toward(line, target, max_km):
+        """Clip a long OSM road to the segment from its loop-junction toward ``target`` for ≤ max_km — so
+        a whole arterial becomes just the stub from the loop out to (e.g.) the golf course."""
+        if not line:
+            return line
+        ji = min(range(len(line)), key=lambda i: nearest_loop([(line[i][0] - lon0) * m_lon, 0,
+                                                               (line[i][1] - lat0) * m_lat])[0])
+        tx, tz = ((target[0] - lon0) * m_lon, (target[1] - lat0) * m_lat) if target else (0, 0)
+
+        def walk(step):
+            out, acc, i = [line[ji]], 0.0, ji
+            while 0 <= i + step < len(line) and acc < max_km * 1000:
+                a, b = line[i], line[i + step]
+                acc += math.hypot((b[0] - a[0]) * m_lon, (b[1] - a[1]) * m_lat)
+                out.append(b); i += step
+            return out
+        fwd, bwd = walk(1), walk(-1)
+        end = lambda seg: ((seg[-1][0] - lon0) * m_lon - tx) ** 2 + ((seg[-1][1] - lat0) * m_lat - tz) ** 2
+        return fwd if (target and end(fwd) < end(bwd)) or (not target and len(fwd) >= len(bwd)) else bwd
+
     placed_roads = [loop]                                        # conform each new connector to these
     out_connectors = []
     for spec in specs:
-        kml_path = (project / spec["kml"]).resolve()
-        line = _placemark_line(kml_path, spec["match"])
-        if not line:
-            print(f"[connectors] WARNING: no placemark matching {spec['match']!r} in {kml_path.name}")
-            continue
+        if spec.get("osm"):                                      # clean named road straight from OSM
+            line = _osm_way_line(spec["osm"], tuple(spec.get("fetch_bbox", [s, w, n, e])))
+            line = clip_toward(line, spec.get("target"), float(spec.get("max_km", 1.5)))
+            if not line:
+                print(f"[connectors] WARNING: no OSM way named {spec['osm']!r}")
+                continue
+        else:
+            kml_path = (project / spec["kml"]).resolve()
+            line = _placemark_line(kml_path, spec["match"])
+            if not line:
+                print(f"[connectors] WARNING: no placemark matching {spec['match']!r} in {kml_path.name}")
+                continue
         # clip to the terrain bbox (drop any tail that leaves the sampled ground)
         line = [(lon, lat) for lon, lat in line if s <= lat <= n and w <= lon <= e]
         # project to UN-mirrored local metres (x east, z north); y from the shared heightfield

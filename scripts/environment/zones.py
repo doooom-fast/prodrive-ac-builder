@@ -34,8 +34,8 @@ def _query(bbox: tuple[float, float, float, float]) -> str:
             # highways: the I-70 mainline + ramps + trunk (raised decks)
             f'way["highway"~"motorway|trunk|motorway_link|trunk_link"]{b};' +
             # green + wetland (tree scatter areas)
-            f'way["leisure"="park"]{b};' +
-            f'way["landuse"~"grass|meadow|recreation_ground|forest"]{b};' +
+            f'way["leisure"~"park|golf_course|pitch"]{b};' +
+            f'way["landuse"~"grass|meadow|recreation_ground|forest|village_green"]{b};' +
             f'way["natural"~"grassland|scrub|wood"]{b};' +
             f'way["natural"="wetland"]{b};' +
             ");out geom tags;")
@@ -51,8 +51,9 @@ def _classify(tags: dict) -> tuple[str, str] | None:
         return ("highway", "line")
     if tags.get("natural") == "wetland":
         return ("wetland", "poly")
-    if (tags.get("leisure") == "park" or tags.get("natural") in ("grassland", "scrub", "wood")
-            or tags.get("landuse") in ("grass", "meadow", "recreation_ground", "forest")):
+    if (tags.get("leisure") in ("park", "golf_course", "pitch")
+            or tags.get("natural") in ("grassland", "scrub", "wood")
+            or tags.get("landuse") in ("grass", "meadow", "recreation_ground", "forest", "village_green")):
         return ("green", "poly")
     return None
 

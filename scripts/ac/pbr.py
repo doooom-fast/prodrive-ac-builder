@@ -28,6 +28,7 @@ TEXTURES = {
     "BUILDING": ("building_diffuse.jpg", "building_normal.jpg", 0.88, (0.60, 0.60, 0.58, 1), 0.0, False),  # tilt-up concrete (mined Hamburg)
     "HOUSE": ("house_diffuse.png", "house_normal.png", 0.88, (0.60, 0.55, 0.48, 1), 0.0, False),  # mined LA Canyons houses (bo_builds atlas) — real 3D house props scattered on residential streets
     "BLDGPLAIN": (None, None, 0.90, (0.72, 0.71, 0.68, 1), 0.0, False),  # extruded OSM footprints, FLAT concrete colour, NO mined sample texture
+    "GREEN": (None, None, 0.92, (0.24, 0.42, 0.18, 1), 0.0, False),       # lush green grass over golf/park/open-space OSM zones (flat colour, ksGrass-like)
     "WAREHOUSE": ("warehouse_diffuse.jpg", "warehouse_normal.jpg", 0.90, (0.56, 0.56, 0.54, 1), 0.0, False),  # weathered concrete warehouse walls (mined Hamburg)
     "WHMETAL":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.65, (0.58, 0.60, 0.62, 1), 0.10, False),  # corrugated-metal warehouse (CC0 CorrugatedSteel) — warehouse variety
     "BRICK":   ("brick_diffuse.jpg",   "brick_normal.jpg",   0.90, (0.45, 0.28, 0.22, 1), 0.0, False),  # red brick (mined Hamburg) — building variety
