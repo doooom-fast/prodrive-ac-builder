@@ -96,11 +96,12 @@ def main(k10_dir: str) -> None:
         env = proj / "data" / "environment.obj"
         if env.exists():
             _transform_obj(env, data / f"env_{slug}.obj", dx, dy, dz, slug, drop=DROP_ENV)
+        layout = mt.get("layout", slug)   # which AC layout's spawn this track provides (None -> no spawn)
         dpath = proj / "data" / "dummies.json"
-        if dpath.exists():
+        if dpath.exists() and layout:
             d = json.loads(dpath.read_text())
             out = {k: [round(v[0] + dx, 3), round(v[1] + dy, 3), round(v[2] + dz, 3)] for k, v in d.items()}
-            (data / f"dummies_{slug}.json").write_text(json.dumps(out, indent=1))
+            (data / f"dummies_{layout}.json").write_text(json.dumps(out, indent=1))
         print(f"merged {slug}: {nv} verts, {ng} groups, offset ({dx:.0f}, {dy:.1f}, {dz:.0f}) m")
 
 
