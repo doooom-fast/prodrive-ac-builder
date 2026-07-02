@@ -272,6 +272,35 @@ def build(project_dir: str | Path) -> dict:
                                    extra_roads=[(p, w) for _n, p, w in connectors],
                                    clearance=GRASS_CLEARANCE_M)
 
+    # TERRAIN SLOPE-LIMIT: the raw DEM bakes in the real Cowles-area mountains — the grass rises to 300 m+
+    # as sheer, COLLIDABLE walls right beside the roads, and the car slams into them. Cap how fast the
+    # terrain may rise between adjacent grid cells (a max grade) and relax from the lows: a genuine wall
+    # becomes a climbable ramp, while gentle terrain (already under the limit) is left untouched. Config:
+    # scenery.terrain_max_grade (default 0.35 = 35%); 0 disables.
+    _tmg = float(cfg_raw.get("scenery", {}).get("terrain_max_grade", 0.35))
+    if _tmg > 0 and grid_xyz and len(grid_xyz) > 1 and len(grid_xyz[0]) > 1:
+        ny_, nx_ = len(grid_xyz), len(grid_xyz[0])
+        cell_m = math.hypot(grid_xyz[0][1][0] - grid_xyz[0][0][0], grid_xyz[0][1][2] - grid_xyz[0][0][2]) or 20.0
+        step = _tmg * cell_m
+        Y = [[grid_xyz[j][i][1] for i in range(nx_)] for j in range(ny_)]
+        for _ in range(120):                                   # relax until no cell exceeds the max rise
+            changed = False
+            for j in range(ny_):
+                for i in range(nx_):
+                    lo = Y[j][i]
+                    for dj in (-1, 0, 1):
+                        for di in (-1, 0, 1):
+                            jj, ii = j + dj, i + di
+                            if 0 <= jj < ny_ and 0 <= ii < nx_ and Y[jj][ii] + step < lo:
+                                lo = Y[jj][ii] + step
+                    if lo < Y[j][i] - 1e-6:
+                        Y[j][i] = lo; changed = True
+            if not changed:
+                break
+        drop = max((grid_xyz[j][i][1] - Y[j][i]) for j in range(ny_) for i in range(nx_))
+        grid_xyz = [[(grid_xyz[j][i][0], Y[j][i], grid_xyz[j][i][2]) for i in range(nx_)] for j in range(ny_)]
+        print(f"[build_mesh] terrain slope-limit @ {_tmg*100:.0f}% (cell {cell_m:.0f} m): shaved walls up to {drop:.0f} m")
+
     # tile_m=8 m — the LA Canyons cracked-tarmac detail reads at its real scale (cracks crisp, not
     # stretched). The cracking is irregular enough to hide the repeat.
     road = ribbon.road_ribbon(centerline, widths, tile_m=8.0, bank_at=bnk)
