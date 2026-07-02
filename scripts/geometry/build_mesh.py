@@ -316,7 +316,10 @@ def build(project_dir: str | Path) -> dict:
     # WARNING BARRIERS — guardrails on the OUTSIDE of sharp turns (and any corner hiding over a crest),
     # so you read "hard corner ahead" + get caught if you run wide. Vertical double-sided walls: NOT
     # oriented up (they're not ground), they collide as solid geometry.
-    barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
+    if cfg_raw.get("scenery", {}).get("barriers", True):
+        barrier, barrier_spots = kerbs.warning_barriers(centerline, widths)
+    else:
+        barrier, barrier_spots = {"vertices": [], "uvs": [], "tris": []}, []
     barrier["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in barrier["vertices"]]
     if barrier_spots:
         print(f"  warning barriers: {len(barrier_spots)} sharp/blind corners "

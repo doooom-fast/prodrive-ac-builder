@@ -505,6 +505,19 @@ def build(project_dir: str | Path) -> dict:
         print("[build_env] no environment.geojson — building terrain/foliage only, no OSM zones")
     gj = json.loads((data / "centerline.geojson").read_text())["features"]
 
+    # Scale-back gates (default True = existing look). Set false in track.config.json scenery{} to strip
+    # to a clean base. buildings="plain" = extruded OSM footprints, flat concrete colour, NO mined sample
+    # texture (and no industrial props). Defined HERE (before the water block that reads them).
+    scn = cfg.raw.get("scenery", {})
+    veg_on = bool(scn.get("vegetation", True))       # palms + zone/riparian/street trees + bushes
+    water_on = bool(scn.get("water", True))
+    houses_on = bool(scn.get("houses", True))         # mined LA Canyons house props
+    plain_bld = scn.get("buildings") == "plain"
+    containers_on = bool(scn.get("containers", True)) and not plain_bld
+    furniture_on = bool(scn.get("furniture", True))   # streetlights + power poles/wires
+    highways_on = bool(scn.get("highways", True))     # raised I-70-style highway decks + creek bridges
+    mountains_on = bool(scn.get("mountains", True))   # far Front-Range backdrop silhouettes
+
     # --- track + interior connector ---
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
     if profile_active:   # sink the terrain into the corkscrew bowl (match build_mesh) before grading
@@ -523,7 +536,7 @@ def build(project_dir: str | Path) -> dict:
     # --- water (Sand Creek lines + basins) ---
     water = _merge([_line_ribbon(f["coords"], project, 4.0, -0.3) if f["kind"] == "line"
                     else _fan(f["coords"], project, -0.3)
-                    for f in env if f["cls"] == "water"])
+                    for f in (env if water_on else []) if f["cls"] == "water"])
     # connector centerlines (interior-grid layout roads) in the mirrored frame — feed the road-corridor
     # rejecters below (scatter exclusion + highway-deck clipping).
     connector_lines = []
@@ -543,15 +556,20 @@ def build(project_dir: str | Path) -> dict:
     #     concrete cruft sitting on the street. margin 16 m clears the deck EDGES too (deck half-width is
     #     11 m, so a centreline kept at the corridor edge still throws an edge ~5 m onto the road at a
     #     smaller margin). The real I-70 mainline runs farther off and keeps its backdrop.
+    _EMPTY = {"vertices": [], "uvs": [], "tris": []}
     hwy_corridor = _corridor_rejecter(loop, widths, connector_lines, margin=16.0)
-    hwy_deck, hwy_struct = _build_highways(env, project, ground_y, on_track=hwy_corridor)
-    # creek bridges (E 56th + Quebec over Sand Creek): parapets + underside + piers at the crossings.
-    bridge = _creek_bridge(loop, widths, env, project, ground_y)
+    if highways_on:
+        hwy_deck, hwy_struct = _build_highways(env, project, ground_y, on_track=hwy_corridor)
+        # creek bridges (E 56th + Quebec over Sand Creek): parapets + underside + piers at the crossings.
+        bridge = _creek_bridge(loop, widths, env, project, ground_y)
+    else:
+        hwy_deck, hwy_struct, bridge = dict(_EMPTY), dict(_EMPTY), dict(_EMPTY)
 
     # --- scenery knobs (per-track, config-driven; defaults reproduce the original Sand Creek look) and
     #     the road-corridor index that keeps every scatter OFF the asphalt for ANY track ---
     import random
-    scn = cfg.raw.get("scenery", {})
+    # (scenery gate flags — scn, veg_on, water_on, houses_on, plain_bld, containers_on, furniture_on —
+    #  are defined earlier, right after env is loaded, since the water block above reads them.)
     on_road = _corridor_rejecter(loop, widths, connector_lines,
                                  margin=float(scn.get("corridor_margin_m", 3.0)))
     # Verge furniture (streetlights/poles/signs) is placed deliberately CLOSE to the road edge — inside
@@ -567,7 +585,7 @@ def build(project_dir: str | Path) -> dict:
     t_cap = int(scn.get("tree_cap", 700))
     t_ac = int(scn.get("tree_atlas_cols", 2))     # TREES atlas grid (mined Colorado trees4 = 2x2)
     t_ar = int(scn.get("tree_atlas_rows", 2))
-    for f in env:
+    for f in (env if veg_on else []):
         if f["cls"] not in ("green", "wetland") or f["kind"] != "poly" or len(f["coords"]) < 3:
             continue
         poly = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in f["coords"]]
@@ -590,7 +608,7 @@ def build(project_dir: str | Path) -> dict:
     import random as _trnd
     _tr = _trnd.Random(77)
     nriver = 0
-    for f in env:
+    for f in (env if veg_on else []):
         if f.get("cls") != "water" or f.get("kind") != "line" or len(f.get("coords", [])) < 2:
             continue
         pls = [project(lo, la) for lo, la in f["coords"]]
@@ -627,7 +645,7 @@ def build(project_dir: str | Path) -> dict:
     b_sz_min = float(scn.get("bush_size_min_m", 1.2))
     b_sz_span = float(scn.get("bush_size_span_m", 1.4))
     acc = 0.0
-    for i in range(1, len(loop)):
+    for i in (range(1, len(loop)) if veg_on else []):
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
         if acc < b_spacing:
             continue
@@ -655,7 +673,7 @@ def build(project_dir: str | Path) -> dict:
     light_meshes, nlights = [], 0
     l_spacing = float(scn.get("light_spacing_m", 48.0))
     acc = 0.0
-    for i in range(1, len(loop)):
+    for i in (range(1, len(loop)) if furniture_on else []):
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
         if acc >= l_spacing:
             acc = 0.0
@@ -678,7 +696,7 @@ def build(project_dir: str | Path) -> dict:
     pole_meshes, wire_meshes, npole = [], [], 0
     pl_spacing = float(scn.get("powerline_spacing_m", 52.0))
     prev_tips, acc = None, 0.0
-    for i in range(1, len(loop)):
+    for i in (range(1, len(loop)) if furniture_on else []):
         acc += math.hypot(loop[i][0] - loop[i - 1][0], loop[i][2] - loop[i - 1][2])
         if acc < pl_spacing:
             continue
@@ -710,7 +728,7 @@ def build(project_dir: str | Path) -> dict:
     import random as _mrnd
     _mr = _mrnd.Random(9)
     mnt_v, mnt_t = [], []
-    for layer, (dlon, base_h, amp) in enumerate([(-0.10, 560.0, 240.0), (-0.15, 920.0, 340.0)]):
+    for layer, (dlon, base_h, amp) in enumerate([(-0.10, 560.0, 240.0), (-0.15, 920.0, 340.0)] if mountains_on else []):
         wlon = origin[0] + dlon                      # west of the origin
         prev = None
         for i in range(81):
@@ -744,6 +762,7 @@ def build(project_dir: str | Path) -> dict:
     warehouse = {g: [] for g in WAREHOUSES}
     roof = {"ROOFS": [], "RFMETAL": []}             # PVC flat roofs; metal sheds get corrugated roofs
     fence_meshes = []                                # chain-link around the big (warehouse) yards
+    plain_walls = []                                 # buildings="plain": all footprints, flat colour, no samples
     for b in bld:
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
         if len(foot) < 3 or _poly_area(foot) < 35:  # skip tiny sheds / noise
@@ -759,7 +778,9 @@ def build(project_dir: str | Path) -> dict:
         bury = 2.5
         base = min(y_at(lo, la) for lo, la in b["coords"]) - bury  # sink so it meets the ground on slopes
         box = buildings.extrude(foot, base, b["height_m"] + bury)   # +bury so the roof stays at true height
-        if _poly_area(foot) > 700:
+        if plain_bld:                                            # flat concrete boxes, no mined façades, no yards
+            plain_walls.append(box["walls"]); plain_walls.append(box["roof"])
+        elif _poly_area(foot) > 700:
             g = WAREHOUSES[int(abs(round(cx) * 5 + round(cz) * 11)) % len(WAREHOUSES)]
             warehouse[g].append(box["walls"])
             roof["RFMETAL" if g == "WHMETAL" else "ROOFS"].append(box["roof"])  # metal shed -> metal roof
@@ -773,12 +794,13 @@ def build(project_dir: str | Path) -> dict:
     bld_wh = {g: _merge(v) for g, v in warehouse.items()}
     bld_roof = {k: _merge(v) for k, v in roof.items()}
     fences = _merge(fence_meshes)
+    bld_plain = _merge(plain_walls)
 
     # --- shipping-container stacks in the warehouse yards (industrial Commerce City character) ---
     _rc = random.Random(99)
     cont_meshes, ncont = [], 0
     cont_cap = int(scn.get("container_cap", 60))
-    for b in bld:
+    for b in (bld if containers_on else []):
         if ncont >= cont_cap:
             break
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
@@ -833,7 +855,7 @@ def build(project_dir: str | Path) -> dict:
     palm_meshes, npalm, nstreet = [], 0, 0
     PNC, PNR = 2, 2                                          # palms_atlas is 2x2
     road_lines = [(loop, widths)] + [(cp, cw) for cp, cw in connector_lines]
-    for pts, wds in road_lines:
+    for pts, wds in (road_lines if veg_on else []):
         acc_v = 0.0
         for i in range(1, len(pts)):
             (x0, _y0, z0), (x1, _y1, z1) = pts[i - 1], pts[i]
@@ -885,7 +907,7 @@ def build(project_dir: str | Path) -> dict:
     house_dir = Path(__file__).resolve().parents[2] / "assets" / "props" / "houses"
     house_kit = [_load_prop(f) for f in sorted(house_dir.glob("*.obj"))] if house_dir.exists() else []
     house_meshes, nhouse = [], 0
-    if house_kit:
+    if house_kit and houses_on:
         _hg = random.Random(909)
         for pts, wds in road_lines:
             acc_h = 0.0
@@ -918,13 +940,14 @@ def build(project_dir: str | Path) -> dict:
     print(f"  LA Canyons houses: {nhouse} scattered ({len(house_kit)} in kit)")
 
     if mirror_x:
-        for _m in (water, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), houses, trees, palms, bushes, lights,
+        for _m in (water, bld_plain, *bld_comm.values(), *bld_wh.values(), *bld_roof.values(), houses, trees, palms, bushes, lights,
                    poles, wires, signs_panels, signposts, fences, hwy_deck, hwy_struct, bridge):
             _m["tris"] = [(a, c, b) for (a, b, c) in _m["tris"]]
 
     # --- write environment OBJ + dressed render ---
     write_obj(data / "environment.obj", "environment.mtl",
-              [("WATER", "grass", water), ("BUILDINGS", "road", bld_comm["BUILDINGS"]),
+              [("WATER", "grass", water), ("BLDGPLAIN", "road", bld_plain),
+               ("BUILDINGS", "road", bld_comm["BUILDINGS"]),
                ("BRICK", "road", bld_comm["BRICK"]), ("STUCCO", "road", bld_comm["STUCCO"]),
                ("WAREHOUSE", "road", bld_wh["WAREHOUSE"]), ("WHMETAL", "road", bld_wh["WHMETAL"]),
                ("ROOFS", "road", bld_roof["ROOFS"]), ("RFMETAL", "road", bld_roof["RFMETAL"]),
