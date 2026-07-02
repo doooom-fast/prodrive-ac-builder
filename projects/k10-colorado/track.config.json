@@ -1,7 +1,7 @@
 {
   "name": "K10 Colorado",
   "slug": "k10_colorado",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "Unified Colorado motorsports cruise. ONE kml-network mesh (san-diego-cruise precedent) that stitches the Sand Creek Raceway street loop (Commerce City) to the IMI Motorsports road course (Dacono) via a real main-road corridor up Colorado Blvd -> US-85 -> CO-52, so you can drive between them. Each track is an AC layout (its own spawn) over the single shared kn5. More Colorado complexes get added as further layouts. Faded Front Range backdrop to the true west; buildings/water/hills dressing along the corridor.",

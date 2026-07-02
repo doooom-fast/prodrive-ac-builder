@@ -304,6 +304,8 @@ def build(project_dir: str | Path) -> dict:
     edge_local: list[tuple[dict, list[Vertex], float]] = []  # (props, AT-GRADE pts, width) for conform+dummies
     viaduct_meshes: list[dict] = []
     viaduct_profiles: dict[str, list[float]] = {}   # edge_id -> per-vertex lift (shared with build_network_env)
+    kerb_meshes: list[tuple[str, dict]] = []        # 1KERB curb+sidewalk on surface streets + race tracks
+    verge_meshes: list[tuple[str, dict]] = []       # graded shoulder on freeways -> road never hovers
     for f in F:
         c = f["geometry"]["coordinates"]
         z = zmap.get(f["properties"]["id"]) or [0.0] * len(c)
@@ -335,6 +337,24 @@ def build(project_dir: str | Path) -> dict:
         rib["vertices"] = [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in rib["vertices"]]
         orient_up(rib)
         road_meshes.append((f"e{f['properties']['id']}", rib))
+        # ROAD EDGE — kills the "floating road" + "no kerbs": a continuous strip from the road edge
+        # (lift proud, sharing the ribbon edge height) down to the conformed grass, so nothing hovers.
+        # Freeways get a plain graded SHOULDER; surface streets + race tracks get a mountable CURB +
+        # narrow sidewalk (1KERB). lift is already in the profile, so DON'T re-add ROAD_LIFT_M.
+        eid = f["properties"]["id"]
+        if is_fw:
+            sh = ribbon.road_shoulder(deck_pts, [w] * len(deck_pts), lift=ROAD_LIFT_M, verge_w=3.0,
+                                      ground_drop=GRASS_CLEARANCE_M, bank_at=bank_at)
+            orient_up(sh)   # physical surface -> face up (NOT double-sided: verify wants drivable face-up)
+            verge_meshes.append((f"v{eid}", sh))
+        else:
+            cb = ribbon.curb_sidewalk(deck_pts, [w] * len(deck_pts), lift=ROAD_LIFT_M, curb_h=0.12,
+                                      curb_face_w=0.06, sidewalk_w=1.0, grade_w=1.0,
+                                      grass_clearance=GRASS_CLEARANCE_M, tile_m=2.0, bank_at=bank_at)
+            # VISUAL curb (double-sided, no 1-prefix): its vertical face can't pass the drivable face-up
+            # check and you don't ride a street curb. It still renders + closes the hover; the conformed
+            # grass provides the physical edge. (Detailed SC/IMI keep their physical loop-path kerbs.)
+            kerb_meshes.append((f"k{eid}", _doubleside(cb)))
         edge_local.append((f["properties"], pts, w))   # AT-GRADE pts: terrain conforms to the ground, not the deck
 
     # --- terrain grid: project, upsample for road-hugging, conform to ALL edges (at-grade) ---
@@ -420,6 +440,8 @@ def build(project_dir: str | Path) -> dict:
     groups += [(n, ("lawn" if n.startswith("1LAWN") else "grass"), g) for n, g in grass_tiles]
     groups.append(("1GRASS_skirt", "grass", skirt))
     groups += _pack_groups("1ROAD_part", "road", road_meshes)
+    groups += _pack_groups("KERB_edge", "kerb", kerb_meshes)   # visual curbs (no 1-prefix -> not physical)
+    groups += _pack_groups("1GRASS_verge", "grass", verge_meshes)
     groups += via_groups
 
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
