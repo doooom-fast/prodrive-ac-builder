@@ -35,21 +35,13 @@ _CLASS = {
 }
 
 
-def _fetch_highways(bbox, retries=3):
+def _fetch_highways(bbox, retries=4):
     south, west, north, east = bbox
     q = (f"[out:json][timeout:120];"
          f'(way["highway"]({south},{west},{north},{east}););out geom;')
-    body = urllib.parse.urlencode({"data": q}).encode()
-    for attempt in range(retries):
-        req = urllib.request.Request(OVERPASS_URL, data=body,
-                                     headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=180) as r:
-                return json.loads(r.read().decode())
-        except Exception:
-            if attempt == retries - 1:
-                raise
-            time.sleep(3 * (attempt + 1))
+    # mirror fallback + 429-aware backoff live in trace.osm._post
+    from scripts.trace.osm import _post
+    return _post(q, retries=retries)
 
 
 def classify(project_dir: str | Path) -> None:

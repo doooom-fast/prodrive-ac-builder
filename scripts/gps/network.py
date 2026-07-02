@@ -138,6 +138,40 @@ def build_network(project_dir: str | Path) -> dict:
     if not lines:
         raise SystemExit("no LineStrings found in source KML files")
 
+    # OSM AUGMENT (optional, ``network.osm_augment``) — for networks that must include streets the
+    # KML directions never traced: the full drivable grid within ``bbox_margin_m`` of home, plus
+    # named roads (regex, matched over the KML extent). OSM and KML retrace the same streets with
+    # slightly different geometry; the node-snap grid dedupes them like any retraced KML leg.
+    aug = net.get("osm_augment")
+    if aug:
+        from scripts.trace.osm import fetch_drivable, fetch_named
+        m = float(aug.get("bbox_margin_m", 600.0))
+        grid_ways = []
+        for cl in aug.get("centers") or [list(home_ll)]:
+            dlat = m / 111_132.0
+            dlon = m / (111_132.0 * math.cos(math.radians(cl[1])))
+            grid_ways += fetch_drivable((cl[1] - dlat, cl[0] - dlon, cl[1] + dlat, cl[0] + dlon))
+        lines += [w["geom"] for w in grid_ways]
+        named_ways = []
+        roads = aug.get("roads") or []
+        if roads:
+            kv = [c for ln in lines for c in ln]
+            pad = 0.002
+            net_bbox = (min(c[1] for c in kv) - pad, min(c[0] for c in kv) - pad,
+                        max(c[1] for c in kv) + pad, max(c[0] for c in kv) + pad)
+            # entries: "Name" (whole network bbox) or {"name": ..., "bbox": [s,w,n,e]} to bound a
+            # road ("Navajo Road up to Jackson" = Navajo Rd with an east limit).
+            plain = [r for r in roads if isinstance(r, str)]
+            if plain:
+                named_ways += fetch_named(net_bbox, plain)
+            for r in roads:
+                if isinstance(r, dict):
+                    named_ways += fetch_named(tuple(r["bbox"]), [r["name"]])
+            lines += [w["geom"] for w in named_ways]
+        names_desc = ", ".join(r if isinstance(r, str) else r["name"] for r in roads)
+        print(f"  osm augment: +{len(grid_ways)} grid ways around centers, "
+              f"+{len(named_ways)} named-road ways ({names_desc})")
+
     # reference for the planar frame = mean of all vertices
     allv = [c for ln in lines for c in ln]
     lon0 = sum(c[0] for c in allv) / len(allv)

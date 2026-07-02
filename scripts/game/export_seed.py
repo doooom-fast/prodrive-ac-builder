@@ -2,12 +2,13 @@
 
 Reads ``projects/<slug>/data/`` (built by ``build_seed``) and writes:
 
-- ``gala_seed.json``  — self-describing: ENU centerline + widths, projection origin, landmarks,
-  heightfield metadata, and provenance (this repo's git SHA + config slug/version).
+- ``gala_seed.json``  — self-describing: ENU road network + the home->school spine + landmarks +
+  projection origin + heightfield metadata + provenance (this repo's git SHA, config version).
 - ``heightfield.r16`` — the terrain grid as uint16 little-endian, row 0 = north, normalized
   ``z = min_m + v * (max_m - min_m) / 65535``. UE-friendly.
 
-The game (``GalaSeedImport``) consumes exactly these two files and nothing else from this repo.
+The game (``GalaSeedImport``) — and the Mac previewer — consume exactly these two files and
+nothing else from this repo.
 
 Run:  python -m scripts.game.export_seed projects/gala-seed ../k10-1978/seed
 """
@@ -39,8 +40,7 @@ def export(project_dir: str | Path, out_dir: str | Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg = load_config(project_dir)
 
-    local = json.loads((data / "centerline.local.json").read_text(encoding="utf-8"))
-    landmarks = json.loads((data / "landmarks.local.json").read_text(encoding="utf-8"))
+    local = json.loads((data / "seed.local.json").read_text(encoding="utf-8"))
     meta = json.loads((data / "heightfield.meta.json").read_text(encoding="utf-8"))
     grid = read_npy(data / "heightfield.npy")
 
@@ -64,17 +64,17 @@ def export(project_dir: str | Path, out_dir: str | Path) -> Path:
             "git_sha": _git_sha(project_dir),
             "project": cfg.slug,
             "config_version": cfg.version,
+            "roads_source": "owner My Maps KML + OpenStreetMap (ODbL)",
             "elevation_source": "USGS 3DEP",
-            "roads_source": "OpenStreetMap (ODbL)",
         },
-        "centerline": {
-            "closed": False,
+        "roads": local["roads"],
+        "spine": {
+            "_doc": "home -> school along the network; the PCG spine the world grows from",
             "anchors": [a["name"] for a in cfg.raw["route"]["anchors"]],
-            "points_xyz_m": local["points_xyz_m"],
-            "widths_m": local["widths_m"],
+            **local["spine"],
         },
-        "landmarks": landmarks["landmarks"],
-        "landmarks_y": landmarks["y"],
+        "landmarks": local["landmarks"],
+        "landmarks_y": local["landmarks_y"],
         "heightfield": {
             "file": "heightfield.r16",
             "encoding": "uint16 LE, row-major, row 0 = north; z_m = min_m + v * (max_m - min_m) / 65535",
@@ -85,8 +85,10 @@ def export(project_dir: str | Path, out_dir: str | Path) -> Path:
         },
     }
     out = out_dir / "gala_seed.json"
-    out.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
-    print(f"[seed] exported {out} + heightfield.r16 "
+    out.write_text(json.dumps(bundle) + "\n", encoding="utf-8")
+    km = sum(r["length_m"] for r in local["roads"]) / 1000.0
+    print(f"[seed] exported {out} ({len(local['roads'])} edges, {km:.1f} km, "
+          f"{len(local['landmarks'])} landmarks) + heightfield.r16 "
           f"({meta['nx']}x{meta['ny']} @ {meta['spacing_m']} m, {len(buf)//1024} KiB)")
     return out
 
