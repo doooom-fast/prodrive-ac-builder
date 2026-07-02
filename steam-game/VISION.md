@@ -1,4 +1,4 @@
-# VISION — GALA
+# VISION — 1978
 
 Creative bible. This is the *why*. When a mechanic or asset decision is ambiguous, resolve it toward
 these pillars.
@@ -7,10 +7,11 @@ these pillars.
 
 ## The pitch
 
-You drive an art piece. A weighty, believable car on a real childhood street that slowly stops being
-real — the road keeps going but the world around it dissolves into swirling texture, dense ghost
-forests, abandoned towns, and expansive deserts under abstract, dramatic skies. **How you drive
-paints it.** Smooth and slow, and the world breathes calm. Push, slide, brake late, and it churns.
+It is **autumn, 1978**. You drive an art piece — a weighty, believable 70s car on a real childhood
+street that slowly stops being real: the road keeps going but the world around it dissolves into
+swirling texture, dense ghost forests, abandoned towns, and expansive deserts under abstract,
+dramatic skies — all shot on gritty period film stock, all in fall colors. **How you drive paints
+it.** Smooth and slow, and the world breathes calm. Push, slide, brake late, and it churns.
 
 Two audiences, one game:
 - **Drivers / sim-rig owners** come for a car that *feels incredible* and stay for a world that
@@ -44,7 +45,11 @@ Both are served by the same core loop. Neither is a "mode" bolted on.
    Elementary, through Del Cerro, past **the Del Cerro golf-course greens and Lake Murray** — and
    grows outward into the abstract. The realness of the start makes the strangeness land.
 
-6. **No punishment.** No lap times shown as judgment, no crashes that end a run, no death. You can
+6. **It is 1978, and it looks like it.** The era is total: the neighborhood as it was, the car as
+   they were, the image as film rendered it. Gritty, analog, warm-but-worn. Autumn. Nothing in the
+   frame should feel digital or contemporary.
+
+7. **No punishment.** No lap times shown as judgment, no crashes that end a run, no death. You can
    always keep driving. Difficulty, if any, is expressive, not gating.
 
 ---
@@ -56,7 +61,7 @@ Think of a single **intensity** value the world tracks, driven by how hard you'r
 
 | Low intensity (relaxing) | High intensity (driving) |
 |--------------------------|--------------------------|
-| Soft light, slow drift of clouds, pastel palettes | Dramatic contrast, fast weather, saturated churn |
+| Soft autumn light, slow drift of clouds, faded matinee palette | Dramatic contrast, fast weather, pushed film-stock churn |
 | Sparse, calm scatter; open desert; still water | Dense forest, storm skies, reactive terrain |
 | Long sightlines, ambient pads | Tighter framing, rhythmic/percussive audio |
 
@@ -72,7 +77,8 @@ are seeded by distance-from-anchor + intensity + player-driving history (see PCG
 [`ARCHITECTURE.md`](./ARCHITECTURE.md#procedural-world)).
 
 - **The Neighborhood (real seed):** Gala Ave, Del Cerro streets, the golf-course greens, Lake Murray
-  edge, up to Benchley-Weinberger. Recognizable, warm, slightly heightened. The only "real" zone.
+  edge, up to Benchley-Weinberger — **as it was in autumn 1978**. Recognizable, warm, slightly
+  heightened. The only "real" zone.
 - **Swirling textures:** the road as a ribbon through painterly, flowing surfaces — the transition
   layer between real and abstract.
 - **Dense forests:** dark, tall, close. The world literally slows the car (drag/weight); FFB gets
@@ -107,11 +113,41 @@ quiet, and unexplained.
 
 ---
 
+## The 1978 aesthetic (gritty 70s, fall colors)
+
+The era isn't set dressing — it's the rendering philosophy. Everything below modulates with
+intensity and biome, but never breaks period.
+
+**Image (the film stock):**
+- The game is "shot" on 70s film: **grain, halation, gate weave, soft anamorphic flares, slight
+  vignette**. Post-process is the projector — this is a huge part of the "paint" and it's cheap.
+- **Fall palette as the base coat:** burnt orange, ochre, rust, olive, faded gold, deep browns —
+  Kodachrome autumn. Intensity pushes contrast and saturation *within* that palette
+  (serene = faded matinee print; churning = pushed, high-contrast night-stock), never into
+  clean digital color. The biomes each grade the palette, none escape it.
+- **Light:** low autumn sun, long shadows, **sodium-vapor amber** at night, haze and smog-glow on
+  the horizon. Golden hour is the home key; the sanctum gets the holiest version of it.
+- Gritty ≠ ugly: worn asphalt, faded paint, chain-link, patched roads — texture with warmth.
+
+**The car:** a late-70s machine, and it *feels* like one. Heavy body-on-frame mass, big lazy
+torque, soft long-travel suspension that loads up and settles, a wheel that takes real effort.
+This is now the canonical reading of "weighty, sometimes slow, sometimes fast" — see
+[`CAR_FEEL.md`](./CAR_FEEL.md). Analog cockpit: needle gauges, AM/FM dial, no screens.
+
+**Sound:** carbureted V8 as the lead instrument; tape-warble and warm analog synth beds under it;
+AM-radio ghost stations that drift with intensity and biome. Room tone of a 70s autumn afternoon.
+
+**The year itself:** 1978 in the neighborhood — period cars parked on the streets, era-correct
+signage and streetlights, the school as it was. The abstract biomes carry the era with them
+(a ghost town is a *1978* ghost town; the desert sky is a film-stock sky).
+
 ## Tone & references
 
 - **The Lake Murray weirdness** that started this: an AC build of the childhood neighborhood that
   "got so fucking weird" it became the seed of the idea. Preserve that accidental-strange energy —
   the familiar rendered wrong-in-a-beautiful-way.
+- 70s film language for the image: road movies and California-suburb cinema of the era — long-lens
+  haze, practical light, unhurried framing. (Tone references, not shot lists.)
 - Adjacent inspirations (for tone, not to copy): meditative drive experiences, generative/abstract
   art toys, atmospheric "vibe" games. The differentiator is **real sim-grade car feel** married to
   that atmosphere — almost nothing does both.
@@ -122,7 +158,8 @@ quiet, and unexplained.
 
 - Not a racing sim. No AI opponents, no leaderboards as the point (an optional "distance/expression"
   stat is fine).
-- Not photoreal. Realism serves *feel*, not visuals; the visuals are deliberately abstract.
+- Not photoreal. Realism serves *feel*, not visuals; the visuals are deliberately abstract —
+  and deliberately *analog*: no clean digital rendering, no modern-day anything in frame.
 - Not a driving-school physics debate. We tune for *believable and great*, not for validated
   slip-curve accuracy.
 - Not a walking sim / no on-foot sections in scope.
@@ -130,11 +167,7 @@ quiet, and unexplained.
 
 ---
 
-## Working title options
+## Title
 
-- **GALA** — current pick. The street; a celebration; short, ownable.
-- _The Long Way Home_ — leans into the childhood-streets-dissolving angle.
-- _Throughline_ / _Brushline_ — leans into car-as-brush.
-- _Vection_ — the sensation of self-motion; a nod to VR/sim.
-
-Decision owner is the user; do not spend a session bikeshedding the name. `GALA` until told otherwise.
+**_1978_** — decided by the owner. Final; do not revisit. The internal codename for code, plugins,
+and project paths remains **`Gala`** (after Gala Ave) since identifiers can't start with a digit.

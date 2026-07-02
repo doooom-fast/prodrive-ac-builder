@@ -27,9 +27,9 @@ for a game engine.
 
 ---
 
-## The seed for GALA
+## The seed for 1978
 
-Create a dedicated project (don't mutate the AC ones):
+Create a dedicated project (don't mutate the AC ones — `gala-seed` keeps the internal codename):
 
 ```
 projects/gala-seed/
@@ -80,9 +80,11 @@ loose coupling is the owner-confirmed model.
 1. **Python owns "real."** Anything georeferenced (route, terrain, real landmark positions) comes
    from the pipeline. Don't hand-place the real neighborhood in-engine — that throws away the
    reproducibility and the realness the vision depends on.
-2. **Unreal owns "unreal."** Procedural bloom, biomes, sky, paint, and the *authored* sanctum
-   dressing live in-engine. The pipeline provides the sanctum's *location and extent*; UE provides
-   its *soul*.
+2. **Unreal owns "unreal."** Procedural bloom, biomes, sky, paint, the film-stock look, the 1978
+   period dressing, and the *authored* sanctum all live in-engine. The pipeline provides the
+   sanctum's *location and extent*; UE provides its *soul*. (The pipeline gives today's road
+   network — close enough for 1978 suburban streets; period-correcting anything is an in-engine
+   dressing concern, not a pipeline one.)
 3. **One conversion boundary.** ENU-meters → UE-cm happens once in `GalaSeedImport`. Downstream code
    assumes UE coordinates.
 4. **Reproducible seed.** Like the rest of this repo: a clean checkout + `gala-seed/track.config.json`

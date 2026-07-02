@@ -1,4 +1,4 @@
-# ROADMAP — GALA
+# ROADMAP — 1978
 
 Milestones for **future Claude sessions**. Each has **acceptance criteria** an AI session can check
 itself against, and flags any step that needs a **human** (driving feel, VR comfort, Steam ops).
@@ -59,13 +59,16 @@ Tasks:
 **Goal:** how you drive visibly, coherently changes the world. Prove *car is the brush*.
 
 Tasks: build the **telemetry bus** and the **intensity** scalar; wire `MPC_Mood`; first pass of
-post-process + Niagara + sky driven by telemetry; the driving↔relaxing duality readable end to end.
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md#telemetry--visual-system-galapaint).
+post-process + Niagara + sky driven by telemetry; **the film-stock layer** (grain/halation/fall-palette
+LUTs — the game should look "shot in 1978" from this milestone on); the driving↔relaxing duality
+readable end to end. See [`ARCHITECTURE.md`](./ARCHITECTURE.md#telemetry--visual-system-galapaint).
 
 **Acceptance criteria:**
 - [ ] Every active visual system reads from the telemetry bus / MPC — none read raw physics directly.
 - [ ] Intensity eases smoothly (hysteresis/slew); no flicker; visibly spans serene ↔ churning.
 - [ ] Driving calmly vs. hard produces clearly different, *intentional-looking* worlds.
+- [ ] The film-stock layer is on and period-convincing; all grading stays within the fall palette
+      (intensity changes the *stock*, never breaks the era).
 - [ ] FFB rate and feel from M0 are **unregressed** (re-check every milestone).
 
 ---
@@ -86,6 +89,8 @@ world gently draws you toward. See [`VISION.md`](./VISION.md) + [`ARCHITECTURE.m
 - [ ] The sanctum is hand-authored, consistent every drive, and calms the world on approach.
 - [ ] 🧑 **Human gate:** the sanctum reads as special/spiritual/mysterious to a fresh player.
 - [ ] Abstract dramatic skies present across biomes; sky reads as a character.
+- [ ] The neighborhood reads as **autumn 1978** (period dressing, era-correct streetlights/signage,
+      fall foliage); no modern-day objects in frame anywhere.
 
 ---
 

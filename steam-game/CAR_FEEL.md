@@ -9,6 +9,12 @@ the environment**, and it must **feel real "within reason of our fantasy world."
 chasing validated tire data — we are chasing a car that a serious sim driver believes through the
 wheel.
 
+**The car is a late-70s machine** (the game is *1978* — see [`VISION.md`](./VISION.md#the-1978-aesthetic-gritty-70s-fall-colors)),
+and that's a gift to this brief: heavy body-on-frame mass, big lazy low-end torque, soft
+long-travel suspension that loads up and settles, skinny period tires with a wide, communicative
+slip curve, and steering that takes real effort. "Weighty, sometimes slow" isn't a compromise —
+it's period-correct.
+
 ---
 
 ## Why UE5's built-in vehicle is not enough (and the plan)
@@ -53,7 +59,12 @@ input system.
 - **Suspension:** sprung/unsprung, load transfer front/rear and left/right. Load transfer changes
   per-tire grip → the car rotates believably and the FFB weights up under load.
 - **Weight & inertia:** the car should feel *heavy*. Real mass, real yaw inertia. "Sometimes slow"
-  should feel like moving mass, not low top speed. Powertrain with believable torque delivery.
+  should feel like moving mass, not low top speed. Powertrain with believable torque delivery —
+  a big, carbureted V8 character: lazy off-idle, a fat midrange, engine braking you can lean on.
+- **Period tires & suspension:** 70s-tire slip behavior — lower peak grip, wide forgiving peak,
+  progressive breakaway — is *easier* to communicate through FFB than modern rubber, and it makes
+  slides expressive rather than snappy. Soft springs + real body roll = the load-transfer story
+  the wheel tells.
 - **Handbrake:** analog Moza handbrake wired to rear brake bias / rotation — an *expressive* control
   for painterly slides, not just parking.
 
@@ -86,7 +97,7 @@ Owner's rig is the **tuning reference**; broad support is a **release** requirem
 |-------|----------------|------------------|
 | **Wheelbase (DD)** | Moza R9 (9 Nm) | Primary: Moza SDK if it improves fidelity. Fallback + broad support: **generic DirectInput/RawInput constant-force FFB** — covers Fanatec, Simucube, Simagic, Logitech, Thrustmaster DD/belt/gear. Per-base torque scaling + soft-clip. |
 | **Pedals** | Heusinkveld Ultimate+ (load cell) | **Brake is force, not travel** — expose a force→brake curve with adjustable gamma; don't treat brake as a linear axis. Standard axis path for potentiometer pedals. Per-pedal calibration + curves in-game. |
-| **Shifter** | Simagic sequential + H-pattern | Support both. Auto-detect / let player pick. Sequential = flow; H-pattern = deliberate, weighty moments. |
+| **Shifter** | Simagic sequential + H-pattern | Support both. Auto-detect / let player pick. **H-pattern + clutch is the period-canonical mode** for the 1978 car (deliberate, weighty, mechanical); sequential and auto are supported comfort/flow modes — no punishment for using them. |
 | **Handbrake** | Moza analog handbrake | Analog axis → rear brake / rotation. Also usable as an expressive art input. |
 | **Generic** | — | Everything through **SDL2 or DirectInput**, not just XInput. Full **rebind + calibration UI**. Sane defaults for popular bases. Graceful **keyboard/gamepad fallback** so non-rig players (and the store page) work — but the rig is where it sings. |
 

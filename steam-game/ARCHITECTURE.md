@@ -1,4 +1,7 @@
-# ARCHITECTURE — GALA (UE5)
+# ARCHITECTURE — 1978 (UE5)
+
+> Code/paths use the internal codename **`Gala`** (identifiers can't start with a digit); the game
+> is titled **1978**.
 
 Technical architecture. Assumes **Unreal Engine 5.4+**. This is a shape to build toward, not a
 frozen spec — but the seams below (telemetry bus, intensity, seed import) are the load-bearing ones;
@@ -75,10 +78,18 @@ driving↔relaxing duality globally:
   handbrake) and continuous emitters scaled by speed/slip.
 - **Post-process** volume driven by MPC: color grade, bloom, smear, chromatic drift tied to lateral
   motion. This is a lot of the "painting" — lean on it.
+- **The film-stock layer (always on):** a final full-screen pass that makes the game "shot in 1978" —
+  grain, halation, gate weave, anamorphic flare, vignette (see
+  [`VISION.md`](./VISION.md#the-1978-aesthetic-gritty-70s-fall-colors)). Intensity modulates the
+  *stock* (faded matinee ↔ pushed night stock), never removes it. All grading routes through
+  **fall-palette LUTs** — biomes select between autumn grades; nothing escapes the palette. Must
+  work in VR (stereo-coherent grain/flares — render in-world-scale, not screen-space-per-eye, to
+  avoid stereo mismatch) and be cheap enough for the 120 Hz budget.
 - **Sky & weather:** UE Volumetric Clouds + a custom sky material for the abstract/dramatic look;
-  **not** photoreal weather. Time-of-day and sky state are art-directed via intensity + biome, and
-  double as the lighting the Python `lighting` skill philosophy already respects (true-north,
-  dramatic sun). Sky is a *character*.
+  **not** photoreal weather. Low autumn sun, long shadows, haze/smog-glow, sodium-amber nights.
+  Time-of-day and sky state are art-directed via intensity + biome, and double as the lighting the
+  Python `lighting` skill philosophy already respects (true-north, dramatic sun). Sky is a
+  *character*.
 
 ---
 

@@ -1,11 +1,13 @@
-# GALA — Steam Game Handoff
+# 1978 — Steam Game Handoff
 
-> **Working title: _GALA_** (after Gala Ave — the childhood street this all grows from; also: a celebration).
-> Provisional. Alternatives parked in [`VISION.md`](./VISION.md).
+> **Title: _1978_** (owner-decided, final). The era the game lives in — the childhood streets as they
+> were, seen through gritty 70s film stock. Internal codename in code/paths remains `Gala` (after
+> Gala Ave; identifiers can't start with a digit).
 
 **One line:** an atmospheric driving-as-painting experience for sim rigs — the car is the brush,
 telemetry is the paint, and the sky, terrain, and weather are the canvas. It starts on a real street
-in San Diego and dissolves outward into procedural, abstract worlds.
+in 1978 San Diego and dissolves outward into procedural, abstract worlds — all of it soaked in a
+**gritty 70s** aesthetic: film grain, sodium light, heavy analog machinery.
 
 This directory is the **handoff plan**. It is written for **future Claude Code sessions** to pick up
 and build against — not a human design doc. Every milestone has concrete, checkable acceptance
@@ -18,9 +20,11 @@ criteria so a fresh session can tell what "done" means without re-litigating the
 You are (probably) a new session with no memory of this plan. Here is the whole thing in 60 seconds:
 
 1. **What we're building.** A UE5 game where driving *is* the art. Not a racing game. There is no
-   lap time (though there is a *feel* of speed and effort). You drive a weighty, believable car
-   through worlds that are painted in real time by how you drive. Sold on Steam as both a **driving**
-   experience and a **relaxing** one. VR-capable (Valve Index), plays great flat on a 39" ultrawide.
+   lap time (though there is a *feel* of speed and effort). You drive a weighty, believable
+   70s-era car through worlds that are painted in real time by how you drive. The whole experience
+   is set in **autumn 1978** — gritty film-stock visuals, fall colors, analog everything. Sold on
+   Steam as both a **driving** experience and a **relaxing** one. VR-capable (Valve Index), plays
+   great flat on a 39" ultrawide.
 
 2. **Where it comes from.** This repo (`prodrive-ac-builder`) is a Python pipeline that turns real
    roads into Assetto Corsa tracks. We already built the **Lake Murray Loop** and a **San Diego
@@ -69,7 +73,7 @@ Milestone **M0** (car feel on the seed route). See [`ROADMAP.md`](./ROADMAP.md#m
 |-----------|-------|--------------------|
 | Wheelbase | **Moza R9** | Direct drive, 9 Nm. FFB must be a computed rack torque, not a canned effect. Moza SDK + generic DirectInput fallback. |
 | Pedals | **Heusinkveld Ultimate+** | **Load-cell brake** — brake input is *force*, not travel. Needs a force→brake curve, not a linear axis. |
-| Shifter | **Simagic sequential + H-pattern** | Support both modes. Sequential for flow, H for deliberate/weighty moments. |
+| Shifter | **Simagic sequential + H-pattern** | Support both modes. H-pattern + clutch is period-canonical for the 1978 car; sequential is a supported flow/comfort mode. |
 | Handbrake | **Moza handbrake** | Analog. Wire to a real handbrake channel — useful as an expressive/art input, not just parking. |
 | Display | **39" curved (ultrawide)** | Correct FOV + triple-ish aspect handling; the frame is part of the canvas. |
 | VR | **Valve Index** | OpenXR, 120Hz target, seated cockpit reference = low sim-sickness risk. |
