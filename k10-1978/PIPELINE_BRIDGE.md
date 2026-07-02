@@ -1,21 +1,27 @@
-# PIPELINE_BRIDGE — this repo → Unreal
+# PIPELINE_BRIDGE — prodrive-ac-builder → this repo → Unreal
 
-How the existing Python pipeline in this repo becomes the **real seed** the game blooms from. The
-decision (owner-confirmed): **reuse this pipeline** to produce the georeferenced starting geometry,
-export it to Unreal as the authored anchor, and let procedural generation grow outward.
+How the existing Python pipeline in the sibling repo
+[`k10-motorsports/prodrive-ac-builder`](https://github.com/k10-motorsports/prodrive-ac-builder)
+becomes the **real seed** the game blooms from. The decision (owner-confirmed): **reuse that
+pipeline** to produce the georeferenced starting geometry, export it as a bundle committed into
+this repo's `seed/`, and let procedural generation grow outward from it in Unreal.
 
-We are **not** rebuilding the AC pipeline in Unreal. We run it as-is to emit data, and add one thin
-export step. The realness of the seed is the whole point of the vision — don't fake it in-engine.
+We are **not** rebuilding the AC pipeline in Unreal, and we are **not** vendoring the Python
+toolchain into this repo. It runs where it lives, emits a bundle, and this repo consumes the
+bundle — nothing more. The realness of the seed is the whole point of the vision — don't fake it
+in-engine.
+
+All paths in the next two sections are **inside `prodrive-ac-builder`**.
 
 ---
 
-## What already exists here (proven for this exact neighborhood)
+## What already exists there (proven for this exact neighborhood)
 
 - `projects/san-diego-loop/` — **Lake Murray Loop**, the childhood neighborhood, built through the
   proven Sand Creek pipeline. Anchored at `lat 32.782, lon -117.042`.
 - `projects/san-diego-cruise/` — **freeroam** of Del Cerro / San Carlos / Allied Gardens / La Mesa,
   anchored at the childhood home (`5602 Dartford Way`, Del Cerro). Keeps Lake Murray as water.
-- The pipeline stages we consume (see repo `CLAUDE.md` and `.claude/skills/`):
+- The pipeline stages we consume (see that repo's `CLAUDE.md` and `.claude/skills/`):
   - `gps-extraction` → `data/centerline.geojson` (ordered, resampled ~2–5 m, width-tagged).
   - `elevation` → smoothed elevation along the line + a surrounding terrain grid (heightfield).
   - `scripts/geometry/projection.py` → projects `lon/lat/elev → local meters` in an **ENU tangent
@@ -29,10 +35,11 @@ for a game engine.
 
 ## The seed for 1978
 
-Create a dedicated project (don't mutate the AC ones — `gala-seed` keeps the internal codename):
+Create a dedicated project **in `prodrive-ac-builder`** (don't mutate the AC ones — `gala-seed`
+keeps the internal codename):
 
 ```
-projects/gala-seed/
+prodrive-ac-builder/projects/gala-seed/
 ├── source/           # the My Maps route: 5591 Gala Ave → Benchley-Weinberger Elementary
 ├── data/             # centerline.geojson, elevation, projection origin  (pipeline output)
 └── track.config.json # location + bbox + roads + landmark tags
@@ -50,9 +57,11 @@ Use the existing skills to build it: `gps-extraction` for the road spine, `eleva
 
 ---
 
-## Data contract: Python → Unreal (`GalaSeedImport`)
+## Data contract: Python → `seed/` → Unreal (`GalaSeedImport`)
 
-The Unreal side (`Plugins/GalaSeedImport`) imports **exactly these artifacts** from `projects/gala-seed/data/`:
+The pipeline's output is exported as a bundle and **committed into this repo under `seed/`** — the
+game never reads from the Python repo directly. The Unreal side (`Plugins/GalaSeedImport`) imports
+**exactly these artifacts** from `seed/`:
 
 | Artifact | Format | Meaning in Unreal |
 |----------|--------|-------------------|
@@ -67,11 +76,12 @@ your chosen mapping) and stay consistent after — mirror the discipline the rep
 its own projection boundary. Pick the mapping, document it in `GalaSeedImport`, never re-flip
 downstream.
 
-**Recommended export step:** add a small `scripts/` exporter (e.g. `scripts/game/export_seed.py`)
-that reads `projects/gala-seed/data/` + `track.config.json` and writes a single self-describing
-`gala_seed.json` (+ `heightfield.r16`) into a known folder the UE importer watches. Keep Unreal
-ignorant of the Python toolchain internals — it consumes the emitted bundle, nothing more. That
-loose coupling is the owner-confirmed model.
+**Recommended export step:** add a small exporter to `prodrive-ac-builder` (e.g.
+`scripts/game/export_seed.py`) that reads `projects/gala-seed/data/` + `track.config.json` and
+writes a single self-describing `gala_seed.json` (+ `heightfield.r16`). Commit that bundle into
+this repo's `seed/` (with the pipeline's git SHA recorded inside the JSON for provenance). Keep
+Unreal ignorant of the Python toolchain internals — it consumes the committed bundle, nothing
+more. That loose coupling is the owner-confirmed model.
 
 ---
 
@@ -87,6 +97,7 @@ loose coupling is the owner-confirmed model.
    dressing concern, not a pipeline one.)
 3. **One conversion boundary.** ENU-meters → UE-cm happens once in `GalaSeedImport`. Downstream code
    assumes UE coordinates.
-4. **Reproducible seed.** Like the rest of this repo: a clean checkout + `gala-seed/track.config.json`
-   + the source route must regenerate the seed bundle end to end. No hardcoded coordinates in game
-   code — they come from the imported bundle.
+4. **Reproducible seed.** Per `prodrive-ac-builder`'s own first principle: a clean checkout of that
+   repo + `gala-seed/track.config.json` + the source route must regenerate the seed bundle end to
+   end, byte-comparable to the one committed in `seed/`. No hardcoded coordinates in game code —
+   they come from the imported bundle.

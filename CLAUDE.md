@@ -7,9 +7,11 @@ folder — proper geometry, real elevation, accurate lighting, and multiple layo
 First target: **Sand Creek Raceway** — a street loop in Commerce City, Colorado (US), with optional alternate routes.
 
 > **Working on the Steam game (_1978_), not an AC track?** This repo's pipeline is also the *seed*
-> for a UE5 driving-as-art game — gritty autumn 1978, codename `Gala`. If your task is about that
-> game, start at [`steam-game/README.md`](steam-game/README.md) — that plan is the source of truth
-> for the game; this file governs the AC track pipeline it reuses.
+> for a UE5 driving-as-art game — gritty autumn 1978, codename `Gala`. The game lives in its own
+> repo, **`k10-motorsports/k10-1978`** — its plan is the source of truth for the game; this file
+> governs the AC track pipeline it reuses. What this repo owes the game: the `projects/gala-seed/`
+> route project and a `scripts/game/export_seed.py` bundle exporter (contract in the game repo's
+> `PIPELINE_BRIDGE.md`).
 
 ---
 
