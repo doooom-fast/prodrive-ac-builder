@@ -1,0 +1,87 @@
+{
+  "name": "Gala Seed",
+  "slug": "gala_seed",
+  "version": "0.1.0",
+  "author": "prodrive-ac-builder",
+  "year": 2026,
+  "_about": "The real-world seed for the game 1978 (github.com/k10-motorsports/k10-1978). NOT an AC track. Route spine: 5591 Gala Ave (Allied Gardens) -> through Del Cerro -> Benchley-Weinberger Elementary (San Carlos), with the golf course and the Lake Murray edge as landmark regions. Built by scripts/game/build_seed.py, exported by scripts/game/export_seed.py into the game repo's seed/ (contract: k10-1978/PIPELINE_BRIDGE.md).",
+  "location": {
+    "lat": 32.798726,
+    "lon": -117.068988,
+    "timezone": "America/Los_Angeles",
+    "city": "San Diego",
+    "country": "United States",
+    "_anchor": "5591 Gala Ave - the start anchor (OSM node 596681395)"
+  },
+  "source": {
+    "type": "osm-route",
+    "_doc": "route.anchors are ordered waypoints; scripts/gps/road_route.py snaps each to the nearest OSM road node and Dijkstras the on-road path between consecutive ones. The 'del_cerro' via biases the spine through Del Cerro (past the golf course) instead of the fast Navajo Rd path. REVIEW: the exact childhood route is the owner's to draw - edit anchors or replace with a My Maps KML."
+  },
+  "route": {
+    "graph_margin_m": 600.0,
+    "anchors": [
+      {
+        "name": "home",
+        "label": "5591 Gala Ave",
+        "lon": -117.068988,
+        "lat": 32.798726
+      },
+      {
+        "name": "del_cerro",
+        "label": "Del Cerro Blvd (via)",
+        "lon": -117.0501569,
+        "lat": 32.7808373
+      },
+      {
+        "name": "school",
+        "label": "Benchley-Weinberger Elementary",
+        "lon": -117.0315635,
+        "lat": 32.7951243
+      }
+    ]
+  },
+  "landmarks": {
+    "_doc": "OSM areas fetched by stable id, projected into the ENU frame. 'sanctum' = the golf course (the game's hand-authored spiritual anchor - the pipeline provides location/extent only); 'water' = Lake Murray; 'school'/'home' = placement anchors.",
+    "sanctum": {
+      "osm": "way/44501768",
+      "label": "the golf course"
+    },
+    "water": {
+      "osm": "way/44501070",
+      "label": "Lake Murray"
+    },
+    "school": {
+      "osm": "way/275399774",
+      "label": "Benchley-Weinberger Elementary"
+    },
+    "home": {
+      "point": [
+        -117.068988,
+        32.798726
+      ],
+      "label": "5591 Gala Ave"
+    }
+  },
+  "loop": false,
+  "mirror_x": false,
+  "default_width_m": 9.0,
+  "width_overrides": [],
+  "origin": "centroid",
+  "true_north_rotation_deg": 0.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "layouts": [
+    {
+      "id": "seed",
+      "_doc": "Single open spine; consumed by the game, never built into a kn5."
+    }
+  ],
+  "lighting": {
+    "presets": [
+      "golden_hour"
+    ]
+  }
+}
