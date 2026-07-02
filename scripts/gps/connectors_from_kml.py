@@ -168,23 +168,28 @@ def build(project_dir: str | Path) -> dict:
                 wgt = (best_d / (near_m * near_m)) ** 0.75        # 0 on the road -> 1 at near_m, firm pull
                 p[1] = p[1] * wgt + best_y * (1 - wgt)
 
-    def clip_toward(line, target, max_km):
-        """Clip a long OSM road to the segment from its loop-junction toward ``target`` for ≤ max_km — so
-        a whole arterial becomes just the stub from the loop out to (e.g.) the golf course."""
+    def clip_road(line, spec):
+        """Clip a long OSM road around its loop-junction. ``span_km`` keeps BOTH arms (a through-road that
+        crosses the loop, e.g. Jackson both ways); ``target``+``max_km`` keeps ONE arm toward a point."""
         if not line:
             return line
         ji = min(range(len(line)), key=lambda i: nearest_loop([(line[i][0] - lon0) * m_lon, 0,
                                                                (line[i][1] - lat0) * m_lat])[0])
-        tx, tz = ((target[0] - lon0) * m_lon, (target[1] - lat0) * m_lat) if target else (0, 0)
 
-        def walk(step):
+        def walk(step, limit_m):
             out, acc, i = [line[ji]], 0.0, ji
-            while 0 <= i + step < len(line) and acc < max_km * 1000:
+            while 0 <= i + step < len(line) and acc < limit_m:
                 a, b = line[i], line[i + step]
                 acc += math.hypot((b[0] - a[0]) * m_lon, (b[1] - a[1]) * m_lat)
                 out.append(b); i += step
             return out
-        fwd, bwd = walk(1), walk(-1)
+        span = spec.get("span_km")
+        if span:                                             # keep both arms through the junction
+            return walk(-1, span * 1000)[::-1][:-1] + walk(1, span * 1000)
+        max_km = float(spec.get("max_km", 1.5))
+        target = spec.get("target")
+        fwd, bwd = walk(1, max_km * 1000), walk(-1, max_km * 1000)
+        tx, tz = ((target[0] - lon0) * m_lon, (target[1] - lat0) * m_lat) if target else (0, 0)
         end = lambda seg: ((seg[-1][0] - lon0) * m_lon - tx) ** 2 + ((seg[-1][1] - lat0) * m_lat - tz) ** 2
         return fwd if (target and end(fwd) < end(bwd)) or (not target and len(fwd) >= len(bwd)) else bwd
 
@@ -193,7 +198,7 @@ def build(project_dir: str | Path) -> dict:
     for spec in specs:
         if spec.get("osm"):                                      # clean named road straight from OSM
             line = _osm_way_line(spec["osm"], tuple(spec.get("fetch_bbox", [s, w, n, e])))
-            line = clip_toward(line, spec.get("target"), float(spec.get("max_km", 1.5)))
+            line = clip_road(line, spec)
             if not line:
                 print(f"[connectors] WARNING: no OSM way named {spec['osm']!r}")
                 continue
