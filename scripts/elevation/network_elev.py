@@ -26,6 +26,8 @@ GRID_SPACING_M = 55.0     # coarse landscape grid (upsampled near roads at mesh 
 GRID_MARGIN_M = 220.0
 MEDIAN_M = 33.0
 MEAN_M = 45.0
+MAX_GRADE = 0.05          # cap road slope at 5% — no "narnia" launches, and a real mountain climb (e.g.
+                          # the compressed grade UP to Aspen) becomes a gentle, drivable grade.
 
 
 def _smooth_edge(z_raw, spacing_m):
@@ -38,7 +40,15 @@ def _smooth_edge(z_raw, spacing_m):
     med = [sorted(z_raw[max(0, i - h):min(n, i + h + 1)])[(min(n, i + h + 1) - max(0, i - h)) // 2]
            for i in range(n)]
     sw = max(3, round(MEAN_M / spacing_m)) | 1
-    return smooth_open(med, sw)
+    sm = smooth_open(med, sw)
+    # grade cap: clamp consecutive-vertex slope so no road exceeds MAX_GRADE. Turns steep real terrain
+    # (mountain spokes) into gentle drivable grades and removes any residual spike -> no launches.
+    cap = MAX_GRADE * spacing_m
+    out = [sm[0]]
+    for i in range(1, len(sm)):
+        dz = max(-cap, min(cap, sm[i] - out[-1]))
+        out.append(out[-1] + dz)
+    return out
 
 
 def build(project_dir: str | Path) -> dict:
@@ -89,9 +99,35 @@ def build(project_dir: str | Path) -> dict:
     gx = GRID_SPACING_M / (111_000.0 * math.cos(math.radians(midlat)))
     ny = int((n - s) / gy) + 1
     nx = int((e - w) / gx) + 1
-    print(f"sampling terrain grid {nx}x{ny} @ {GRID_SPACING_M}m ({nx*ny} points) ...")
     points = [(w + i * gx, n - j * gy) for j in range(ny) for i in range(nx)]
-    flat = usgs_3dep.sample_points(points)
+    # NEAR-ROAD MASK: only query USGS for grid cells within BUFFER of a road. On a wide multi-spoke map
+    # (compressed I-70 E/W + I-25 S) the full bbox is mostly empty land far from any road, and those far
+    # cells are pruned from the mesh anyway (build_network_mesh grass corridor-mask, 500 m). Sampling only
+    # near-road cells keeps this from ballooning into millions of USGS requests; far cells fill flat.
+    BUFFER_M = 700.0
+    from collections import defaultdict
+    bdlat = BUFFER_M / 111_000.0
+    bdlon = BUFFER_M / (111_000.0 * math.cos(math.radians(midlat)))
+    rb = defaultdict(list)
+    for lo, la in flat_pts:
+        rb[(int(lo / bdlon), int(la / bdlat))].append((lo, la))
+
+    def _near_road(lo, la):
+        ci, cj = int(lo / bdlon), int(la / bdlat)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for rlo, rla in rb.get((ci + di, cj + dj), ()):
+                    if abs(lo - rlo) <= bdlon and abs(la - rla) <= bdlat:
+                        return True
+        return False
+    sample_idx = [k for k, (lo, la) in enumerate(points) if _near_road(lo, la)]
+    print(f"sampling terrain grid {nx}x{ny} @ {GRID_SPACING_M}m — {len(sample_idx)}/{len(points)} "
+          f"near-road cells (rest filled flat) ...")
+    sampled = usgs_3dep.sample_points([points[k] for k in sample_idx])
+    fill = min(sampled) if sampled else float(round(zmin, 1))
+    flat = [fill] * len(points)
+    for k, z in zip(sample_idx, sampled):
+        flat[k] = z
     grid = [flat[j * nx:(j + 1) * nx] for j in range(ny)]
     write_npy(data / "heightfield.npy", grid)
     meta = {"bbox_swne": [round(s, 6), round(w, 6), round(n, 6), round(e, 6)],

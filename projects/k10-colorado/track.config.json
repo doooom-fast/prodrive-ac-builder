@@ -1,0 +1,290 @@
+{
+  "name": "K10 Colorado",
+  "slug": "k10_colorado",
+  "version": "0.3.0",
+  "author": "prodrive-ac-builder",
+  "year": 2026,
+  "_about": "Unified Colorado motorsports cruise. ONE kml-network mesh (san-diego-cruise precedent) that stitches the Sand Creek Raceway street loop (Commerce City) to the IMI Motorsports road course (Dacono) via a real main-road corridor up Colorado Blvd -> US-85 -> CO-52, so you can drive between them. Each track is an AC layout (its own spawn) over the single shared kn5. More Colorado complexes get added as further layouts. Faded Front Range backdrop to the true west; buildings/water/hills dressing along the corridor.",
+  "location": {
+    "lat": 39.7839155,
+    "lon": -104.9398905,
+    "timezone": "America/Denver",
+    "city": "Commerce City",
+    "country": "United States",
+    "_note": "Primary anchor (Sand Creek pit spur) \u2014 also the default freeroam spawn + network clip centre. Per-track spawns are set in layouts[].spawn."
+  },
+  "source": {
+    "type": "kml-network",
+    "_doc": "kml-network = merge N KML LineString sources into ONE deduped road graph (scripts/gps/network.py). Vertices within network.snap_grid_m collapse into shared nodes, so the corridor auto-junctions onto the Sand Creek loop and the IMI course where they touch. All three files are lon/lat LineStrings; IMI's is converted from its aerial centerline.geojson.",
+    "kml_files": [
+      "source/sand_creek_loop.kml",
+      "source/colorado_blvd_to_imi.kml",
+      "source/imi_course.kml",
+      "source/second_creek.kml",
+      "source/second_creek_spur.kml",
+      "source/high_plains.kml",
+      "source/to_high_plains.kml",
+      "source/aspen.kml",
+      "source/to_aspen.kml",
+      "source/ppir_oval.kml",
+      "source/ppir_infield.kml",
+      "source/ppir_link.kml",
+      "source/to_ppir.kml"
+    ]
+  },
+  "loop": false,
+  "mirror_x": true,
+  "default_width_m": 9.0,
+  "width_overrides": [],
+  "origin": "centroid",
+  "true_north_rotation_deg": 180.0,
+  "surfaces": {
+    "road": "1ROAD",
+    "grass": "GRASS",
+    "kerb": "1KERB"
+  },
+  "network": {
+    "_doc": "Graph-build knobs (scripts/gps/network.py + classify.py). clip_radius_m:0 keeps the FULL ~28.7 km Sand Creek -> Dacono span (do NOT clip). class_widths_m sets ribbon width per OSM road class voted by classify.py.",
+    "snap_grid_m": 11.0,
+    "resample_m": 4.0,
+    "min_edge_m": 18.0,
+    "smooth_iters": 3,
+    "clip_radius_m": 0,
+    "class_widths_m": {
+      "motorway": 22.0,
+      "trunk": 16.0,
+      "primary": 14.0,
+      "secondary": 11.0,
+      "residential": 8.0,
+      "service": 6.0,
+      "default": 9.0
+    }
+  },
+  "scenery": {
+    "_doc": "Per-class scatter + landmarks read by build_network_env.py / build_network_mesh.py. corridor_margin_m keeps scatter clear of every road edge.",
+    "corridor_margin_m": 3.5,
+    "tree_step_m": 30.0,
+    "tree_cap": 6000,
+    "tree_atlas_cols": 3,
+    "tree_atlas_rows": 2,
+    "bush_spacing_m": 7.0,
+    "bush_density": 0.4,
+    "bush_off_min_m": 7.0,
+    "bush_off_span_m": 30.0,
+    "bush_size_min_m": 1.2,
+    "bush_size_span_m": 1.6,
+    "light_spacing_m": 60.0,
+    "powerline_spacing_m": 55.0,
+    "palms": false,
+    "freeway_furniture": {
+      "barrier_spacing_m": 8.0,
+      "gantry_spacing_m": 320.0,
+      "lightpole_spacing_m": 55.0
+    },
+    "mountains": {
+      "_doc": "Faded Front Range backdrop, far to the true WEST. NOT modeled terrain \u2014 layered double-sided ridge curtains placed by REAL longitude (dlon<0 = west of origin) through the mirror-aware projector, so they land at true west and the sun sets behind them. Ported into build_network_env.py from build_env.py. MUST stay OUT of GrassFX OCCLUDING_MESHES (whole-PC freeze).",
+      "enabled": true,
+      "layers": [
+        {
+          "dlon": -0.2,
+          "base_h_m": 720.0,
+          "amp_m": 320.0
+        },
+        {
+          "dlon": -0.28,
+          "base_h_m": 1120.0,
+          "amp_m": 440.0
+        }
+      ],
+      "lat_span_deg": 0.34,
+      "columns": 140,
+      "seed": 9,
+      "color_rgba": [
+        0.55,
+        0.6,
+        0.7,
+        1.0
+      ]
+    },
+    "water_bodies": {
+      "_doc": "Named water discs (build_network_env.py). REAL reservoirs/lakes along the Commerce City -> Dacono corridor (from OSM natural=water/reservoir, sized by polygon area). Each = a flat water disc at terrain level; all share the WATER material (CSP [Material_Water]).",
+      "bodies": [
+        {
+          "name": "welby_reservoir",
+          "center_lat": 39.82073,
+          "center_lon": -104.95315,
+          "radius_m": 286
+        },
+        {
+          "name": "bambei_walker_reservoir",
+          "center_lat": 39.82,
+          "center_lon": -104.94685,
+          "radius_m": 285
+        },
+        {
+          "name": "smith_reservoir",
+          "center_lat": 39.97502,
+          "center_lon": -104.89589,
+          "radius_m": 199
+        },
+        {
+          "name": "east_lake_3",
+          "center_lat": 39.92664,
+          "center_lon": -104.95138,
+          "radius_m": 190
+        },
+        {
+          "name": "thompson_reservoir",
+          "center_lat": 40.03428,
+          "center_lon": -104.89598,
+          "radius_m": 149
+        },
+        {
+          "name": "wadley_reservoir_2",
+          "center_lat": 39.95939,
+          "center_lon": -104.95081,
+          "radius_m": 134
+        },
+        {
+          "name": "german_reservoir_1",
+          "center_lat": 39.9893,
+          "center_lon": -104.93433,
+          "radius_m": 125
+        },
+        {
+          "name": "richards_reservoir",
+          "center_lat": 39.97392,
+          "center_lon": -104.92642,
+          "radius_m": 121
+        },
+        {
+          "name": "engineer_lake",
+          "center_lat": 39.82888,
+          "center_lon": -104.94669,
+          "radius_m": 114
+        },
+        {
+          "name": "marshall_reservoir",
+          "center_lat": 39.93963,
+          "center_lon": -104.91566,
+          "radius_m": 86
+        }
+      ]
+    },
+    "buildings": {
+      "_doc": "Procedural building placement in the network path (ported from build_env.py). near_lap_m keeps buildings within this of a road; off_road_m rejects any on the pavement; warehouse_area_m2 splits big industrial from commercial fa\u00e7ades.",
+      "enabled": true,
+      "near_lap_m": 300,
+      "min_area_m2": 35,
+      "off_road_m": 16,
+      "warehouse_area_m2": 700,
+      "container_cap": 40
+    },
+    "banking": [
+      {
+        "_doc": "PPIR D-oval banking (build_network_mesh). Any edge vertex in the annulus [r_in_m,r_out_m] of the centre is rolled by bank_deg (ramped 25m at each annulus edge), so the OVAL ring banks while the flat INFIELD road course inside it (radius <190m) stays flat.",
+        "center_lon": -104.91,
+        "center_lat": 39.69,
+        "r_in_m": 190,
+        "r_out_m": 340,
+        "bank_deg": 9.0
+      }
+    ],
+    "terrain": {
+      "_doc": "DEM extent auto-computed from the network's own vertex bbox + margin (network_elev.py). Near-road elevation masking (network_elev) + a 5% grade cap keep the wide compressed-spine map fast to sample and free of narnia hills. The dramatic Front Range comes from scenery.mountains, not terrain."
+    }
+  },
+  "layouts": [
+    {
+      "id": "sand_creek",
+      "name": "Sand Creek Raceway",
+      "_doc": "Spawn at the Sand Creek street loop (Commerce City). Drive the loop or head north up Colorado Blvd toward IMI.",
+      "spawn": {
+        "lon": -104.9398905,
+        "lat": 39.7839155
+      },
+      "ai": "ai/sand_creek",
+      "uses_connectors": []
+    },
+    {
+      "id": "imi",
+      "name": "IMI Motorsports Complex",
+      "_doc": "Spawn at the IMI road course (Dacono). Drive the course or head south back down to Sand Creek.",
+      "spawn": {
+        "lon": -104.9482,
+        "lat": 40.0423
+      },
+      "ai": "ai/imi",
+      "uses_connectors": []
+    },
+    {
+      "id": "second_creek",
+      "name": "Second Creek Raceway",
+      "_doc": "Spawn at the recreated Second Creek Raceway (closed ~2005, former site 17010 E 88th Ave). Traced from the vintage track map, georeferenced to the real site, 1.7-mi lap. Reached from the corridor via second_creek_spur (N Buckley Rd -> E 96th -> E 88th).",
+      "spawn": {
+        "lon": -104.79,
+        "lat": 39.8564
+      },
+      "ai": "ai/second_creek",
+      "uses_connectors": []
+    },
+    {
+      "id": "high_plains",
+      "name": "High Plains Raceway",
+      "_doc": "Compressed I-70 spine EAST. 2.55-mi road course traced from the aerial. Reached via to_high_plains (representative I-70 east). Placed on gentle plains.",
+      "spawn": {
+        "lon": -104.77,
+        "lat": 39.67
+      },
+      "ai": "ai/high_plains",
+      "uses_connectors": []
+    },
+    {
+      "id": "aspen",
+      "name": "Aspen Racing Club",
+      "_doc": "Compressed I-70 spine WEST toward the mountains. Club road course (Woody Creek), de-rotated from the phone shot. Reached via to_aspen (representative I-70 west) on a GENTLE grade up (grade cap 5%).",
+      "spawn": {
+        "lon": -105.05,
+        "lat": 39.76
+      },
+      "ai": "ai/aspen",
+      "uses_connectors": []
+    },
+    {
+      "id": "ppir",
+      "name": "Pikes Peak Int'l Raceway",
+      "_doc": "Compressed I-25 spine SOUTH. D-shaped BANKED oval (scenery.banking annulus) + flat infield road course. Reached via to_ppir (representative I-25 south).",
+      "spawn": {
+        "lon": -104.91,
+        "lat": 39.69
+      },
+      "ai": "ai/ppir",
+      "uses_connectors": []
+    }
+  ],
+  "lighting": {
+    "_doc": "presets = time-of-day templates. grassfx:false \u2014 a ~29 km network of grass tiles as a GrassFX occlusion field freezes the PC (keep OFF on big maps). mirror_sun handles the sunset-in-the-east bug from mirror_x (see scripts/lighting/csp_config.py); the exact correction is finalized after an in-game check.",
+    "presets": [
+      "morning",
+      "noon",
+      "golden_hour"
+    ],
+    "grassfx": false,
+    "mirror_sun": true,
+    "light_pollution": {
+      "color": [
+        1.0,
+        0.84,
+        0.62
+      ],
+      "density": 0.18,
+      "radius_km": 8.0,
+      "relative_position": [
+        -1.0,
+        0,
+        -2.0
+      ],
+      "_note": "Denver metro glow to the south/southwest"
+    }
+  }
+}

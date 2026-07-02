@@ -102,12 +102,18 @@ def _split_ribbon(m: dict) -> list[dict]:
     return out
 
 
-def _grass_tiles(grid_xyz: list[list[Vertex]], *, tile_m: float = 8.0, is_lawn=None) -> list[tuple[str, dict]]:
+def _grass_tiles(grid_xyz: list[list[Vertex]], *, tile_m: float = 8.0, is_lawn=None,
+                 keep_tile=None) -> list[tuple[str, dict]]:
     """Tile the conformed terrain grid into <VCAP sub-meshes. Adjacent tiles share coincident seam
     verts (identical coords) so there is no hole between them. World-planar UVs tile seamlessly.
 
     Each tile is tagged 1LAWN (irrigated suburban green) or 1GRASS (dry chaparral) by ``is_lawn(cx, cz,
-    relief_m)`` — neighbourhood tiles on gentle ground read green; canyon/hill/freeway-cut tiles read dry."""
+    relief_m)`` — neighbourhood tiles on gentle ground read green; canyon/hill/freeway-cut tiles read dry.
+
+    ``keep_tile(x0, z0, x1, z1)`` (tile xz bbox) prunes tiles with NO road nearby — over a long thin
+    corridor (Sand Creek->Dacono) the full bounding box is mostly empty land far from any drivable road,
+    so grassing it wastes ~1M triangles. Pruned tiles are >buffer from every road (undrivable), so no
+    grass is lost under any road."""
     ny = len(grid_xyz); nx = len(grid_xyz[0])
     tiles = []
     for j0 in range(0, ny - 1, GRASS_TILE):
@@ -115,6 +121,11 @@ def _grass_tiles(grid_xyz: list[list[Vertex]], *, tile_m: float = 8.0, is_lawn=N
             j1 = min(ny, j0 + GRASS_TILE + 1); i1 = min(nx, i0 + GRASS_TILE + 1)
             sub = [grid_xyz[j][i0:i1] for j in range(j0, j1)]
             tny, tnx = len(sub), len(sub[0])
+            if keep_tile is not None:   # prune far-from-road tiles (empty-middle bloat on a long corridor)
+                cxs = [sub[0][0][0], sub[0][-1][0], sub[-1][0][0], sub[-1][-1][0]]
+                czs = [sub[0][0][2], sub[0][-1][2], sub[-1][0][2], sub[-1][-1][2]]
+                if not keep_tile(min(cxs), min(czs), max(cxs), max(czs)):
+                    continue
             verts = [sub[j][i] for j in range(tny) for i in range(tnx)]
             uvs = [(sub[j][i][0] / tile_m, sub[j][i][2] / tile_m) for j in range(tny) for i in range(tnx)]
             # classify EACH triangle (≈27 m) as lawn vs dry by its centroid + local slope, so the
@@ -244,6 +255,24 @@ def build(project_dir: str | Path) -> dict:
     def to_local(lon, lat, z):
         return (sx * (lon - lon0) * m_lon, z - elev0, (lat - lat0) * m_lat)
 
+    # banking regions (e.g. the PPIR oval): roll any edge vertex that falls in the annulus [r_in,r_out]
+    # around a centre by bank_deg (ramped over 25 m at each annulus edge for a smooth transition). The
+    # annulus isolates the banked oval RING from the flat road-course INFIELD inside it.
+    import bisect as _bisect
+    _bank = []
+    for b in ((cfg.raw.get("scenery", {}) or {}).get("banking", []) or []):
+        bx, _by, bz = to_local(b["center_lon"], b["center_lat"], 0.0)
+        _bank.append((bx, bz, float(b.get("r_in_m", 150)), float(b.get("r_out_m", 350)),
+                      math.radians(float(b.get("bank_deg", 0.0)))))
+
+    def _vertex_bank(x, z):
+        best = 0.0
+        for bx, bz, ri, ro, ba in _bank:
+            d = math.hypot(x - bx, z - bz)
+            if ri <= d <= ro:
+                best = max(best, ba * max(0.0, min(1.0, (d - ri) / 25.0, (ro - d) / 25.0)))
+        return best
+
     # viaduct knobs (config-driven): base_lift = constant Shutoko-style deck height even over flat ground;
     # bridge component adds more over canyon dips; both taper to grade at junctions.
     _vcfg = (cfg.raw.get("scenery", {}) or {}).get("viaduct", {}) or {}
@@ -287,7 +316,16 @@ def build(project_dir: str | Path) -> dict:
                 deck_pts = [(x, y + lift[i], z2) for i, (x, y, z2) in enumerate(pts)]
                 viaduct_meshes.append(_viaduct_struct(deck_pts, terr_y, w / 2.0))
                 viaduct_profiles[str(f["properties"]["id"])] = [round(v, 2) for v in lift]
-        rib = ribbon.road_ribbon(deck_pts, [w] * len(deck_pts), tile_m=8.0)
+        bank_at = None
+        if _bank:
+            bv = [_vertex_bank(p[0], p[2]) for p in deck_pts]
+            if any(bv):
+                arcs = [0.0]
+                for i in range(1, len(deck_pts)):
+                    arcs.append(arcs[-1] + math.hypot(deck_pts[i][0] - deck_pts[i - 1][0],
+                                                      deck_pts[i][2] - deck_pts[i - 1][2]))
+                bank_at = (lambda a, arcs=arcs, bv=bv: bv[min(len(bv) - 1, _bisect.bisect_left(arcs, a))])
+        rib = ribbon.road_ribbon(deck_pts, [w] * len(deck_pts), tile_m=8.0, bank_at=bank_at)
         rib["vertices"] = [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in rib["vertices"]]
         orient_up(rib)
         road_meshes.append((f"e{f['properties']['id']}", rib))
@@ -340,7 +378,23 @@ def build(project_dir: str | Path) -> dict:
                 if lon < coast_lon:                  # west of the coast -> ocean floor
                     row[k] = (gx, min(gy, sea_local), gz)
 
-    grass_tiles = _grass_tiles(grid_xyz, is_lawn=is_lawn)
+    # corridor mask: keep only grass tiles within GBUF of a road, so the empty middle between far-apart
+    # tracks (Sand Creek <-> Second Creek/IMI) doesn't bloat the mesh by ~1M tris of undrivable grass.
+    from collections import defaultdict as _dd2
+    RCELL2, GBUF = 500.0, 500.0
+    _rb = _dd2(list)
+    for _pr, _p, _w in edge_local:
+        for _x, _y, _z in _p:
+            _rb[(int(_x // RCELL2), int(_z // RCELL2))].append((_x, _z))
+
+    def keep_tile(x0, z0, x1, z1):
+        for ci in range(int((x0 - GBUF) // RCELL2), int((x1 + GBUF) // RCELL2) + 1):
+            for cj in range(int((z0 - GBUF) // RCELL2), int((z1 + GBUF) // RCELL2) + 1):
+                for rx, rz in _rb.get((ci, cj), ()):
+                    if x0 - GBUF <= rx <= x1 + GBUF and z0 - GBUF <= rz <= z1 + GBUF:
+                        return True
+        return False
+    grass_tiles = _grass_tiles(grid_xyz, is_lawn=is_lawn, keep_tile=keep_tile)
     for _n, g in grass_tiles:
         orient_up(g)
     skirt = _skirt(grid_xyz)
@@ -365,13 +419,34 @@ def build(project_dir: str | Path) -> dict:
     nv, nf = write_obj(data / "track.obj", "track.mtl", groups)
     _write_mtl(data / "track.mtl")
 
-    dummies = _freeroam_dummies(cfg, edge_local, to_local)
-    (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
+    # Per-track spawns: each layout with a "spawn" anchor gets its OWN dummy set, written to
+    # dummies_<id>.json -> exported as a tiny per-layout spawn kn5 (scripts/ac/build_spawn_kn5.py) that
+    # models_<id>.ini loads ALONGSIDE the shared main kn5. The MAIN kn5 then carries NO spawns (empty
+    # dummies.json) so there is no duplicate-AC_START conflict across the two models. This is how
+    # "a start point at each track" works on one shared geometry mesh (CLAUDE.md layouts-share-one-kn5).
+    layouts = cfg.raw.get("layouts", []) or []
+    spawn_layouts = [lo for lo in layouts if lo.get("spawn")]
+    if spawn_layouts:
+        for lo in spawn_layouts:
+            sp = lo["spawn"]
+            dset = _freeroam_dummies(cfg, edge_local, to_local, anchor={"lon": sp["lon"], "lat": sp["lat"]})
+            (data / f"dummies_{lo['id']}.json").write_text(json.dumps(dset, indent=1), encoding="utf-8")
+        dummies = {}
+        (data / "dummies.json").write_text(json.dumps(dummies), encoding="utf-8")
+        print(f"per-layout spawns: {[lo['id'] for lo in spawn_layouts]} (main kn5 carries no spawns)")
+    else:
+        dummies = _freeroam_dummies(cfg, edge_local, to_local)
+        (data / "dummies.json").write_text(json.dumps(dummies, indent=1), encoding="utf-8")
     # share the viaduct lift so build_network_env raises guardrails/poles/gantries onto the deck
     (data / "network.viaduct.json").write_text(json.dumps(viaduct_profiles), encoding="utf-8")
 
-    cfg.write_back(true_north_rotation_deg=0.0)
-    _write_local_meta(data, origin, elev0, mirror_x, len(F))
+    # SUN FIX: resolve the model yaw that aligns the exported track with AC's world-fixed sun
+    # (mirror_x tracks are spun 180deg vs the sun -> a 180deg counter-yaw applied at export). This is
+    # written back + stored in local.json so build_kn5 (model) and track_folder (minimap) apply it.
+    from scripts.lighting.csp_config import resolve_true_north
+    yaw = resolve_true_north(cfg)
+    cfg.write_back(true_north_rotation_deg=yaw)
+    _write_local_meta(data, origin, elev0, mirror_x, len(F), yaw)
 
     road_groups = sum(1 for g in groups if g[0].startswith("1ROAD"))
     grass_groups = sum(1 for g in groups if g[0].startswith("1GRASS"))
@@ -383,14 +458,14 @@ def build(project_dir: str | Path) -> dict:
     return stats
 
 
-def _freeroam_dummies(cfg, edge_local, to_local) -> dict[str, list[float]]:
-    """Spawn the car SOLIDLY on a normal street near the childhood home, facing down the road.
+def _freeroam_dummies(cfg, edge_local, to_local, anchor=None) -> dict[str, list[float]]:
+    """Spawn the car SOLIDLY on a normal street near ``anchor`` (default cfg.location), facing the road.
 
     Must land on a continuous road ribbon: NOT at an edge tip (the ragged end of a ribbon — the car
     drops through there), NOT on a freeway (could be an elevated viaduct), and ABOVE the road surface
     (the ribbon sits ROAD_LIFT_M above the centreline + a spawn clearance, so the car drops onto it
     rather than spawning embedded under the one-sided collision plane)."""
-    hl = cfg.location
+    hl = anchor if anchor is not None else cfg.location
     home = to_local(hl["lon"], hl["lat"], 0.0)
     SPAWN_CLEAR = 0.6   # car origin this far ABOVE the road surface -> settles down onto solid road
 
@@ -429,17 +504,26 @@ def _freeroam_dummies(cfg, edge_local, to_local) -> dict[str, list[float]]:
         gy = gy + ROAD_LIFT_M + SPAWN_CLEAR
         out[f"AC_TIME_{k}_L"] = [round(gx + nx * best_w / 2, 3), round(gy, 3), round(gz + nz * best_w / 2, 3)]
         out[f"AC_TIME_{k}_R"] = [round(gx - nx * best_w / 2, 3), round(gy, 3), round(gz - nz * best_w / 2, 3)]
+    # pit boxes: step BACK along the actual ribbon (so they follow curves on tight tracks) with a small
+    # lateral offset that stays ON the asphalt — offsetting onto the verge drops the car / fails verify.
     for p in range(4):
-        out[f"AC_PIT_{p}"] = [round(sp[0] + nx * (best_w / 2 + 3.0 + p * 0.1), 3), round(y, 3),
-                              round(sp[2] - dx * (6.0 + p * 6.0), 3)]
+        bi = max(0, best_i - (2 + p * 2))                 # ~4 m ribbon spacing -> ~8..32 m back
+        bx, by, bz = best_pts[bi]
+        j2 = min(bi + 1, len(best_pts) - 1)
+        ex, ez = best_pts[j2][0] - bx, best_pts[j2][2] - bz
+        el = math.hypot(ex, ez) or 1.0
+        pnx, pnz = -ez / el, ex / el                       # local normal at bi (follows the curve)
+        lat = (best_w * 0.30) * (1.0 if p % 2 else -1.0)   # alternate sides, stay on the ribbon
+        out[f"AC_PIT_{p}"] = [round(bx + pnx * lat, 3), round(by + ROAD_LIFT_M + SPAWN_CLEAR, 3),
+                              round(bz + pnz * lat, 3)]
     return out
 
 
-def _write_local_meta(data: Path, origin, elev0, mirror_x, n_edges) -> None:
+def _write_local_meta(data: Path, origin, elev0, mirror_x, n_edges, true_north_deg=0.0) -> None:
     (data / "network.local.json").write_text(json.dumps({
         "frame": "ENU local meters (X=east, Y=up, Z=north), mirror_x=%s" % mirror_x,
         "origin": {"lon": origin[0], "lat": origin[1], "elev_m": round(elev0, 2)},
-        "mirror_x": mirror_x, "true_north_rotation_deg": 0.0, "edge_count": n_edges,
+        "mirror_x": mirror_x, "true_north_rotation_deg": true_north_deg, "edge_count": n_edges,
     }), encoding="utf-8")
 
 

@@ -131,15 +131,7 @@
       "id": "full",
       "ai": "ai/full",
       "uses_connectors": [],
-      "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start."
-    },
-    {
-      "id": "interior",
-      "ai": "ai/interior",
-      "uses_connectors": [
-        "interior_grid"
-      ],
-      "_doc": "Interior circuit: Colorado -> 52nd -> Dahlia -> 56th -> Sand Creek -> inner grid (Pontiac/Olive/Monaco/Ivy/Leyden/49th) -> 46th -> start. Same kn5 mesh."
+      "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start. The 'interior' layout was dropped: its interior_grid connector was never defined, and layouts share one kn5 so a distinct interior circuit isn't achievable without splitting geometry."
     }
   ],
   "lighting": {
