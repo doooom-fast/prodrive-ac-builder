@@ -245,6 +245,12 @@ def build(project_dir: str | Path) -> dict:
         # project to UN-mirrored local metres (x east, z north); y from the shared heightfield
         pts = [[(lon - lon0) * m_lon, sample_elev(lon, lat) - elev0, (lat - lat0) * m_lat]
                for lon, lat in line]
+        # A street that runs off the sampled terrain gets clipped away above — skip it cleanly instead
+        # of crashing the whole run. Widen scenery/terrain to include it if you want it in (see bbox).
+        if len(pts) < 2:
+            print(f"[connectors] WARNING: {spec['name']} lies outside the sampled terrain bbox — SKIPPED "
+                  f"(widen the elevation grid to include it)")
+            continue
         # SMOOTH the grade: a connector is a street, not the racing line. Raw terrain sampling sends it
         # up every hill and DEM spike (Fletcher hit 214 m over a hilltop next to the 16 m loop). A median
         # deletes the spikes; a wide mean flattens hills to a gentle, drivable grade.
@@ -291,7 +297,10 @@ def build(project_dir: str | Path) -> dict:
             pts[gi][1] = join[1]
             note = f"joined loop at {'end' if is_end else 'mid-street'} (gap {gap:.0f} m, blended {blend_m:.0f} m)"
         else:
-            note = f"NOT joined (nearest loop {gap:.0f} m) — floating spur, SKIPPED"
+            # Too far from the loop AND every already-placed connector to weld without a fake bridge.
+            # It needs an intermediate linking street. Report it loudly — never drop a connector silently.
+            print(f"[connectors] {spec['name']}: NOT joined (nearest placed road {gap:.0f} m away) — "
+                  f"detached, SKIPPED. Add a linking street or extend the loop to reach it.")
             continue
         # Keep it a STREET, not a mountain road: clamp each point to within ±BAND m of the nearest loop
         # point's height. A "Directions" route can detour up a hill (Fletcher hit 212 m next to the 16 m

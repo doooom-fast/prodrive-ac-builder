@@ -164,19 +164,31 @@ def build(project_dir: str | Path) -> dict:
     # branch road that leaves the loop's own bbox still has real ground under it. Connector geometry only
     # extends the grid EXTENT here; the along-lap elevation profile above stays centerline-only.
     bbox_coords = list(coords)
-    try:
-        from scripts.gps.connectors_from_kml import _load_kml_text, _placemark_line
-        from scripts.config import load_config
-        cfg = load_config(project_dir)
-        for spec in cfg.raw.get("route", {}).get("connectors_kml", []):
-            kml_path = (project_dir / spec["kml"]).resolve()
-            if kml_path.exists():
-                line = _placemark_line(kml_path, spec["match"])
+    from scripts.config import load_config
+    cfg = load_config(project_dir)
+    for spec in cfg.raw.get("route", {}).get("connectors_kml", []):
+        # Each connector — whether it comes from OSM (spec.osm) or a KML placemark — must have real
+        # ground sampled under it, or connectors_from_kml clips it away and skips it. Pull its actual
+        # geometry the SAME way that stage does, so the grid extent matches exactly.
+        try:
+            if spec.get("osm"):
+                # Unclipped is fine here — it only widens the grid EXTENT, and it is already bounded by
+                # the connector's fetch_bbox. connectors_from_kml does the precise span/target clipping.
+                from scripts.gps.connectors_from_kml import _osm_way_line
+                lons = [c[0] for c in coords]; lats = [c[1] for c in coords]
+                fb = spec.get("fetch_bbox", [min(lats), min(lons), max(lats), max(lons)])
+                line = _osm_way_line(spec["osm"], tuple(fb))
+            else:
+                from scripts.gps.connectors_from_kml import _placemark_line
+                kml_path = (project_dir / spec["kml"]).resolve()
+                line = _placemark_line(kml_path, spec["match"]) if kml_path.exists() else []
+            if line:
                 bbox_coords.extend(line)
-                if line:
-                    print(f"[heightfield] +connector extent '{spec['name']}' ({len(line)} pts)")
-    except Exception as e:
-        print(f"[heightfield] connector-extent widening skipped: {e}")
+                print(f"[heightfield] +connector extent '{spec['name']}' ({len(line)} pts)")
+            else:
+                print(f"[heightfield] connector '{spec['name']}' returned no geometry — extent not widened")
+        except Exception as e:
+            print(f"[heightfield] connector '{spec.get('name')}' extent widening skipped: {e}")
 
     grid, meta = build_heightfield(bbox_coords, HF_SPACING_M, HF_MARGIN_M)
     if _escale != 1.0:                                          # compress terrain relief to match the profile
