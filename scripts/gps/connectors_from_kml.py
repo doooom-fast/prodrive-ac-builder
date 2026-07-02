@@ -170,8 +170,9 @@ def build(project_dir: str | Path) -> dict:
 
     def clip_road(line, spec):
         """Clip a long OSM road around its loop-junction. ``span_km`` keeps BOTH arms (a through-road that
-        crosses the loop, e.g. Jackson both ways); ``target``+``max_km`` keeps ONE arm toward a point."""
-        if not line:
+        crosses the loop, e.g. Jackson both ways); ``target``+``max_km`` keeps ONE arm toward a point;
+        ``full`` keeps the whole way (a short cross-street that links two already-placed connectors)."""
+        if not line or spec.get("full"):
             return line
         ji = min(range(len(line)), key=lambda i: nearest_loop([(line[i][0] - lon0) * m_lon, 0,
                                                                (line[i][1] - lat0) * m_lat])[0])
@@ -194,6 +195,18 @@ def build(project_dir: str | Path) -> dict:
         return fwd if (target and end(fwd) < end(bwd)) or (not target and len(fwd) >= len(bwd)) else bwd
 
     placed_roads = [loop]                                        # conform each new connector to these
+
+    def nearest_placed(pt):
+        """Nearest point over the loop AND every already-placed connector — so a cross-street can weld to
+        Jackson/Baltimore, not only the loop."""
+        best_d, best_q = 1e18, None
+        for road in placed_roads:
+            for q in road:
+                d = (pt[0] - q[0]) ** 2 + (pt[2] - q[2]) ** 2
+                if d < best_d:
+                    best_d, best_q = d, q
+        return math.sqrt(best_d), best_q
+
     out_connectors = []
     for spec in specs:
         if spec.get("osm"):                                      # clean named road straight from OSM
@@ -235,8 +248,8 @@ def build(project_dir: str | Path) -> dict:
         # the loop road height in a window around it (kills the step at the crossing), and only WELD a
         # vertex onto the loop centreline when the closest point is an END with a real gap (a spur mouth).
         blend_m = 90.0
-        gi = min(range(len(pts)), key=lambda i: nearest_loop(pts[i])[0])
-        gap, join = nearest_loop(pts[gi])
+        gi = min(range(len(pts)), key=lambda i: nearest_placed(pts[i])[0])
+        gap, join = nearest_placed(pts[gi])
         is_end = gi <= 1 or gi >= len(pts) - 2
         RIBBON_OVERLAP_M = 12.0    # within this, the two road ribbons already overlap — no weld needed
         if gap <= 120.0:
