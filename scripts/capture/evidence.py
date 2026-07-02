@@ -234,3 +234,49 @@ def corrected_elevation(
         "max_offbridge_m": round(max_offbridge, 2),
     }
     return new_pts, stats
+
+
+def level_bridge_decks(points_xyz: list[Vertex], bridges: list[tuple[float, float]],
+                       *, ramp_m: float = 30.0) -> list[Vertex]:
+    """Ride a real bridge as a LEVEL/SMOOTH deck over the dipping bare earth below it (Y only).
+
+    The capture-based lift can't help where the phone data is noisy (Sand Creek's creek — the phone
+    dropped there), so the road follows the bare-earth DEM straight into the creek bed (a steep dive,
+    the 'corkscrew narnia'). A declared bridge is a positive geometric fact: over its span the deck is a
+    straight interpolation between the APPROACH heights just outside the span, blended in with a
+    raised-cosine ramp so it meets the grade smoothly. Result: the road decks over the creek accurately
+    instead of diving into it. No capture needed."""
+    n = len(points_xyz)
+    if n < 2 or not bridges:
+        return [tuple(p) for p in points_xyz]
+    pts = [list(p) for p in points_xyz]
+    S = [0.0]
+    for i in range(1, n):
+        S.append(S[-1] + math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+    for center, length in bridges:
+        half = length / 2.0
+        a, b = center - half - ramp_m, center + half + ramp_m           # deck endpoints (approach grade)
+        ya = pts[min(range(n), key=lambda i: abs(S[i] - a))][1]
+        yb = pts[min(range(n), key=lambda i: abs(S[i] - b))][1]
+        for i in range(n):
+            if a <= S[i] <= b:
+                deck = ya + (yb - ya) * (S[i] - a) / max(1e-9, b - a)    # level/gentle deck across the span
+                d = abs(S[i] - center)
+                w = 1.0 if d <= half else 0.5 * (1.0 + math.cos(math.pi * (d - half) / ramp_m))
+                pts[i][1] = pts[i][1] * (1.0 - w) + deck * w
+    return [tuple(p) for p in pts]
+
+
+def cap_grade(points_xyz: list[Vertex], *, max_grade: float = 0.06) -> list[Vertex]:
+    """Clamp the along-road slope so no stretch exceeds ``max_grade`` — kills residual steep spikes that
+    launch the car ('narnia'), turning a too-steep section into a drivable grade. Y only, forward pass."""
+    n = len(points_xyz)
+    if n < 2:
+        return [tuple(p) for p in points_xyz]
+    pts = [list(p) for p in points_xyz]
+    for i in range(1, n):
+        ds = math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2])
+        cap = max_grade * ds
+        dy = pts[i][1] - pts[i - 1][1]
+        pts[i][1] = pts[i - 1][1] + max(-cap, min(cap, dy))
+    return [tuple(p) for p in pts]

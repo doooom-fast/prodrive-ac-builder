@@ -379,7 +379,11 @@ def build(project_dir: str | Path) -> dict:
         for x, _y, z in p:
             street_h[(int(x // SCELL), int(z // SCELL))].append((x, z))
 
+    _dry_only = bool((cfg.raw.get("scenery", {}) or {}).get("dry_only", False))
+
     def is_lawn(cx, cz, relief):
+        if _dry_only:                     # Colorado high plains: all dry chaparral, no irrigated green lawn
+            return False
         if relief > 16.0:                 # steep tile = hillside/canyon -> dry
             return False
         ci, cj = int(cx // SCELL), int(cz // SCELL)
@@ -413,7 +417,22 @@ def build(project_dir: str | Path) -> dict:
         for _x, _y, _z in _p:
             _rb[(int(_x // RCELL2), int(_z // RCELL2))].append((_x, _z))
 
+    # track discs: drop network grass from UNDER each merged detailed track (Sand Creek, IMI, ...) so its
+    # OWN dry-grass heightfield shows at the reconciled height instead of the coarse network ground z-fighting
+    # or poking through. Footprints are horizontal-only (no heightfield needed), shared with merge_detailed.
+    try:
+        from scripts.ac.merge_detailed import track_footprints
+        _pads = [(p["cx"], p["cz"], p["radius_m"]) for p in track_footprints(proj).values()]
+    except Exception as _e:  # noqa: BLE001 — never let pad-clear fail the whole build
+        _pads = []; print(f"  (track pad clear skipped: {_e})")
+    if _pads:
+        print(f"  clearing network grass under {len(_pads)} detailed track disc(s)")
+
     def keep_tile(x0, z0, x1, z1):
+        tcx, tcz = (x0 + x1) / 2, (z0 + z1) / 2
+        for px, pz, pr in _pads:                       # inside a detailed track's footprint -> its own grass covers it
+            if (tcx - px) ** 2 + (tcz - pz) ** 2 < pr * pr:
+                return False
         for ci in range(int((x0 - GBUF) // RCELL2), int((x1 + GBUF) // RCELL2) + 1):
             for cj in range(int((z0 - GBUF) // RCELL2), int((z1 + GBUF) // RCELL2) + 1):
                 for rx, rz in _rb.get((ci, cj), ()):

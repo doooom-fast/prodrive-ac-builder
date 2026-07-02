@@ -12,6 +12,7 @@ bridges inside the unified drive-between map, instead of being reduced to bare n
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -20,6 +21,45 @@ from scripts.config import load_config  # noqa: E402
 from scripts.geometry.projection import _meters_per_degree  # noqa: E402
 
 DROP_ENV = ("MOUNTAINS",)   # K10 emits its own Front Range backdrop; drop each sub-track's to avoid dupes
+
+
+def _road_ref(obj: Path):
+    """Local 1ROAD centroid (cx,cz), mean deck Y, and footprint radius from a sub-track's own track.obj.
+    Used to seat the track ON the network ground (kill float) and to size its grass/scatter clear-disc."""
+    V: list = []; keep: set = set(); road = False
+    for ln in obj.read_text().splitlines():
+        if ln.startswith("v "):
+            _, a, b, c = ln.split()[:4]; V.append((float(a), float(b), float(c)))
+        elif ln.startswith("o "):
+            road = ln[2:].strip().upper().startswith("1ROAD")
+        elif ln.startswith("f ") and road:
+            for tok in ln.split()[1:]:
+                keep.add(int(tok.split("/")[0]) - 1)
+    if not keep:
+        return None
+    xs = [V[i][0] for i in keep]; ys = [V[i][1] for i in keep]; zs = [V[i][2] for i in keep]
+    cx = sum(xs) / len(xs); cz = sum(zs) / len(zs)
+    r = max(math.hypot(x - cx, z - cz) for x, z in zip(xs, zs))
+    return cx, cz, sum(ys) / len(ys), r
+
+
+def _terrain_sampler(k10: Path, lon0: float, lat0: float, elev0: float, m_lon: float, m_lat: float, sx: float):
+    """Reconstruct build_network_mesh's terr_y(x,z): network ground height in the K10 local frame.
+    Returns None if the heightfield hasn't been built yet (fall back to real-elevation placement)."""
+    hf = k10 / "data" / "heightfield.npy"; mf = k10 / "data" / "heightfield.meta.json"
+    if not (hf.exists() and mf.exists()):
+        return None
+    from scripts.geometry.build_mesh import read_npy
+    grid = read_npy(hf); meta = json.loads(mf.read_text())
+    s, w, n, e = meta["bbox_swne"]; nx, ny, sp = meta["nx"], meta["ny"], meta["spacing_m"]
+    gy = sp / 111_000.0; gx = sp / (111_000.0 * math.cos(math.radians((s + n) / 2)))
+
+    def terr_y(x, z):
+        lon = lon0 + sx * x / m_lon; lat = lat0 + z / m_lat
+        j = min(ny - 1, max(0, int(round((n - lat) / gy))))
+        i = min(nx - 1, max(0, int(round((lon - w) / gx))))
+        return grid[j][i] - elev0
+    return terr_y
 
 
 def _transform_obj(inp: Path, outp: Path, dx: float, dy: float, dz: float, suffix: str, drop=()):
@@ -76,6 +116,30 @@ def _transform_obj(inp: Path, outp: Path, dx: float, dy: float, dz: float, suffi
     return len(ov), len(kept)
 
 
+def track_footprints(k10_dir: str | Path) -> dict:
+    """{slug: {cx, cz, radius_m}} for each merged track in the K10 local frame — HORIZONTAL only, so it
+    needs no heightfield and can be computed BEFORE the network mesh (which clears its grass/scatter from
+    under each disc). Same maths as main(); kept side-effect-free so build_network_mesh/env can import it."""
+    k10 = Path(k10_dir); cfg = load_config(k10); og = cfg.raw["origin"]
+    K_lon, K_lat = float(og["lon"]), float(og["lat"])
+    m_lon, m_lat = _meters_per_degree(K_lat)
+    sx = -1.0 if cfg.raw.get("mirror_x", True) else 1.0
+    out: dict = {}
+    for mt in cfg.raw.get("merge_tracks", []):
+        proj = Path(mt["project"])
+        try:
+            o = json.loads((proj / "data" / "centerline.local.json").read_text())["origin"]
+            ref = _road_ref(proj / "data" / "track.obj")
+        except FileNotFoundError:
+            continue
+        if ref is None:
+            continue
+        cxl, czl, _my, r = ref
+        dx = sx * (o["lon"] - K_lon) * m_lon; dz = (o["lat"] - K_lat) * m_lat
+        out[mt["slug"]] = {"cx": dx + cxl, "cz": dz + czl, "radius_m": r + 25.0}
+    return out
+
+
 def main(k10_dir: str) -> None:
     k10 = Path(k10_dir)
     cfg = load_config(k10)
@@ -84,6 +148,8 @@ def main(k10_dir: str) -> None:
     m_lon, m_lat = _meters_per_degree(K_lat)
     sx = -1.0 if cfg.raw.get("mirror_x", True) else 1.0
     data = k10 / "data"
+    terr_y = _terrain_sampler(k10, K_lon, K_lat, K_elev, m_lon, m_lat, sx)
+    pads: dict = {}
     for mt in cfg.raw.get("merge_tracks", []):
         slug = mt["slug"]; proj = Path(mt["project"])
         loc = json.loads((proj / "data" / "centerline.local.json").read_text())
@@ -91,7 +157,18 @@ def main(k10_dir: str) -> None:
         # local(sub) -> local(K10): X = sx*(lon-lon0)*m_lon, so shifting lon0 sub->K adds sx*(sub-K)*m_lon
         dx = sx * (o["lon"] - K_lon) * m_lon
         dz = (o["lat"] - K_lat) * m_lat
-        dy = o["elev_m"] - K_elev
+        # SEAT ON NETWORK GROUND (kill float): place the track so its mean road deck sits on the network
+        # heightfield at its footprint centre. The high-res per-track 3DEP build and the coarse network DEM
+        # can disagree by tens of metres (Sand Creek floated +60 m); reconcile here so connectors — which
+        # follow the network ground — meet each track at grade. Falls back to real elevation pre-heightfield.
+        ref = _road_ref(proj / "data" / "track.obj")
+        if terr_y is not None and ref is not None:
+            cxl, czl, myl, r = ref
+            pad_y = terr_y(dx + cxl, dz + czl)
+            dy = pad_y - myl
+            pads[slug] = {"cx": round(dx + cxl, 2), "cz": round(dz + czl, 2), "radius_m": round(r + 25.0, 1)}
+        else:
+            dy = o["elev_m"] - K_elev
         nv, ng = _transform_obj(proj / "data" / "track.obj", data / f"track_{slug}.obj", dx, dy, dz, slug)
         env = proj / "data" / "environment.obj"
         if env.exists():
@@ -103,6 +180,9 @@ def main(k10_dir: str) -> None:
             out = {k: [round(v[0] + dx, 3), round(v[1] + dy, 3), round(v[2] + dz, 3)] for k, v in d.items()}
             (data / f"dummies_{layout}.json").write_text(json.dumps(out, indent=1))
         print(f"merged {slug}: {nv} verts, {ng} groups, offset ({dx:.0f}, {dy:.1f}, {dz:.0f}) m")
+    # footprints for build_network_mesh/env to clear network grass+scatter from UNDER each track disc
+    (data / "track_pads.json").write_text(json.dumps(pads, indent=1))
+    print(f"wrote {len(pads)} track pad footprint(s) -> data/track_pads.json")
 
 
 if __name__ == "__main__":

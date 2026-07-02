@@ -220,6 +220,27 @@ def build(project_dir: str | Path) -> dict:
     # This is the "no cruft on the road at intersections" guard.
     on_road_tight = _corridor(edges, margin=1.0)
 
+    # track discs: reject any scatter/furniture/buildings/water that would land UNDER a merged detailed
+    # track (Sand Creek, IMI, ...) — the network ground there is cleared + reconciled, so a network tree
+    # or warehouse would float/bury. Footprints shared with build_network_mesh/merge_detailed.
+    try:
+        from scripts.ac.merge_detailed import track_footprints
+        _pads = [(p["cx"], p["cz"], p["radius_m"]) for p in track_footprints(proj).values()]
+    except Exception as _e:  # noqa: BLE001
+        _pads = []; print(f"  (track pad reject skipped: {_e})")
+
+    def in_pad(x, z):
+        for px, pz, pr in _pads:
+            if (x - px) ** 2 + (z - pz) ** 2 < pr * pr:
+                return True
+        return False
+
+    # highway furniture toggles — the SRP freeway guardrails/gantries read wrong on open Colorado plains
+    # (user: "guardrails look like shit"). Default off for cohesion with the kerbed race tracks; keep
+    # the sparse light poles. Config: scenery.freeway_furniture.{guardrails,gantries}.
+    want_guardrails = bool(ff.get("guardrails", True))
+    want_gantries = bool(ff.get("gantries", True))
+
     rnd = random.Random(2025)
     guardrails, palms, trees, posts, poles, gantry_metal, gantry_sign, bushes = [], [], [], [], [], [], [], []
     nbush = 0
@@ -233,7 +254,7 @@ def build(project_dir: str | Path) -> dict:
 
     for cls, pts, half in edges:
         is_fw = cls in FREEWAY
-        if is_fw:
+        if is_fw and want_guardrails:
             guardrails.append(_guardrail(pts, half=half))         # left shoulder
             guardrails.append(_guardrail_other(pts, half))        # right shoulder
         # walk the edge placing props at intervals
@@ -246,9 +267,9 @@ def build(project_dir: str | Path) -> dict:
             tx, tz = b[0] - a[0], b[2] - a[2]; tl = math.hypot(tx, tz) or 1.0
             nx, nz = -tz / tl, tx / tl
             # SRP-style overhead gantry spanning the freeway every gantry_step
-            if is_fw and acc_g >= gantry_step:
+            if is_fw and want_gantries and acc_g >= gantry_step:
                 acc_g = 0.0
-                if not on_road_tight(x, z):   # not spanning a crossing road at a junction
+                if not on_road_tight(x, z) and not in_pad(x, z):   # not spanning a crossing road at a junction
                     gm, gs = _gantry(x, y, z, tx / tl, tz / tl, half)
                     gantry_metal.append(gm); gantry_sign.append(gs); ngantry += 1
             # streetlight posts on surface streets; SRP poles on freeways. Furniture sits right at the
@@ -257,12 +278,12 @@ def build(project_dir: str | Path) -> dict:
             if is_fw and acc_p >= pole_step:
                 acc_p = 0.0
                 ox, oz = x + nx * (half + 2.5), z + nz * (half + 2.5)
-                if not on_road_tight(ox, oz):
+                if not on_road_tight(ox, oz) and not in_pad(ox, oz):
                     poles.append(_place_obj(pole_V, pole_T, ox, y, oz, yaw=math.atan2(tz, tx))); npole += 1
             elif not is_fw and acc_l >= light_step:
                 acc_l = 0.0
                 ox, oz = x - nx * (half + 1.8), z - nz * (half + 1.8)
-                if not on_road_tight(ox, oz):    # keep the streetlight off a crossing road at junctions
+                if not on_road_tight(ox, oz) and not in_pad(ox, oz):    # keep the streetlight off crossing roads + tracks
                     posts.append(_post(ox, y, oz)); npost += 1
             # low SoCal shrubs/chaparral on ALL verges (incl. freeway cuts) — sparse, off the road
             if acc_v >= 13.0:
@@ -271,7 +292,7 @@ def build(project_dir: str | Path) -> dict:
                         continue
                     off = half + 2.5 + rnd.random() * 11.0
                     bx, bz = x + nx * off * side, z + nz * off * side
-                    if on_road(bx, bz):
+                    if on_road(bx, bz) or in_pad(bx, bz):
                         continue
                     gy = y_at(lon0 + sx * bx / m_lon, lat0 + bz / m_lat) - 0.25
                     sz = 1.1 + rnd.random() * 1.8
@@ -287,7 +308,7 @@ def build(project_dir: str | Path) -> dict:
                             continue
                         off = half + 3.5 + rnd.random() * 9.0
                         px, pz = x + nx * off * side, z + nz * off * side
-                        if on_road(px, pz):
+                        if on_road(px, pz) or in_pad(px, pz):
                             continue
                         gy = y_at(lon0 + sx * px / m_lon, lat0 + pz / m_lat) - 0.3
                         if palms_enabled and rnd.random() < 0.5:   # palm
@@ -312,6 +333,8 @@ def build(project_dir: str | Path) -> dict:
     nwater = 0
     for wb in (scn.get("water_bodies", {}) or {}).get("bodies", []):
         wx, _wy, wz = to_local(wb["center_lon"], wb["center_lat"], 0.0)
+        if in_pad(wx, wz):                      # no reservoir inside a race track footprint
+            continue
         wy = y_at(wb["center_lon"], wb["center_lat"]) - 1.0
         waters.append(_water_disc(wx, wy, wz, float(wb.get("radius_m", 150))))
         nwater += 1
@@ -409,6 +432,8 @@ def build(project_dir: str | Path) -> dict:
             if A < minA:
                 continue
             cx = sum(p[0] for p in foot) / len(foot); cz = sum(p[1] for p in foot) / len(foot)
+            if in_pad(cx, cz):                                        # never inside a race track footprint
+                continue
             if _dist_road(cx, cz, near) > near:                       # keep near-corridor only
                 continue
             if any(_dist_road(fx, fz, offr) < offr for fx, fz in foot):  # never ON the road

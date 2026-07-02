@@ -1,7 +1,8 @@
 {
   "name": "K10 Colorado",
   "slug": "k10_colorado",
-  "version": "0.5.0",
+  "version": "0.6.0",
+  "_v060": "Template-quality pass: Sand Creek v0.15.3 is the reference for the whole world. Corkscrew elevation fixed (level bridge deck over the creek + 6% grade cap, no narnia). Every merged track SEATED on the network ground (kill float — Sand Creek was +60 m). All-dry Colorado ground (1LAWN green disabled -> tan ground_dry everywhere). Ugly SRP freeway guardrails/gantries removed. Network grass + scatter (trees/buildings/water/poles) cleared from UNDER each detailed track so its own kerbed, textured ground shows. Curbs preserved on all tracks; all 14 spawns verified on-road.",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "Unified Colorado motorsports cruise. ONE kml-network mesh (san-diego-cruise precedent) that stitches the Sand Creek Raceway street loop (Commerce City) to the IMI Motorsports road course (Dacono) via a real main-road corridor up Colorado Blvd -> US-85 -> CO-52, so you can drive between them. Each track is an AC layout (its own spawn) over the single shared kn5. More Colorado complexes get added as further layouts. Faded Front Range backdrop to the true west; buildings/water/hills dressing along the corridor.",
@@ -60,6 +61,8 @@
   },
   "scenery": {
     "_doc": "Per-class scatter + landmarks read by build_network_env.py / build_network_mesh.py. corridor_margin_m keeps scatter clear of every road edge.",
+    "dry_only": true,
+    "_dry_only_doc": "Colorado high plains = dry chaparral. Disables the 1LAWN green-turf classifier so ALL ground tiles are 1GRASS (ground_dry_diffuse.jpg, tan dirt) \u2014 cohesive with Sand Creek's dry ground, no suburban-green patches.",
     "corridor_margin_m": 3.5,
     "tree_step_m": 30.0,
     "tree_cap": 6000,
@@ -75,6 +78,9 @@
     "powerline_spacing_m": 55.0,
     "palms": false,
     "freeway_furniture": {
+      "guardrails": false,
+      "gantries": false,
+      "_furniture_doc": "SRP freeway guardrails + overhead gantries read wrong on open Colorado plains (user: 'guardrails look like shit') and clashed with the kerbed race tracks. Off for cohesion; sparse light poles stay.",
       "barrier_spacing_m": 8.0,
       "gantry_spacing_m": 320.0,
       "lightpole_spacing_m": 55.0

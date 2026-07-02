@@ -219,6 +219,17 @@ def build(project_dir: str | Path) -> dict:
                   f"{estats['n_outliers']} spikes rejected, offset {estats['offset_m']:.1f} m)")
     elif cap is not None:
         print("  elevation: capture present but capture.use_elevation=false — road follows USGS heightfield")
+    # ACCURATE BRIDGE DECKS: ride each declared crossing (capture.bridges) as a LEVEL deck over the
+    # dipping creek — the capture lift is unreliable where the phone data is noisy (Sand Creek's creek),
+    # so without this the road dives into the creek bed (the 'corkscrew narnia'). Then cap the grade so
+    # no residual stretch is steep enough to launch the car.
+    _bridges = evidence.bridge_spans(project_dir)
+    if _bridges:
+        before = [p[1] for p in raw_pts]
+        raw_pts = evidence.level_bridge_decks(raw_pts, _bridges)
+        lifted = max((raw_pts[i][1] - before[i] for i in range(len(raw_pts))), default=0.0)
+        print(f"  elevation: leveled {len(_bridges)} bridge deck(s) over the creek (max lift {lifted:.1f} m)")
+    raw_pts = evidence.cap_grade(raw_pts, max_grade=0.06)
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
