@@ -183,6 +183,27 @@ def track_footprints(k10_dir: str | Path) -> dict:
     return out
 
 
+def track_road_points(k10_dir, stride: int = 4):
+    """Every merged-track road vertex as (x, z) in the K10 HORIZONTAL frame (dx/dz only, no heightfield) —
+    so build_network_mesh can clear network grass TIGHTLY around each track's roads (not a coarse circle,
+    which leaves corner holes). Same horizontal maths as track_footprints; available pre-merge."""
+    k10 = Path(k10_dir); cfg = load_config(k10); og = cfg.raw["origin"]
+    K_lon, K_lat = float(og["lon"]), float(og["lat"])
+    m_lon, m_lat = _meters_per_degree(K_lat)
+    sx = -1.0 if cfg.raw.get("mirror_x", True) else 1.0
+    out: list = []
+    for mt in cfg.raw.get("merge_tracks", []):
+        proj = Path(mt["project"])
+        try:
+            o = json.loads((proj / "data" / "centerline.local.json").read_text())["origin"]
+        except FileNotFoundError:
+            continue
+        dx = sx * (o["lon"] - K_lon) * m_lon; dz = (o["lat"] - K_lat) * m_lat
+        for lx, _ly, lz in _road_verts_local(proj / "data" / "track.obj", stride=stride):
+            out.append((dx + lx, dz + lz))
+    return out
+
+
 def main(k10_dir: str) -> None:
     k10 = Path(k10_dir)
     cfg = load_config(k10)

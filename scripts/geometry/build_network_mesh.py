@@ -104,7 +104,7 @@ def _split_ribbon(m: dict) -> list[dict]:
 
 
 def _grass_tiles(grid_xyz: list[list[Vertex]], *, tile_m: float = 8.0, is_lawn=None,
-                 keep_tile=None) -> list[tuple[str, dict]]:
+                 keep_tile=None, pad_reject=None) -> list[tuple[str, dict]]:
     """Tile the conformed terrain grid into <VCAP sub-meshes. Adjacent tiles share coincident seam
     verts (identical coords) so there is no hole between them. World-planar UVs tile seamlessly.
 
@@ -138,6 +138,8 @@ def _grass_tiles(grid_xyz: list[list[Vertex]], *, tile_m: float = 8.0, is_lawn=N
                     for tri in ((a, b, c), (a, c, d)):
                         vs = [verts[t] for t in tri]
                         cx = sum(v[0] for v in vs) / 3; cz = sum(v[2] for v in vs) / 3
+                        if pad_reject is not None and pad_reject(cx, cz):
+                            continue                 # inside a detailed track footprint -> drop (its own ground shows)
                         rel = max(v[1] for v in vs) - min(v[1] for v in vs)
                         key = "1LAWN" if (is_lawn and is_lawn(cx, cz, rel * 6)) else "1GRASS"
                         buckets[key].append(tri)
@@ -479,26 +481,37 @@ def build(project_dir: str | Path) -> dict:
     # track discs: drop network grass from UNDER each merged detailed track (Sand Creek, IMI, ...) so its
     # OWN dry-grass heightfield shows at the reconciled height instead of the coarse network ground z-fighting
     # or poking through. Footprints are horizontal-only (no heightfield needed), shared with merge_detailed.
+    # Clear network grass TIGHTLY around each merged track's ROADS (not a coarse circle — that left grass
+    # over the deck at the near side and voids in the track's corners). CLEAR_R ~ the track's own grass
+    # margin, so its own ground takes over exactly where the network grass stops. Road points are horizontal.
+    CLEAR_R = 34.0
+    _troad_hash = defaultdict(list)
     try:
-        from scripts.ac.merge_detailed import track_footprints
-        _pads = [(p["cx"], p["cz"], p["radius_m"]) for p in track_footprints(proj).values()]
-    except Exception as _e:  # noqa: BLE001 — never let pad-clear fail the whole build
-        _pads = []; print(f"  (track pad clear skipped: {_e})")
-    if _pads:
-        print(f"  clearing network grass under {len(_pads)} detailed track disc(s)")
+        from scripts.ac.merge_detailed import track_road_points
+        for _tx, _tz in track_road_points(proj):
+            _troad_hash[(int(_tx // CLEAR_R), int(_tz // CLEAR_R))].append((_tx, _tz))
+    except Exception as _e:  # noqa: BLE001 — never let the pad-clear fail the whole build
+        print(f"  (track grass clear skipped: {_e})")
+    if _troad_hash:
+        print(f"  clearing network grass within {CLEAR_R:.0f} m of {sum(len(v) for v in _troad_hash.values())} track road pts")
 
-    def keep_tile(x0, z0, x1, z1):
-        tcx, tcz = (x0 + x1) / 2, (z0 + z1) / 2
-        for px, pz, pr in _pads:                       # inside a detailed track's footprint -> its own grass covers it
-            if (tcx - px) ** 2 + (tcz - pz) ** 2 < pr * pr:
-                return False
+    def pad_reject(cx, cz):     # per-triangle: drop network grass hugging any detailed-track road (its own ground shows)
+        ci, cj = int(cx // CLEAR_R), int(cz // CLEAR_R)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for tx, tz in _troad_hash.get((ci + di, cj + dj), ()):
+                    if (cx - tx) ** 2 + (cz - tz) ** 2 < CLEAR_R * CLEAR_R:
+                        return True
+        return False
+
+    def keep_tile(x0, z0, x1, z1):     # prune tiles with NO road nearby (empty-middle bloat on the long corridor)
         for ci in range(int((x0 - GBUF) // RCELL2), int((x1 + GBUF) // RCELL2) + 1):
             for cj in range(int((z0 - GBUF) // RCELL2), int((z1 + GBUF) // RCELL2) + 1):
                 for rx, rz in _rb.get((ci, cj), ()):
                     if x0 - GBUF <= rx <= x1 + GBUF and z0 - GBUF <= rz <= z1 + GBUF:
                         return True
         return False
-    grass_tiles = _grass_tiles(grid_xyz, is_lawn=is_lawn, keep_tile=keep_tile)
+    grass_tiles = _grass_tiles(grid_xyz, is_lawn=is_lawn, keep_tile=keep_tile, pad_reject=pad_reject)
     for _n, g in grass_tiles:
         orient_up(g)
     skirt = _skirt(grid_xyz)

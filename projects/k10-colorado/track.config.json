@@ -1,7 +1,7 @@
 {
   "name": "K10 Colorado",
   "slug": "k10_colorado",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "_v080": "REAL road elevations, made drivable + accurate track banking. The connectors ARE real roads, so network_elev now samples REAL USGS 3DEP along them, median-despikes, heavily smooths, and grade-caps by ACTUAL segment distance (max_grade 3%) -> the real Colorado rolls survive (corridor ~80m/2%) but nothing launches (v0.7 was a fake flat plane; v0.6 rode raw hills). The ground grid is an IDW blend of those real road heights so terrain FOLLOWS the roads (no float). Each track's ENTRANCE is welded onto its connector's Y (junctions 0.00m) and keeps its own internal relief. compress 0.6 keeps far spokes from climbing a mile. Researched banking applied: PPIR oval = 10 deg all four turns (was 6).",
   "_v070": "Dali-painting fix. The inter-track world was built by sampling REAL 3DEP across FABRICATED compressed positions -> fake 190 m climbs, a road-vs-grass 60 m split (my v0.6 reconcile then tied tracks to the low grass, opening 60 m cliffs at every connector), a reservoir floating at 23 km (Z/height arg swap), and a 1.5 km mountain wall 4 km from Aspen. v0.7 replaces all inter-track 3DEP with ONE synthetic gentle west-rising plane (scenery.elevation.synthetic): tracks seated on it, connectors ride it, ground conforms -> connectors meet tracks AT GRADE, ~26 m total spread. Water arg swap fixed + fictional reservoirs off. Mountains pushed to ~47/60 km, capped ~440 m. Power poles/wires/streetlights culled across the map. Each track keeps its OWN real internal relief.",
   "_v060": "Template-quality pass (superseded by v0.7 elevation rework): corkscrew level-deck + grade cap, all-dry ground, guardrails removed, grass/scatter cleared under tracks.",
@@ -351,5 +351,6 @@
       "kind": "loop",
       "layout": "second_creek"
     }
-  ]
+  ],
+  "_v081": "Ground-encumbrance fix: network grass was BURYING track roads (up to 12.5m over Second Creek/IMI/Sand Creek) because the pad-clear dropped whole grass TILES by center \u2014 straddling tiles kept their part over the deck. Now clears network grass per-TRIANGLE within 34m of every merged-track road vertex (build_network_mesh pad_reject via merge_detailed.track_road_points). 0 track/connector road pts buried, 100% roadside grass coverage."
 }
