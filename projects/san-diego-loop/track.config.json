@@ -1,7 +1,7 @@
 {
   "name": "San Diego \u2014 Lake Murray Loop",
   "slug": "san_diego_lake_murray",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "A drivable LOOP around Lake Murray (Kevin's childhood neighborhood), built through the EXACT proven Sand Creek pipeline (build_kn5.py native Blender ribbon + grass -> export_kn5_addon), NOT the from-scratch network path. Source = the 'Lake Murray Blvd round-trip' loop from the My Maps export. Loop, not freeroam, because the loop pipeline is what actually collides in-game.",
@@ -36,101 +36,41 @@
       {
         "name": "jackson_dr",
         "osm": "Jackson Drive",
-        "fetch_bbox": [
-          32.76,
-          -117.06,
-          32.83,
-          -117.0
-        ],
-        "span_km": 1.6,
         "width_m": 12.0
       },
       {
         "name": "baltimore_dr",
         "osm": "Baltimore Drive",
-        "fetch_bbox": [
-          32.75,
-          -117.05,
-          32.82,
-          -117.0
-        ],
-        "span_km": 2.5,
         "width_m": 11.0
       },
       {
         "name": "lake_shore_dr",
         "osm": "Lake Shore Drive",
-        "fetch_bbox": [
-          32.78,
-          -117.045,
-          32.81,
-          -117.02
-        ],
-        "full": true,
         "width_m": 10.0
       },
       {
         "name": "golfcrest_dr",
         "osm": "Golfcrest Drive",
-        "fetch_bbox": [
-          32.78,
-          -117.05,
-          32.81,
-          -117.0
-        ],
-        "full": true,
         "width_m": 10.0
       },
       {
         "name": "waring_rd",
         "osm": "Waring Road",
-        "fetch_bbox": [
-          32.77,
-          -117.09,
-          32.8,
-          -117.05
-        ],
-        "full": true,
         "width_m": 11.0
       },
       {
         "name": "zion_ave",
         "osm": "Zion Avenue",
-        "fetch_bbox": [
-          32.78,
-          -117.095,
-          32.8,
-          -117.07
-        ],
-        "full": true,
         "width_m": 11.0
       },
       {
         "name": "70th_st",
         "osm": "70th Street",
-        "fetch_bbox": [
-          32.75,
-          -117.055,
-          32.78,
-          -117.04
-        ],
-        "full": true,
         "width_m": 12.0
       },
       {
         "name": "mission_gorge_rd",
         "osm": "Mission Gorge Road",
-        "fetch_bbox": [
-          32.79,
-          -117.095,
-          32.84,
-          -117.02
-        ],
-        "target": [
-          -117.035,
-          32.834
-        ],
-        "max_km": 3.0,
         "width_m": 13.0
       }
     ],

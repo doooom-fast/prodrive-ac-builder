@@ -128,6 +128,32 @@ def build(project_dir: str | Path) -> dict:
     z_raw = usgs_3dep.sample_points(coords)
     z_smooth = smooth_profile(z_raw, spacing_m=CENTERLINE_SPACING_M)
 
+    # CLOSED-LOOP seam + grade cap. smooth_profile is linear, so on a ring the two ends are smoothed
+    # apart from each other and the closure gets a step that reads as a ~20% launch ramp at start/finish.
+    # Blend the ends across the seam, then relax the whole ring (with wraparound) so no step exceeds
+    # MAX_LOOP_GRADE — streets aren't 20%; overshoots left by the windowed smoothing get pulled down.
+    closed = coords and haversine(coords[0], coords[-1]) < 15.0
+    if closed and len(z_smooth) > 200:
+        n = len(z_smooth)
+        BLEND = 30  # points (~90 m each side of the seam)
+        for k in range(BLEND):
+            t = k / BLEND
+            target = (z_smooth[k] + z_smooth[-1 - k]) / 2.0
+            z_smooth[k] = z_smooth[k] * t + target * (1 - t)
+            z_smooth[-1 - k] = z_smooth[-1 - k] * t + target * (1 - t)
+        MAX_LOOP_GRADE = 0.12
+        for _ in range(300):
+            changed = False
+            for i in range(n):
+                for j in (i - 1, (i + 1) % n):
+                    d = haversine(coords[i], coords[j]) or CENTERLINE_SPACING_M
+                    lim = z_smooth[j] + MAX_LOOP_GRADE * d
+                    if z_smooth[i] > lim + 1e-6:
+                        z_smooth[i] = lim
+                        changed = True
+            if not changed:
+                break
+
     # ELEVATION SCALE: the raw USGS DEM around Lake Murray carries Cowles Mountain and steep grades, so
     # the neighbourhood came out as a mountain the road climbs. Compress the RELIEF (about the median
     # centerline height) toward flat so it reads as the gently-rolling suburb it actually is — applied to
@@ -172,12 +198,16 @@ def build(project_dir: str | Path) -> dict:
         # geometry the SAME way that stage does, so the grid extent matches exactly.
         try:
             if spec.get("osm"):
-                # Unclipped is fine here — it only widens the grid EXTENT, and it is already bounded by
-                # the connector's fetch_bbox. connectors_from_kml does the precise span/target clipping.
-                from scripts.gps.connectors_from_kml import _osm_way_line
+                # Route via the cached drivable network (same source connectors_from_kml uses) — one
+                # cached fetch instead of per-street Overpass queries that stall when rate-limited.
+                from scripts.gps import street_route
                 lons = [c[0] for c in coords]; lats = [c[1] for c in coords]
-                fb = spec.get("fetch_bbox", [min(lats), min(lons), max(lats), max(lons)])
-                line = _osm_way_line(spec["osm"], tuple(fb))
+                m = 3200.0 / 111_000.0  # generous margin so full streets fit before the grid exists
+                fb = (min(lats) - m, min(lons) - m, max(lats) + m, max(lons) + m)
+                ways = street_route.fetch_network(fb, cache=project_dir / "data" / "network.cache.json")
+                if not hasattr(build, "_graph"):
+                    build._graph = street_route.StreetGraph(ways)
+                line = build._graph.street_line(spec["osm"])
             else:
                 from scripts.gps.connectors_from_kml import _placemark_line
                 kml_path = (project_dir / spec["kml"]).resolve()

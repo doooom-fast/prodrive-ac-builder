@@ -226,20 +226,42 @@ def build(project_dir: str | Path) -> dict:
                     best_d, best_q = d, q
         return math.sqrt(best_d), best_q
 
+    # Named streets are routed along the REAL drivable network (one cached fetch covering the terrain
+    # bbox, ramps included) — full length, single carriageway, real junctions. merge_ways-style chaining
+    # truncated streets at carriageway splits and name changes (70th St "ended" 440 m short of the loop
+    # because its name becomes Lake Murray Blvd through the I-8 interchange). See street_route.py.
+    from scripts.gps import street_route
+    graph = None
+    if any(sp.get("osm") for sp in specs):
+        ways = street_route.fetch_network((s, w, n, e), cache=data / "network.cache.json")
+        graph = street_route.StreetGraph(ways)
+    loop_ll = json.loads((data / "centerline.geojson").read_text())
+    loop_lonlat = [tuple(c) for c in next(f for f in loop_ll["features"]
+                                          if f["properties"].get("kind") == "full")["geometry"]["coordinates"]]
+
     out_connectors = []
     for spec in specs:
         if spec.get("osm"):                                      # clean named road straight from OSM
-            line = _osm_way_line(spec["osm"], tuple(spec.get("fetch_bbox", [s, w, n, e])))
-            line = clip_road(line, spec)
+            line = graph.street_line(spec["osm"])
             if not line:
                 print(f"[connectors] WARNING: no OSM way named {spec['osm']!r}")
                 continue
+            # If an end stops just short of the loop (name change through an interchange), continue it
+            # along real pavement to the junction — never a straight fake bridge.
+            for end in (line[0], line[-1]):
+                tgt = min(loop_lonlat, key=lambda q: (q[0] - end[0]) ** 2 + (q[1] - end[1]) ** 2)
+                line = graph.extend_to_target(line, tgt)
         else:
             kml_path = (project / spec["kml"]).resolve()
             line = _placemark_line(kml_path, spec["match"])
             if not line:
                 print(f"[connectors] WARNING: no placemark matching {spec['match']!r} in {kml_path.name}")
                 continue
+        # Resample to loop spacing. Graph/OSM node strings are SPARSE on straights (gaps to 350 m) —
+        # unresampled, the ribbon gets one 300 m quad with no cross-sections to conform to terrain, the
+        # elevation pipeline's window math breaks, and 90 m junction blends do nothing.
+        from scripts.gps.centerline import resample as _resample
+        line = _resample([tuple(p) for p in line], 3.0)
         # clip to the terrain bbox (drop any tail that leaves the sampled ground)
         line = [(lon, lat) for lon, lat in line if s <= lat <= n and w <= lon <= e]
         # project to UN-mirrored local metres (x east, z north); y from the shared heightfield
@@ -277,7 +299,16 @@ def build(project_dir: str | Path) -> dict:
         gap, join = nearest_placed(pts[gi])
         is_end = gi <= 1 or gi >= len(pts) - 2
         RIBBON_OVERLAP_M = 12.0    # within this, the two road ribbons already overlap — no weld needed
-        if gap <= 120.0:
+        weld_gap = float(spec.get("weld_gap_m", 120.0))  # per-street override to bridge a bigger gap
+        if gap <= weld_gap:
+            # A big gap means this street doesn't touch the loop mid-run — it's a spur that has to be
+            # bridged from one of its ENDS (a mid-street vertex insertion would spike the ribbon out to
+            # the loop and back). If the closest approach isn't already at an end, snap the join to the
+            # end that faces the loop so the bridge is a clean stub off the tip.
+            if not is_end and gap > RIBBON_OVERLAP_M:
+                gi = 0 if nearest_placed(pts[0])[0] <= nearest_placed(pts[-1])[0] else len(pts) - 1
+                gap, join = nearest_placed(pts[gi])
+                is_end = True
             if is_end and gap > RIBBON_OVERLAP_M:
                 if gi <= 1:
                     pts.insert(0, [join[0], join[1], join[2]]); gi = 0
@@ -306,10 +337,13 @@ def build(project_dir: str | Path) -> dict:
         # point's height. A "Directions" route can detour up a hill (Fletcher hit 212 m next to the 16 m
         # loop); a suburban connector should hug the neighbourhood grade. Do this BEFORE conforming so the
         # crossing-flatten has the final say at junctions.
-        BAND = 20.0
+        # Distance-scaled: tight (±20 m) beside the loop where a spike IS an artifact, loosening at
+        # ~8% of the distance away — a street 3 km out (Mission Gorge in Grantville sits ~100 m below
+        # the loop) must follow its OWN real ground, not be dragged up to loop height.
         for p in pts:
-            _lg, lp = nearest_loop(p)
-            p[1] = max(lp[1] - BAND, min(lp[1] + BAND, p[1]))
+            lg, lp = nearest_loop(p)
+            band = 20.0 + 0.08 * lg
+            p[1] = max(lp[1] - band, min(lp[1] + band, p[1]))
         # Smooth the clamp shoulders, THEN flatten crossings last (so junctions stay level). near_m is
         # wide so the approach to a lower road ramps gradually instead of dropping off a cliff.
         if len(pts) >= 5:
