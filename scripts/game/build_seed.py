@@ -135,6 +135,57 @@ def _spine(features: list[dict], src: Vertex, dst: Vertex, *,
     return hops
 
 
+def _reconcile_junction_z(feats: list[dict], elev: dict, *, ref: Vertex, snap_m: float,
+                          blend_m: float = 60.0) -> None:
+    """Make every edge agree on elevation where it meets others.
+
+    Each edge's profile was smoothed independently, so edges sharing a junction disagree about
+    its height by decimeters — rendered, that's stacked ribbons ("lasagna") at every
+    intersection. Cluster endpoints with the network's own snap grid, set each junction's height
+    to the mean of all edge-end heights there, and ramp each edge's correction linearly over the
+    first/last ``blend_m`` so mid-edge elevation stays honest. Mutates ``elev`` in place.
+    """
+    from scripts.gps.network import _NodeGrid, _projector
+    to_m, _ = _projector(ref[1], ref[0])
+    grid = _NodeGrid(snap_m)
+
+    ends: dict[int, list[tuple[int, bool]]] = defaultdict(list)   # node -> [(edge_id, is_start)]
+    for f in feats:
+        cs = f["geometry"]["coordinates"]
+        eid = f["properties"]["id"]
+        ends[grid.assign(*to_m(*cs[0]))].append((eid, True))
+        ends[grid.assign(*to_m(*cs[-1]))].append((eid, False))
+
+    node_z = {n: sum(elev[e]["z_smooth_m"][0 if s else -1] for e, s in lst) / len(lst)
+              for n, lst in ends.items()}
+
+    corrected = 0
+    # ramp corrections per edge (both ends at once so short edges blend both ways correctly)
+    for f in feats:
+        eid = f["properties"]["id"]
+        cs = [tuple(c) for c in f["geometry"]["coordinates"]]
+        zs = elev[eid]["z_smooth_m"]
+        d0 = _hav_cum(cs)
+        total = d0[-1] or 1.0
+        dz_a = node_z[grid.assign(*to_m(*cs[0]))] - zs[0]
+        dz_b = node_z[grid.assign(*to_m(*cs[-1]))] - zs[-1]
+        if abs(dz_a) < 0.01 and abs(dz_b) < 0.01:
+            continue
+        corrected += 1
+        for i in range(len(zs)):
+            wa = max(0.0, 1.0 - d0[i] / min(blend_m, total))
+            wb = max(0.0, 1.0 - (total - d0[i]) / min(blend_m, total))
+            zs[i] = round(zs[i] + dz_a * wa + dz_b * wb, 2)
+    print(f"[seed] junction z reconciled: {len(node_z)} nodes, {corrected} edges adjusted")
+
+
+def _hav_cum(cs: list[Vertex]) -> list[float]:
+    d = [0.0]
+    for i in range(1, len(cs)):
+        d.append(d[-1] + _hav(cs[i - 1], cs[i]))
+    return d
+
+
 def _landmarks_from_config(cfg, cached: dict[str, list[Vertex]]) -> dict[str, dict]:
     """Config landmarks -> {name: {label, kind, outline_lonlat|point_lonlat}}.
 
@@ -249,6 +300,9 @@ def build(project_dir: str | Path) -> dict:
     by_id = {f["properties"]["id"]: f for f in feats}
     elev = {ed["id"]: ed for ed in
             json.loads((data / "network.elevation.json").read_text(encoding="utf-8"))["edges"]}
+    _reconcile_junction_z(feats, elev,
+                          ref=(net["properties"]["ref_lon"], net["properties"]["ref_lat"]),
+                          snap_m=float(cfg.raw.get("network", {}).get("snap_grid_m", 11.0)))
     spine_ll: list[Vertex] = []
     spine_z: list[float] = []
     for eid, fwd in hops:
