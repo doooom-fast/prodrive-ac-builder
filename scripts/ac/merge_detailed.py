@@ -7,12 +7,12 @@ K10's shared origin frame, uniquifies every group name with a per-track suffix (
 backdrop (K10 has one). Result: the detailed tracks keep their kerbs/markings/textures/buildings/creek
 bridges inside the unified drive-between map, instead of being reduced to bare network ribbons.
 
-Build order (K10): network_elev -> merge_detailed -> build_network_mesh -> build_network_env. merge runs
-BEFORE build_network_mesh now, because build_network_mesh conforms each connector onto the merged tracks'
-decks (reads track_*.obj) so connectors meet tracks at grade. With the synthetic gentle field
-(scenery.elevation.synthetic) each track's mean deck is seated LEVEL on the plane; connectors do the climbing.
+Build order (K10, v0.8): network_elev -> build_network_mesh -> merge_detailed -> build_network_env. The
+connectors ride the REAL (despiked, grade-capped) ground from network_elev; merge runs AFTER build_network_mesh
+and WELDS each track's entrance (its road vertex nearest a connector) onto that connector's Y, so the connector
+meets the track deck at grade (0 m) with no launch ramp. The rest of the track keeps its own internal relief.
 
-    python -m scripts.ac.merge_detailed projects/k10-colorado   (run AFTER network_elev, BEFORE build_network_mesh)
+    python -m scripts.ac.merge_detailed projects/k10-colorado   (run AFTER build_network_mesh)
 """
 from __future__ import annotations
 
@@ -197,6 +197,20 @@ def main(k10_dir: str) -> None:
     # no 60 m cliff, no 190 m fake spread. Falls back to the old grass-terrain seat for non-synthetic projects.
     bases = synthetic_field.resolve_track_bases(k10) if synthetic_field.enabled(cfg) else None
     terr_y = None if bases else _terrain_sampler(k10, K_lon, K_lat, K_elev, m_lon, m_lat, sx)
+    conn = _connector_verts(data, stride=1) if bases is not None else []   # network connector road verts (K10 frame)
+    _CELL = 6.0; conn_hash: dict = {}
+    for _cx, _cy, _cz in conn:                                             # spatial hash for exact nearest-connector
+        conn_hash.setdefault((int(_cx // _CELL), int(_cz // _CELL)), []).append((_cx, _cy, _cz))
+
+    def _nearest_conn(wx, wz):
+        ci, cj = int(wx // _CELL), int(wz // _CELL); best = None
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for cvx, cvy, cvz in conn_hash.get((ci + di, cj + dj), ()):
+                    d2 = (wx - cvx) ** 2 + (wz - cvz) ** 2
+                    if best is None or d2 < best[0]:
+                        best = (d2, cvy)
+        return best
     pads: dict = {}
     for mt in cfg.raw.get("merge_tracks", []):
         slug = mt["slug"]; proj = Path(mt["project"])
@@ -212,11 +226,20 @@ def main(k10_dir: str) -> None:
         ref = _road_ref(proj / "data" / "track.obj")
         if bases is not None and slug in bases and ref is not None:
             cxl, czl, myl, r = ref
-            # Seat the mean road deck LEVEL on the gentle synthetic plane (same surface the ground rides), so
-            # the track sits flush with the surrounding desert (no perimeter step). Connectors then CONFORM to
-            # each track's surface where they enter its footprint (build_network_mesh), meeting it at grade.
-            dy = bases[slug] - myl
             pads[slug] = {"cx": round(dx + cxl, 2), "cz": round(dz + czl, 2), "radius_m": round(r + 25.0, 1)}
+            # Seat on the REAL ground. Default: mean deck on the field. But shift (rigid) so the track's
+            # ENTRANCE — its road vertex nearest a connector — lands on that connector's Y, so the connector
+            # (which rides the real field at gentle grade) meets the track deck AT GRADE with no launch ramp
+            # and no junction step. The rest of the track keeps its own internal relief around that seat.
+            dy = bases[slug] - myl
+            if conn:
+                best = None                                       # exact global-nearest (track vert, connector Y)
+                for lx, ly, lz in _road_verts_local(proj / "data" / "track.obj", stride=1):
+                    nc = _nearest_conn(dx + lx, dz + lz)
+                    if nc is not None and (best is None or nc[0] < best[0]):
+                        best = (nc[0], nc[1], ly)
+                if best is not None and best[0] <= 40.0 * 40.0:   # a connector reaches within 40 m -> weld to it
+                    dy = best[1] - best[2]
         elif terr_y is not None and ref is not None:
             cxl, czl, myl, r = ref
             pad_y = terr_y(dx + cxl, dz + czl)

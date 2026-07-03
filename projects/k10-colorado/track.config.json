@@ -1,7 +1,8 @@
 {
   "name": "K10 Colorado",
   "slug": "k10_colorado",
-  "version": "0.7.0",
+  "version": "0.8.0",
+  "_v080": "REAL road elevations, made drivable + accurate track banking. The connectors ARE real roads, so network_elev now samples REAL USGS 3DEP along them, median-despikes, heavily smooths, and grade-caps by ACTUAL segment distance (max_grade 3%) -> the real Colorado rolls survive (corridor ~80m/2%) but nothing launches (v0.7 was a fake flat plane; v0.6 rode raw hills). The ground grid is an IDW blend of those real road heights so terrain FOLLOWS the roads (no float). Each track's ENTRANCE is welded onto its connector's Y (junctions 0.00m) and keeps its own internal relief. compress 0.6 keeps far spokes from climbing a mile. Researched banking applied: PPIR oval = 10 deg all four turns (was 6).",
   "_v070": "Dali-painting fix. The inter-track world was built by sampling REAL 3DEP across FABRICATED compressed positions -> fake 190 m climbs, a road-vs-grass 60 m split (my v0.6 reconcile then tied tracks to the low grass, opening 60 m cliffs at every connector), a reservoir floating at 23 km (Z/height arg swap), and a 1.5 km mountain wall 4 km from Aspen. v0.7 replaces all inter-track 3DEP with ONE synthetic gentle west-rising plane (scenery.elevation.synthetic): tracks seated on it, connectors ride it, ground conforms -> connectors meet tracks AT GRADE, ~26 m total spread. Water arg swap fixed + fictional reservoirs off. Mountains pushed to ~47/60 km, capped ~440 m. Power poles/wires/streetlights culled across the map. Each track keeps its OWN real internal relief.",
   "_v060": "Template-quality pass (superseded by v0.7 elevation rework): corkscrew level-deck + grade cap, all-dry ground, guardrails removed, grass/scatter cleared under tracks.",
   "author": "prodrive-ac-builder",
@@ -66,10 +67,13 @@
     "streetlights": false,
     "elevation": {
       "synthetic": true,
+      "compress": 0.6,
+      "max_grade": 0.03,
+      "smooth_m": 120.0,
       "datum_base_m": 16.0,
       "west_rise_per_km_m": 1.1,
       "per_track_override": {},
-      "_doc": "The inter-track world is FICTIONAL (compressed fabricated positions), so sampling real 3DEP across it manufactured fake ~150 m climbs + garbage cells (23 km sky-water). synthetic:true -> network_elev + merge_detailed use scripts/elevation/synthetic_field.py: ONE gentle plane rising west_rise_per_km_m toward the far-west mountains (+x = true west under mirror). Each track's mean deck is seated on this plane, connectors ride it, the ground conforms to it -> connectors meet tracks at grade, ~26 m total spread not 190 m. Each track keeps its OWN internal relief (built in its own frame)."
+      "_doc": "REAL road elevations, made DRIVABLE (v0.8). The connectors ARE real roads, so network_elev samples REAL USGS 3DEP along them, median-despikes, heavily smooths (smooth_m), and grade-caps by ACTUAL segment distance (max_grade) so the real Colorado rolls survive but nothing launches. compress<1 shrinks the spread toward the median (real corridor is gentle ~80 m; fabricated far spokes hit higher ground -> 0.6 keeps the map from climbing a mile). The ground grid is an IDW blend of the real road heights so terrain FOLLOWS the roads (no fill-min float); tracks seat on that real ground; each track keeps its OWN internal relief. datum_base_m/west_rise_per_km_m are only the pre-3DEP fallback."
     },
     "_dry_only_doc": "Colorado high plains = dry chaparral. Disables the 1LAWN green-turf classifier so ALL ground tiles are 1GRASS (ground_dry_diffuse.jpg, tan dirt) \u2014 cohesive with Sand Creek's dry ground, no suburban-green patches.",
     "corridor_margin_m": 3.5,

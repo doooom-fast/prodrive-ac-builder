@@ -28,6 +28,7 @@ from scripts.geometry.projection import _meters_per_degree, centroid  # noqa: E4
 Vertex = tuple[float, float, float]
 ROAD_LIFT_M = 0.12
 GRASS_CLEARANCE_M = 0.30
+CONFORM_GRADE = 0.06       # max grade for a connector ramping onto a track deck — steeper would launch the car
 # The kn5 exporter expands every mesh to ~3 unique verts PER TRIANGLE (per-corner normals/uvs), then
 # AUTO-SPLITS any mesh whose expanded verts exceed 65,535 — and names BOTH halves the same, producing
 # DUPLICATE node names. AC keys physical meshes by name, so a duplicate-named ground mesh gets dropped
@@ -338,9 +339,12 @@ def build(project_dir: str | Path) -> dict:
         return raw_grid[j][i] - elev0
 
     # --- sweep each edge into a ribbon (freeway edges lifted onto a viaduct deck where they bridge dips) ---
-    # connector->track conform: lift a connector onto any detailed track's deck where it crosses (meet at
-    # grade, no fly-over). Needs merge_detailed to have run first (track_*.obj present); no-op otherwise.
-    conform_track, _ncf = _track_road_sampler(data)
+    # connector->track conform: lift a connector onto any detailed track's deck where it crosses. With REAL
+    # road elevations the connectors and tracks already share the real ground, so they meet naturally within
+    # each track's small entrance relief — the conform is off by default (it re-introduced steep launch ramps
+    # where a connector crossed a track's interior relief). Enable via scenery.elevation.conform_tracks.
+    _do_conform = bool(((cfg.raw.get("scenery", {}) or {}).get("elevation", {}) or {}).get("conform_tracks", False))
+    conform_track, _ncf = _track_road_sampler(data) if _do_conform else (None, 0)
     if _ncf:
         print(f"  connector conform: {_ncf} track road verts loaded (connectors ride onto tracks at crossings)")
 
@@ -358,6 +362,15 @@ def build(project_dir: str | Path) -> dict:
         pts = [to_local(lon, lat, zz) for (lon, lat), zz in zip(c, z)]
         if _ncf:                                    # ride onto any track deck this connector crosses
             pts = [(x, conform_track(x, y, z2), z2) for x, y, z2 in pts]
+            # grade-cap the conformed profile (by ACTUAL segment distance) so ramping onto a track deck — or
+            # crossing a track's interior relief — never exceeds CONFORM_GRADE and launches the car.
+            for _ in range(2):
+                for i in range(1, len(pts)):
+                    cap = CONFORM_GRADE * max(0.5, math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]))
+                    pts[i] = (pts[i][0], pts[i - 1][1] + max(-cap, min(cap, pts[i][1] - pts[i - 1][1])), pts[i][2])
+                for i in range(len(pts) - 2, -1, -1):
+                    cap = CONFORM_GRADE * max(0.5, math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][2] - pts[i][2]))
+                    pts[i] = (pts[i][0], pts[i + 1][1] + max(-cap, min(cap, pts[i][1] - pts[i + 1][1])), pts[i][2])
         w = float(f["properties"].get("width_m") or cfg.default_width_m)
         if len(pts) < 2:
             continue

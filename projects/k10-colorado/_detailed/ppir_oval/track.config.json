@@ -59,14 +59,14 @@
     "_note": "centerline.geojson provided directly (traced)"
   },
   "road_profile": {
-    "_doc": "PPIR oval banking \u2014 constant ~8deg roll around the loop (bank_deg sign may need a flip after an in-game check).",
+    "_doc": "PPIR oval real banking = 10 deg in all four turns (RacingCircuits.info / Wikipedia). Constant roll around the 1-mi D-oval.",
     "dips": [],
     "cambers": [
       {
         "name": "oval_bank",
         "start_m": 0,
         "len_m": 3000,
-        "bank_deg": 6.0,
+        "bank_deg": 10.0,
         "ramp_m": 0
       }
     ]

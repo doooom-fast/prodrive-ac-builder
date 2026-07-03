@@ -13,6 +13,8 @@ system python3. Only active when scenery.elevation.synthetic is truthy (other pr
 """
 from __future__ import annotations
 
+import json
+import math
 from pathlib import Path
 
 from scripts.config import load_config
@@ -62,29 +64,38 @@ def resolve_track_bases(k10_dir) -> dict:
     from scripts.ac.merge_detailed import track_footprints
     _, _, ov = _params(cfg)
     pads = track_footprints(k10)
-    return {slug: (float(ov[slug]) if slug in ov else plane_y(cfg, p["cx"])) for slug, p in pads.items()}
+    field, _, _ = make_field(k10)                    # each track seats on the REAL ground at its pad centre
+    return {slug: (float(ov[slug]) if slug in ov else field(p["cx"], p["cz"])) for slug, p in pads.items()}
 
 
 def make_field(k10_dir):
     """Return (field_local, to_xz, elev0):
-       field_local(x, z) -> intended GROUND height (m above elev0) anywhere in the inter-track world;
+       field_local(x, z) -> GROUND height (m above elev0) anywhere in the inter-track world;
        to_xz(lon, lat)   -> K10 local (x, z);
        elev0             -> origin datum, so callers can emit ABSOLUTE z = field_local + elev0.
-    A gentle west-rising plane, nudged toward each track's chosen base within BLEND_M so the ground under a
-    pad matches the track's seat, blending smoothly (low curvature) so connectors never undulate."""
+    Reads the REAL, despiked, grade-capped elevation grid network_elev built from USGS 3DEP along the actual
+    roads (data/heightfield.npy) and bilinearly samples it — so the connectors, the tracks, and the ground
+    ALL ride the same real (but drivable) surface. Falls back to a flat datum pre-network_elev."""
     k10 = Path(k10_dir); cfg = load_config(k10)
-    to_xz = projector(cfg); _, _, elev0 = _origin(cfg)
-    from scripts.ac.merge_detailed import track_footprints
-    pads = track_footprints(k10)
-    bases = resolve_track_bases(k10)
-    R2 = BLEND_M * BLEND_M
-    anchors = [(pads[s]["cx"], pads[s]["cz"], bases[s] - plane_y(cfg, pads[s]["cx"])) for s in bases]
+    to_xz = projector(cfg); lon0, lat0, elev0 = _origin(cfg)
+    m_lon, m_lat = _meters_per_degree(lat0)
+    sx = -1.0 if cfg.raw.get("mirror_x", True) else 1.0
+    hf = (k10 / "data" / "heightfield.npy"); mf = (k10 / "data" / "heightfield.meta.json")
+    if not (hf.exists() and mf.exists()):
+        datum = float(((cfg.raw.get("scenery", {}) or {}).get("elevation", {}) or {}).get("datum_base_m", 16.0))
+        return (lambda x, z: datum), to_xz, elev0
+    from scripts.geometry.build_mesh import read_npy
+    grid = read_npy(hf); meta = json.loads(mf.read_text())
+    s, w, n, e = meta["bbox_swne"]; nx, ny = meta["nx"], meta["ny"]
+    gy = meta["spacing_m"] / 111_000.0
+    gx = meta["spacing_m"] / (111_000.0 * math.cos(math.radians((s + n) / 2)))
 
     def field_local(x, z):
-        base = plane_y(cfg, x)
-        num = den = 0.0
-        for ax, az, dev in anchors:                 # dev = pad's departure from the plane (0 unless overridden)
-            w = R2 / (R2 + (x - ax) ** 2 + (z - az) ** 2)   # 1 at the pad, ->0 far, smooth
-            num += w * dev; den += w
-        return base + (num / den if den else 0.0)
+        lon = lon0 + sx * x / m_lon; lat = lat0 + z / m_lat
+        fj = (n - lat) / gy; fi = (lon - w) / gx
+        j0 = min(ny - 2, max(0, int(fj))); i0 = min(nx - 2, max(0, int(fi)))
+        tj = min(1.0, max(0.0, fj - j0)); ti = min(1.0, max(0.0, fi - i0))
+        top = grid[j0][i0] * (1 - ti) + grid[j0][i0 + 1] * ti
+        bot = grid[j0 + 1][i0] * (1 - ti) + grid[j0 + 1][i0 + 1] * ti
+        return top * (1 - tj) + bot * tj - elev0
     return field_local, to_xz, elev0

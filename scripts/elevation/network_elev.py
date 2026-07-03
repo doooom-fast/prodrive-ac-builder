@@ -52,50 +52,105 @@ def _smooth_edge(z_raw, spacing_m):
     return out
 
 
+def _despike_smooth_cap(z_raw, spacing_m, mean_m, max_grade, seg_d=None):
+    """Median de-spike + HEAVY smooth + tight grade cap for a REAL road profile — the real Colorado rolls
+    come through, but DEM notches/spikes and steep pitches that launch the car do not. The grade cap uses
+    the ACTUAL per-segment distance (seg_d[i] = metres from vertex i-1 to i) so it holds even where the
+    resampled vertices are closer than nominal (a fixed spacing over-estimates the allowed step -> launches).
+    Two forward+backward cap passes so a long steep real climb is spread gently, not clipped into a step."""
+    n = len(z_raw)
+    if n < 3:
+        return list(z_raw)
+    mw = max(3, round(MEDIAN_M / spacing_m)) | 1; h = mw // 2
+    med = [sorted(z_raw[max(0, i - h):min(n, i + h + 1)])[(min(n, i + h + 1) - max(0, i - h)) // 2]
+           for i in range(n)]
+    out = smooth_open(med, max(3, round(mean_m / spacing_m)) | 1)
+    d = seg_d if seg_d is not None else [spacing_m] * n
+    for _ in range(2):
+        for i in range(1, len(out)):                     # forward
+            cap = max_grade * max(0.5, d[i])
+            out[i] = out[i - 1] + max(-cap, min(cap, out[i] - out[i - 1]))
+        for i in range(len(out) - 2, -1, -1):            # backward (symmetric — no directional bias)
+            cap = max_grade * max(0.5, d[i + 1])
+            out[i] = out[i + 1] + max(-cap, min(cap, out[i] - out[i + 1]))
+    return out
+
+
 def _build_synthetic(proj: Path, data: Path, fc: dict, F: list, cfg) -> dict:
-    """FICTIONAL inter-track world: emit connector road z + the terrain grid from the SYNTHETIC gentle
-    field (a west-rising plane) instead of real 3DEP. Keeps the same output contract (network.elevation.json
-    + heightfield.npy/meta) so build_network_mesh / build_network_env consume it unchanged. This kills the
-    fake 150 m climbs, the road-vs-grass 60 m split, and the garbage-cell floating water in one move."""
+    """REAL road elevations, made DRIVABLE. Sample USGS 3DEP along every connector (these ARE real roads),
+    median-despike + heavily smooth + grade-cap (~3.5%) so the real rolls survive but launches don't, then
+    build the ground grid by INVERSE-DISTANCE blending those real road heights (+ track pad centres) so the
+    terrain FOLLOWS the roads everywhere — no fill-min float. Connectors, tracks and ground all ride this one
+    real, drivable surface. Optional scenery.elevation.compress (<1) shrinks the spread toward the median."""
+    import numpy as np
+    from scripts.ac.merge_detailed import track_footprints
+    elev0 = float(cfg.raw["origin"]["elev_m"])
+    to_xz = synthetic_field.projector(cfg)
+    el = (cfg.raw.get("scenery", {}) or {}).get("elevation", {}) or {}
+    compress = float(el.get("compress", 1.0)); max_grade = float(el.get("max_grade", 0.035))
+    mean_m = float(el.get("smooth_m", 90.0))
     spacing = float(fc["properties"].get("resample_m", 4.0))
-    field, to_xz, elev0 = synthetic_field.make_field(proj)
 
-    def z_abs(lon, lat):
-        x, z = to_xz(lon, lat)
-        return round(field(x, z) + elev0, 2)
-
-    edges_elev = []; zmin, zmax = 1e9, -1e9
+    # 1) one batched 3DEP fetch for all connector vertices
+    flat, spans = [], []
     for f in F:
-        zs = [z_abs(lon, lat) for lon, lat in f["geometry"]["coordinates"]]
-        zmin = min(zmin, min(zs)); zmax = max(zmax, max(zs))
-        edges_elev.append({"id": f["properties"]["id"], "z_raw_m": zs, "z_smooth_m": zs})
-    (data / "network.elevation.json").write_text(json.dumps({
-        "spacing_m": spacing, "synthetic": True, "edge_count": len(F),
-        "z_min_m": round(zmin, 1), "z_max_m": round(zmax, 1), "edges": edges_elev,
-    }), encoding="utf-8")
+        c = f["geometry"]["coordinates"]; spans.append((len(flat), len(c))); flat.extend((lo, la) for lo, la in c)
+    print(f"sampling REAL 3DEP for {len(flat)} connector vertices ...")
+    zall = usgs_3dep.sample_points(flat)
+    valid = sorted(v for v in zall if v is not None)
+    zref = valid[len(valid) // 2] if valid else elev0
 
+    # 2) per-edge despike/smooth/cap (+ optional compress toward the median), emit connector z + collect anchors
+    edges_elev = []; a_lon = []; a_lat = []; a_z = []
+    zmin, zmax = 1e9, -1e9
+    for f, (off, ln) in zip(F, spans):
+        cc = f["geometry"]["coordinates"]
+        xy = [to_xz(lo, la) for lo, la in cc]
+        seg_d = [0.0] + [math.hypot(xy[i][0] - xy[i - 1][0], xy[i][1] - xy[i - 1][1]) for i in range(1, len(xy))]
+        zr = [zref if v is None else v for v in zall[off:off + ln]]
+        zs = _despike_smooth_cap(zr, spacing, mean_m, max_grade, seg_d)
+        if compress != 1.0:
+            zs = _despike_smooth_cap([zref + compress * (v - zref) for v in zs], spacing, mean_m, max_grade, seg_d)
+        zmin = min(zmin, min(zs)); zmax = max(zmax, max(zs))
+        edges_elev.append({"id": f["properties"]["id"], "z_raw_m": [round(v, 2) for v in zr],
+                           "z_smooth_m": [round(v, 2) for v in zs]})
+        for (lo, la), zz in zip(f["geometry"]["coordinates"], zs):
+            a_lon.append(lo); a_lat.append(la); a_z.append(zz)
+    (data / "network.elevation.json").write_text(json.dumps({
+        "spacing_m": spacing, "synthetic": True, "real": True, "edge_count": len(F),
+        "z_min_m": round(zmin, 1), "z_max_m": round(zmax, 1), "edges": edges_elev}), encoding="utf-8")
+
+    # 3) ground grid = IDW blend of the real road heights so the terrain follows the roads (numpy, chunked)
     lons = [c[0] for f in F for c in f["geometry"]["coordinates"]]
     lats = [c[1] for f in F for c in f["geometry"]["coordinates"]]
     midlat = (min(lats) + max(lats)) / 2
-    terr = (cfg.raw.get("scenery", {}) or {}).get("terrain", {}) or {}
-    if terr.get("bbox_swne"):
-        s, w, n, e = terr["bbox_swne"]
-    else:
-        mlat = GRID_MARGIN_M / 111_000.0
-        mlon = GRID_MARGIN_M / (111_000.0 * math.cos(math.radians(midlat)))
-        s, w, n, e = min(lats) - mlat, min(lons) - mlon, max(lats) + mlat, max(lons) + mlon
-    gy = GRID_SPACING_M / 111_000.0
-    gx = GRID_SPACING_M / (111_000.0 * math.cos(math.radians(midlat)))
+    mlat = GRID_MARGIN_M / 111_000.0; mlon = GRID_MARGIN_M / (111_000.0 * math.cos(math.radians(midlat)))
+    s, w, n, e = min(lats) - mlat, min(lons) - mlon, max(lats) + mlat, max(lons) + mlon
+    gy = GRID_SPACING_M / 111_000.0; gx = GRID_SPACING_M / (111_000.0 * math.cos(math.radians(midlat)))
     ny = int((n - s) / gy) + 1; nx = int((e - w) / gx) + 1
-    grid = [[z_abs(w + i * gx, n - j * gy) for i in range(nx)] for j in range(ny)]
-    write_npy(data / "heightfield.npy", grid)
+    ax = np.array([to_xz(lo, la)[0] for lo, la in zip(a_lon, a_lat)])
+    az = np.array([to_xz(lo, la)[1] for lo, la in zip(a_lon, a_lat)])
+    av = np.array(a_z)
+    st = max(1, len(ax) // 3000); ax, az, av = ax[::st], az[::st], av[::st]   # subsample anchors for speed
+    # grid cell centres in local metres
+    gj = np.arange(ny); gi = np.arange(nx)
+    gx_l = np.array([to_xz(w + i * gx, midlat)[0] for i in gi])
+    gz_l = np.array([to_xz(w, n - j * gy)[1] for j in gj])
+    grid = np.empty((ny, nx), dtype=np.float32)
+    P2 = 1.0e6   # IDW smoothing floor (1 km) -> low-curvature ground, no bullseyes around anchors
+    for j in range(ny):
+        dz2 = (gz_l[j] - az) ** 2
+        dx = gx_l[:, None] - ax[None, :]
+        wgt = 1.0 / (dx * dx + dz2[None, :] + P2)
+        grid[j] = (wgt @ av) / wgt.sum(axis=1)
+    write_npy(data / "heightfield.npy", grid.tolist())
     (data / "heightfield.meta.json").write_text(json.dumps(
         {"bbox_swne": [round(s, 6), round(w, 6), round(n, 6), round(e, 6)],
          "nx": nx, "ny": ny, "spacing_m": GRID_SPACING_M, "margin_m": GRID_MARGIN_M, "row0": "north"}),
         encoding="utf-8")
     stats = {"z_min_m": round(zmin, 1), "z_max_m": round(zmax, 1), "range_m": round(zmax - zmin, 1),
-             "grid": f"{nx}x{ny}@{GRID_SPACING_M}m", "synthetic": True}
-    print("network elevation done (SYNTHETIC gentle field, no 3DEP):", stats)
+             "grid": f"{nx}x{ny}@{GRID_SPACING_M}m", "real": True, "cap_grade": max_grade, "compress": compress}
+    print("network elevation done (REAL 3DEP, despiked+capped, road-conformed ground):", stats)
     return stats
 
 
