@@ -68,7 +68,7 @@ def _grid_sampler(grid, meta, elev0):
     def y_at(lon, lat):
         j = min(ny - 1, max(0, int(round((n - lat) / gy))))
         i = min(nx - 1, max(0, int(round((lon - w) / gx))))
-        return grid[j][i] - elev0
+        return max(-50.0, min(600.0, grid[j][i] - elev0))   # clamp: never let a bad cell fling a prop/disc to the sky
     return y_at
 
 
@@ -240,6 +240,7 @@ def build(project_dir: str | Path) -> dict:
     # the sparse light poles. Config: scenery.freeway_furniture.{guardrails,gantries}.
     want_guardrails = bool(ff.get("guardrails", True))
     want_gantries = bool(ff.get("gantries", True))
+    want_streetlights = bool(scn.get("streetlights", True))   # rural Colorado connectors need no light-pole spam
 
     rnd = random.Random(2025)
     guardrails, palms, trees, posts, poles, gantry_metal, gantry_sign, bushes = [], [], [], [], [], [], [], []
@@ -280,7 +281,7 @@ def build(project_dir: str | Path) -> dict:
                 ox, oz = x + nx * (half + 2.5), z + nz * (half + 2.5)
                 if not on_road_tight(ox, oz) and not in_pad(ox, oz):
                     poles.append(_place_obj(pole_V, pole_T, ox, y, oz, yaw=math.atan2(tz, tx))); npole += 1
-            elif not is_fw and acc_l >= light_step:
+            elif want_streetlights and not is_fw and acc_l >= light_step:
                 acc_l = 0.0
                 ox, oz = x - nx * (half + 1.8), z - nz * (half + 1.8)
                 if not on_road_tight(ox, oz) and not in_pad(ox, oz):    # keep the streetlight off crossing roads + tracks
@@ -320,24 +321,28 @@ def build(project_dir: str | Path) -> dict:
                             trees.append(_billboard_cell(px, gy, pz, rnd.randint(0, 1), rnd.randint(0, 1),
                                                          2, 2, h, h * 0.9, rnd.random() * math.pi)); ntree += 1
 
-    # Lake Murray water
+    # Lake Murray water. NOTE _water_disc(cx, cz, y) — the disc is centred (cx,cz) in X-Z at height y. The
+    # arg ORDER matters: pass (x, z, height), not (x, height, z), or the disc's Z-position becomes its
+    # altitude (this was the K10 reservoir floating at 23 km).
     lk = scn.get("lake_murray", {})
     waters = []
-    if lk:
+    if "center_lon" in lk and lk.get("enabled", True):
         lx, ly, lz = to_local(lk["center_lon"], lk["center_lat"], 0.0)
         wy = y_at(lk["center_lon"], lk["center_lat"]) - 1.0
-        waters.append(_water_disc(lx, wy, lz, float(lk.get("radius_m", 600))))
+        waters.append(_water_disc(lx, lz, wy, float(lk.get("radius_m", 600))))
 
-    # Named water bodies (real reservoirs/lakes along the corridor) — flat discs seated at terrain
-    # level, all merged into the one WATER group so the CSP [Material_Water] shader covers them.
+    # Named water bodies (real reservoirs/lakes along the corridor) — flat discs at terrain level, one WATER
+    # group (CSP [Material_Water]). Gated by scenery.water_bodies.enabled: the K10 inter-track reservoirs are
+    # fictional dressing over compressed positions, so they are OFF by default there.
     nwater = 0
-    for wb in (scn.get("water_bodies", {}) or {}).get("bodies", []):
-        wx, _wy, wz = to_local(wb["center_lon"], wb["center_lat"], 0.0)
-        if in_pad(wx, wz):                      # no reservoir inside a race track footprint
-            continue
-        wy = y_at(wb["center_lon"], wb["center_lat"]) - 1.0
-        waters.append(_water_disc(wx, wy, wz, float(wb.get("radius_m", 150))))
-        nwater += 1
+    if (scn.get("water_bodies", {}) or {}).get("enabled", True):
+        for wb in (scn.get("water_bodies", {}) or {}).get("bodies", []):
+            wx, _wy, wz = to_local(wb["center_lon"], wb["center_lat"], 0.0)
+            if in_pad(wx, wz):                      # no reservoir inside a race track footprint
+                continue
+            wy = y_at(wb["center_lon"], wb["center_lat"]) - 1.0
+            waters.append(_water_disc(wx, wz, wy, float(wb.get("radius_m", 150))))
+            nwater += 1
 
     # Pacific ocean backdrop: a big flat sea-level quad out to the WEST (the coast is ~1 km past the
     # map edge). Double-sided. CSP water shader + aerial haze sell it as the distant ocean.
@@ -367,6 +372,9 @@ def build(project_dir: str | Path) -> dict:
         layers = mtn_cfg.get("layers", [{"dlon": -0.20, "base_h_m": 720.0, "amp_m": 320.0},
                                         {"dlon": -0.28, "base_h_m": 1120.0, "amp_m": 440.0}])
         span = float(mtn_cfg.get("lat_span_deg", 0.34)); ncol = max(4, int(mtn_cfg.get("columns", 140)))
+        # base_y_m seats the ridge skirt near the ground (not a -200 m pit); max_h_m hard-caps the silhouette
+        # so the range reads as a faint FAR backdrop, not a wall towering over the tracks.
+        base_y = float(mtn_cfg.get("base_y_m", 20.0)); max_h = float(mtn_cfg.get("max_h_m", 500.0))
         mnt_v, mnt_t = [], []
         for layer, lay in enumerate(layers):
             wlon = lon0 + float(lay["dlon"]); base_h = float(lay["base_h_m"]); amp = float(lay["amp_m"])
@@ -377,8 +385,9 @@ def build(project_dir: str | Path) -> dict:
                 z = (lat - lat0) * m_lat
                 h = base_h + amp * (0.5 * math.sin(i * 0.4 + layer) + 0.3 * math.sin(i * 1.3 + layer * 2)
                                     + 0.2 * (2 * _mr.random() - 1))
+                h = min(max_h, max(base_h * 0.5, h))
                 b = len(mnt_v)
-                mnt_v.append((x, -200.0, z)); mnt_v.append((x, max(250.0, h), z))
+                mnt_v.append((x, base_y, z)); mnt_v.append((x, h, z))
                 if prev is not None:
                     p0, p1 = prev
                     mnt_t += [(p0, p1, b + 1), (p0, b + 1, b), (p0, b + 1, p1), (p0, b, b + 1)]  # 2-sided

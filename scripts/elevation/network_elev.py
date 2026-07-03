@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.elevation import synthetic_field  # noqa: E402
 from scripts.elevation import usgs_3dep  # noqa: E402
 from scripts.elevation.heightfield import smooth_profile, smooth_open, write_npy  # noqa: E402
 
@@ -51,12 +52,64 @@ def _smooth_edge(z_raw, spacing_m):
     return out
 
 
+def _build_synthetic(proj: Path, data: Path, fc: dict, F: list, cfg) -> dict:
+    """FICTIONAL inter-track world: emit connector road z + the terrain grid from the SYNTHETIC gentle
+    field (a west-rising plane) instead of real 3DEP. Keeps the same output contract (network.elevation.json
+    + heightfield.npy/meta) so build_network_mesh / build_network_env consume it unchanged. This kills the
+    fake 150 m climbs, the road-vs-grass 60 m split, and the garbage-cell floating water in one move."""
+    spacing = float(fc["properties"].get("resample_m", 4.0))
+    field, to_xz, elev0 = synthetic_field.make_field(proj)
+
+    def z_abs(lon, lat):
+        x, z = to_xz(lon, lat)
+        return round(field(x, z) + elev0, 2)
+
+    edges_elev = []; zmin, zmax = 1e9, -1e9
+    for f in F:
+        zs = [z_abs(lon, lat) for lon, lat in f["geometry"]["coordinates"]]
+        zmin = min(zmin, min(zs)); zmax = max(zmax, max(zs))
+        edges_elev.append({"id": f["properties"]["id"], "z_raw_m": zs, "z_smooth_m": zs})
+    (data / "network.elevation.json").write_text(json.dumps({
+        "spacing_m": spacing, "synthetic": True, "edge_count": len(F),
+        "z_min_m": round(zmin, 1), "z_max_m": round(zmax, 1), "edges": edges_elev,
+    }), encoding="utf-8")
+
+    lons = [c[0] for f in F for c in f["geometry"]["coordinates"]]
+    lats = [c[1] for f in F for c in f["geometry"]["coordinates"]]
+    midlat = (min(lats) + max(lats)) / 2
+    terr = (cfg.raw.get("scenery", {}) or {}).get("terrain", {}) or {}
+    if terr.get("bbox_swne"):
+        s, w, n, e = terr["bbox_swne"]
+    else:
+        mlat = GRID_MARGIN_M / 111_000.0
+        mlon = GRID_MARGIN_M / (111_000.0 * math.cos(math.radians(midlat)))
+        s, w, n, e = min(lats) - mlat, min(lons) - mlon, max(lats) + mlat, max(lons) + mlon
+    gy = GRID_SPACING_M / 111_000.0
+    gx = GRID_SPACING_M / (111_000.0 * math.cos(math.radians(midlat)))
+    ny = int((n - s) / gy) + 1; nx = int((e - w) / gx) + 1
+    grid = [[z_abs(w + i * gx, n - j * gy) for i in range(nx)] for j in range(ny)]
+    write_npy(data / "heightfield.npy", grid)
+    (data / "heightfield.meta.json").write_text(json.dumps(
+        {"bbox_swne": [round(s, 6), round(w, 6), round(n, 6), round(e, 6)],
+         "nx": nx, "ny": ny, "spacing_m": GRID_SPACING_M, "margin_m": GRID_MARGIN_M, "row0": "north"}),
+        encoding="utf-8")
+    stats = {"z_min_m": round(zmin, 1), "z_max_m": round(zmax, 1), "range_m": round(zmax - zmin, 1),
+             "grid": f"{nx}x{ny}@{GRID_SPACING_M}m", "synthetic": True}
+    print("network elevation done (SYNTHETIC gentle field, no 3DEP):", stats)
+    return stats
+
+
 def build(project_dir: str | Path) -> dict:
     proj = Path(project_dir)
     data = proj / "data"
     fc = json.loads((data / "network.geojson").read_text())
     F = fc["features"]
     spacing = float(fc["properties"].get("resample_m", 4.0))
+
+    from scripts.config import load_config  # noqa: E402
+    _cfg = load_config(proj)
+    if synthetic_field.enabled(_cfg):
+        return _build_synthetic(proj, data, fc, F, _cfg)
 
     # --- per-edge elevation: one big batched fetch for all edge vertices, then split back ----
     flat_pts = []

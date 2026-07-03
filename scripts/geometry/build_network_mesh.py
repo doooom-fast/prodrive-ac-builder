@@ -233,6 +233,44 @@ def _viaduct_struct(pts, terr_y, half, *, pier_step=24.0, gap_min=3.0, deck_thic
     return {"vertices": V, "tris": T}
 
 
+def _track_road_sampler(data: Path, conform_r: float = 30.0):
+    """A CONNECTOR that crosses a detailed track's footprint must ride ONTO that track's deck (meet it at
+    grade), not stay at the flat field height and fly over/under it. This returns conform(x,y,z)->y' which,
+    within conform_r of any merged-track (track_*.obj) road surface, blends the connector's Y toward that
+    track's local road height (full on the track, tapering to the field at conform_r). Requires merge_detailed
+    to have run first (track_*.obj present). Only touches connector vertices NEAR a track, so it fixes the
+    crossings without warping a connector that merely passes through a large pad far from the track's roads."""
+    from collections import defaultdict
+    CELL = conform_r
+    H: dict = defaultdict(list); n = 0
+    for tf in sorted(data.glob("track_*.obj")):
+        V: list = []; keep: set = set(); road = False
+        for ln in tf.read_text().splitlines():
+            if ln.startswith("v "):
+                _, a, b, c = ln.split()[:4]; V.append((float(a), float(b), float(c)))
+            elif ln.startswith("o "):
+                road = ln[2:].strip().upper().startswith("1ROAD")
+            elif ln.startswith("f ") and road:
+                for tok in ln.split()[1:]:
+                    keep.add(int(tok.split("/")[0]) - 1)
+        for i in keep:
+            x, y, z = V[i]; H[(int(x // CELL), int(z // CELL))].append((x, y, z)); n += 1
+
+    def conform(x, y, z):
+        ci, cj = int(x // CELL), int(z // CELL); best = None
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for tx, ty, tz in H.get((ci + di, cj + dj), ()):
+                    d = (x - tx) ** 2 + (z - tz) ** 2
+                    if best is None or d < best[0]:
+                        best = (d, ty)
+        if best is None or best[0] >= conform_r * conform_r:
+            return y
+        w = 1.0 - (best[0] ** 0.5) / conform_r     # 1 on the track road -> 0 at conform_r
+        return w * best[1] + (1.0 - w) * y
+    return conform, n
+
+
 def build(project_dir: str | Path) -> dict:
     proj = Path(project_dir)
     data = proj / "data"
@@ -300,6 +338,12 @@ def build(project_dir: str | Path) -> dict:
         return raw_grid[j][i] - elev0
 
     # --- sweep each edge into a ribbon (freeway edges lifted onto a viaduct deck where they bridge dips) ---
+    # connector->track conform: lift a connector onto any detailed track's deck where it crosses (meet at
+    # grade, no fly-over). Needs merge_detailed to have run first (track_*.obj present); no-op otherwise.
+    conform_track, _ncf = _track_road_sampler(data)
+    if _ncf:
+        print(f"  connector conform: {_ncf} track road verts loaded (connectors ride onto tracks at crossings)")
+
     road_meshes: list[tuple[str, dict]] = []
     edge_local: list[tuple[dict, list[Vertex], float]] = []  # (props, AT-GRADE pts, width) for conform+dummies
     viaduct_meshes: list[dict] = []
@@ -312,6 +356,8 @@ def build(project_dir: str | Path) -> dict:
         if len(z) != len(c):  # safety: pad/truncate
             z = (z + [z[-1]] * len(c))[:len(c)]
         pts = [to_local(lon, lat, zz) for (lon, lat), zz in zip(c, z)]
+        if _ncf:                                    # ride onto any track deck this connector crosses
+            pts = [(x, conform_track(x, y, z2), z2) for x, y, z2 in pts]
         w = float(f["properties"].get("width_m") or cfg.default_width_m)
         if len(pts) < 2:
             continue

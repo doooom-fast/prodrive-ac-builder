@@ -1,8 +1,9 @@
 {
   "name": "K10 Colorado",
   "slug": "k10_colorado",
-  "version": "0.6.0",
-  "_v060": "Template-quality pass: Sand Creek v0.15.3 is the reference for the whole world. Corkscrew elevation fixed (level bridge deck over the creek + 6% grade cap, no narnia). Every merged track SEATED on the network ground (kill float — Sand Creek was +60 m). All-dry Colorado ground (1LAWN green disabled -> tan ground_dry everywhere). Ugly SRP freeway guardrails/gantries removed. Network grass + scatter (trees/buildings/water/poles) cleared from UNDER each detailed track so its own kerbed, textured ground shows. Curbs preserved on all tracks; all 14 spawns verified on-road.",
+  "version": "0.7.0",
+  "_v070": "Dali-painting fix. The inter-track world was built by sampling REAL 3DEP across FABRICATED compressed positions -> fake 190 m climbs, a road-vs-grass 60 m split (my v0.6 reconcile then tied tracks to the low grass, opening 60 m cliffs at every connector), a reservoir floating at 23 km (Z/height arg swap), and a 1.5 km mountain wall 4 km from Aspen. v0.7 replaces all inter-track 3DEP with ONE synthetic gentle west-rising plane (scenery.elevation.synthetic): tracks seated on it, connectors ride it, ground conforms -> connectors meet tracks AT GRADE, ~26 m total spread. Water arg swap fixed + fictional reservoirs off. Mountains pushed to ~47/60 km, capped ~440 m. Power poles/wires/streetlights culled across the map. Each track keeps its OWN real internal relief.",
+  "_v060": "Template-quality pass (superseded by v0.7 elevation rework): corkscrew level-deck + grade cap, all-dry ground, guardrails removed, grass/scatter cleared under tracks.",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "Unified Colorado motorsports cruise. ONE kml-network mesh (san-diego-cruise precedent) that stitches the Sand Creek Raceway street loop (Commerce City) to the IMI Motorsports road course (Dacono) via a real main-road corridor up Colorado Blvd -> US-85 -> CO-52, so you can drive between them. Each track is an AC layout (its own spawn) over the single shared kn5. More Colorado complexes get added as further layouts. Faded Front Range backdrop to the true west; buildings/water/hills dressing along the corridor.",
@@ -62,6 +63,14 @@
   "scenery": {
     "_doc": "Per-class scatter + landmarks read by build_network_env.py / build_network_mesh.py. corridor_margin_m keeps scatter clear of every road edge.",
     "dry_only": true,
+    "streetlights": false,
+    "elevation": {
+      "synthetic": true,
+      "datum_base_m": 16.0,
+      "west_rise_per_km_m": 1.1,
+      "per_track_override": {},
+      "_doc": "The inter-track world is FICTIONAL (compressed fabricated positions), so sampling real 3DEP across it manufactured fake ~150 m climbs + garbage cells (23 km sky-water). synthetic:true -> network_elev + merge_detailed use scripts/elevation/synthetic_field.py: ONE gentle plane rising west_rise_per_km_m toward the far-west mountains (+x = true west under mirror). Each track's mean deck is seated on this plane, connectors ride it, the ground conforms to it -> connectors meet tracks at grade, ~26 m total spread not 190 m. Each track keeps its OWN internal relief (built in its own frame)."
+    },
     "_dry_only_doc": "Colorado high plains = dry chaparral. Disables the 1LAWN green-turf classifier so ALL ground tiles are 1GRASS (ground_dry_diffuse.jpg, tan dirt) \u2014 cohesive with Sand Creek's dry ground, no suburban-green patches.",
     "corridor_margin_m": 3.5,
     "tree_step_m": 30.0,
@@ -88,16 +97,19 @@
     "mountains": {
       "_doc": "Faded Front Range backdrop, far to the true WEST. NOT modeled terrain \u2014 layered double-sided ridge curtains placed by REAL longitude (dlon<0 = west of origin) through the mirror-aware projector, so they land at true west and the sun sets behind them. Ported into build_network_env.py from build_env.py. MUST stay OUT of GrassFX OCCLUDING_MESHES (whole-PC freeze).",
       "enabled": true,
+      "base_y_m": -60.0,
+      "max_h_m": 520.0,
+      "_backdrop_doc": "FAINT, LOW, FAR. dlon -0.55/-0.70 lands the ridges at local X ~47/60 km (was 17/24) so the nearest is ~34 km from the westernmost track (Aspen at +12.8 km), not a 4 km wall. Peaks capped ~270/440 m (was 1517). base_y tucks the skirt below sightline; distance + CSP aerial haze do the rest.",
       "layers": [
         {
-          "dlon": -0.2,
-          "base_h_m": 720.0,
-          "amp_m": 320.0
+          "dlon": -0.55,
+          "base_h_m": 180.0,
+          "amp_m": 90.0
         },
         {
-          "dlon": -0.28,
-          "base_h_m": 1120.0,
-          "amp_m": 440.0
+          "dlon": -0.7,
+          "base_h_m": 300.0,
+          "amp_m": 140.0
         }
       ],
       "lat_span_deg": 0.34,
@@ -111,7 +123,8 @@
       ]
     },
     "water_bodies": {
-      "_doc": "Named water discs (build_network_env.py). REAL reservoirs/lakes along the Commerce City -> Dacono corridor (from OSM natural=water/reservoir, sized by polygon area). Each = a flat water disc at terrain level; all share the WATER material (CSP [Material_Water]).",
+      "_doc": "Named water discs (build_network_env.py). enabled:false for K10 \u2014 these reservoirs are fictional dressing over compressed positions and (via a Z/height arg swap, now fixed) were floating at up to 23 km. Off until they add value.",
+      "enabled": false,
       "bodies": [
         {
           "name": "welby_reservoir",

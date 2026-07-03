@@ -7,7 +7,12 @@ K10's shared origin frame, uniquifies every group name with a per-track suffix (
 backdrop (K10 has one). Result: the detailed tracks keep their kerbs/markings/textures/buildings/creek
 bridges inside the unified drive-between map, instead of being reduced to bare network ribbons.
 
-    python -m scripts.ac.merge_detailed projects/k10-colorado   (run AFTER build_network_mesh)
+Build order (K10): network_elev -> merge_detailed -> build_network_mesh -> build_network_env. merge runs
+BEFORE build_network_mesh now, because build_network_mesh conforms each connector onto the merged tracks'
+decks (reads track_*.obj) so connectors meet tracks at grade. With the synthetic gentle field
+(scenery.elevation.synthetic) each track's mean deck is seated LEVEL on the plane; connectors do the climbing.
+
+    python -m scripts.ac.merge_detailed projects/k10-colorado   (run AFTER network_elev, BEFORE build_network_mesh)
 """
 from __future__ import annotations
 
@@ -20,7 +25,45 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.config import load_config  # noqa: E402
 from scripts.geometry.projection import _meters_per_degree  # noqa: E402
 
-DROP_ENV = ("MOUNTAINS",)   # K10 emits its own Front Range backdrop; drop each sub-track's to avoid dupes
+# K10 emits its own Front Range backdrop; drop each sub-track's. Also strip power poles / overhead wires /
+# streetlights from every merged track — across a fictional multi-track map they read as "telephone poles
+# everywhere" (user). Prefix-matched case-insensitively, so POLE_<slug>/WIRE_<slug>/LIGHTS_<slug> all go.
+DROP_ENV = ("MOUNTAINS", "POLE", "WIRE", "LIGHTS")
+
+
+def _road_verts_local(obj: Path, stride: int = 1):
+    """Local 1ROAD (x,y,z) vertices of a sub-track's own track.obj (for entrance-weld matching)."""
+    V: list = []; keep: set = set(); road = False
+    for ln in obj.read_text().splitlines():
+        if ln.startswith("v "):
+            _, a, b, c = ln.split()[:4]; V.append((float(a), float(b), float(c)))
+        elif ln.startswith("o "):
+            road = ln[2:].strip().upper().startswith("1ROAD")
+        elif ln.startswith("f ") and road:
+            for tok in ln.split()[1:]:
+                keep.add(int(tok.split("/")[0]) - 1)
+    pts = [V[i] for i in sorted(keep)]
+    return pts[::stride] if stride > 1 else pts
+
+
+def _connector_verts(k10_data: Path, stride: int = 1):
+    """Network CONNECTOR road vertices (1ROAD_part) in the K10 frame, from the already-built network
+    track.obj. These ride the synthetic field; welding each track's nearest entrance vertex to the nearest
+    connector vertex's Y makes the connector meet the track deck AT GRADE (no residual step)."""
+    p = k10_data / "track.obj"
+    if not p.exists():
+        return []
+    V: list = []; keep: set = set(); road = False
+    for ln in p.read_text().splitlines():
+        if ln.startswith("v "):
+            _, a, b, c = ln.split()[:4]; V.append((float(a), float(b), float(c)))
+        elif ln.startswith("o "):
+            road = ln[2:].strip().upper().startswith("1ROAD_PART")
+        elif ln.startswith("f ") and road:
+            for tok in ln.split()[1:]:
+                keep.add(int(tok.split("/")[0]) - 1)
+    pts = [V[i] for i in sorted(keep)]
+    return pts[::stride] if stride > 1 else pts
 
 
 def _road_ref(obj: Path):
@@ -148,7 +191,12 @@ def main(k10_dir: str) -> None:
     m_lon, m_lat = _meters_per_degree(K_lat)
     sx = -1.0 if cfg.raw.get("mirror_x", True) else 1.0
     data = k10 / "data"
-    terr_y = _terrain_sampler(k10, K_lon, K_lat, K_elev, m_lon, m_lat, sx)
+    from scripts.elevation import synthetic_field  # noqa: E402
+    # SYNTHETIC gentle field (fictional inter-track world): seat each track's mean deck at its chosen gentle
+    # base height so it sits on the SAME field the connectors + ground ride -> connectors meet it at grade,
+    # no 60 m cliff, no 190 m fake spread. Falls back to the old grass-terrain seat for non-synthetic projects.
+    bases = synthetic_field.resolve_track_bases(k10) if synthetic_field.enabled(cfg) else None
+    terr_y = None if bases else _terrain_sampler(k10, K_lon, K_lat, K_elev, m_lon, m_lat, sx)
     pads: dict = {}
     for mt in cfg.raw.get("merge_tracks", []):
         slug = mt["slug"]; proj = Path(mt["project"])
@@ -162,7 +210,14 @@ def main(k10_dir: str) -> None:
         # can disagree by tens of metres (Sand Creek floated +60 m); reconcile here so connectors — which
         # follow the network ground — meet each track at grade. Falls back to real elevation pre-heightfield.
         ref = _road_ref(proj / "data" / "track.obj")
-        if terr_y is not None and ref is not None:
+        if bases is not None and slug in bases and ref is not None:
+            cxl, czl, myl, r = ref
+            # Seat the mean road deck LEVEL on the gentle synthetic plane (same surface the ground rides), so
+            # the track sits flush with the surrounding desert (no perimeter step). Connectors then CONFORM to
+            # each track's surface where they enter its footprint (build_network_mesh), meeting it at grade.
+            dy = bases[slug] - myl
+            pads[slug] = {"cx": round(dx + cxl, 2), "cz": round(dz + czl, 2), "radius_m": round(r + 25.0, 1)}
+        elif terr_y is not None and ref is not None:
             cxl, czl, myl, r = ref
             pad_y = terr_y(dx + cxl, dz + czl)
             dy = pad_y - myl
