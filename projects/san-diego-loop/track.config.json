@@ -1,7 +1,7 @@
 {
   "name": "San Diego \u2014 Lake Murray Loop",
   "slug": "san_diego_lake_murray",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "author": "prodrive-ac-builder",
   "year": 2026,
   "_about": "A drivable LOOP around Lake Murray (Kevin's childhood neighborhood), built through the EXACT proven Sand Creek pipeline (build_kn5.py native Blender ribbon + grass -> export_kn5_addon), NOT the from-scratch network path. Source = the 'Lake Murray Blvd round-trip' loop from the My Maps export. Loop, not freeroam, because the loop pipeline is what actually collides in-game.",
@@ -26,54 +26,14 @@
       -116.998
     ],
     "roads": [
-      "Lake Murray Boulevard",
-      "Navajo Road",
+      "Alvarado Road",
       "College Avenue",
-      "Alvarado Road"
+      "Navajo Road",
+      "Jackson Drive",
+      "Lake Murray Boulevard"
     ],
     "connectors": {},
-    "connectors_kml": [
-      {
-        "name": "jackson_dr",
-        "osm": "Jackson Drive",
-        "width_m": 12.0
-      },
-      {
-        "name": "baltimore_dr",
-        "osm": "Baltimore Drive",
-        "width_m": 11.0
-      },
-      {
-        "name": "lake_shore_dr",
-        "osm": "Lake Shore Drive",
-        "width_m": 10.0
-      },
-      {
-        "name": "golfcrest_dr",
-        "osm": "Golfcrest Drive",
-        "width_m": 10.0
-      },
-      {
-        "name": "waring_rd",
-        "osm": "Waring Road",
-        "width_m": 11.0
-      },
-      {
-        "name": "zion_ave",
-        "osm": "Zion Avenue",
-        "width_m": 11.0
-      },
-      {
-        "name": "70th_st",
-        "osm": "70th Street",
-        "width_m": 12.0
-      },
-      {
-        "name": "mission_gorge_rd",
-        "osm": "Mission Gorge Road",
-        "width_m": 13.0
-      }
-    ],
+    "connectors_kml": [],
     "stitch": "network",
     "connectors_kml_pending": []
   },
@@ -105,22 +65,21 @@
   },
   "scenery": {
     "vegetation": false,
-    "water": true,
+    "water": false,
     "houses": false,
     "containers": false,
     "furniture": false,
-    "buildings": "plain",
+    "buildings": false,
     "signs": {
       "enabled": false
     },
     "highways": false,
     "mountains": false,
     "barriers": false,
-    "grass_zones": true,
-    "road_fences": true,
-    "road_fence_h_m": 3.0,
-    "road_fence_grade": 0.055,
+    "grass_zones": false,
+    "road_fences": false,
     "terrain_max_grade": 0.35,
+    "terrain_band_m": 22.0,
     "elevation_scale": 1.0
   }
 }

@@ -272,6 +272,47 @@ def build(project_dir: str | Path) -> dict:
                                    extra_roads=[(p, w) for _n, p, w in connectors],
                                    clearance=GRASS_CLEARANCE_M)
 
+    # TERRAIN BAND-CLAMP: the raw DEM carries real mountains (Cowles rises to ~500 m) that tower over a
+    # neighbourhood loop where there are none to speak of. Clamp every grass cell to within ±band of the
+    # nearest ROAD point's height, so the terrain hugs the drivable surface and distant peaks are cut down
+    # to the road grade — while the ROADS keep their real elevation. Config: scenery.terrain_band_m (0 off).
+    _band = float(cfg_raw.get("scenery", {}).get("terrain_band_m", 0.0))
+    if _band > 0 and grid_xyz:
+        from collections import defaultdict
+        road_pts = list(centerline) + [p for _n, ps, _w in connectors for p in ps]
+        B = 130.0
+        buck: dict = defaultdict(list)
+        for (x, y, z) in road_pts:
+            buck[(int(x // B), int(z // B))].append((x, y, z))
+        def nearest_road_y(x, z):
+            bx, bz = int(x // B), int(z // B)
+            best_y, best_d = None, 1e18
+            r = 1
+            while best_y is None and r < 40:            # expand rings until a road point is found
+                for dx in range(-r, r + 1):
+                    for dz in range(-r, r + 1):
+                        if max(abs(dx), abs(dz)) != r and r > 1:
+                            continue                     # only the new ring
+                        for (rx, ry, rz) in buck.get((bx + dx, bz + dz), ()):
+                            d = (x - rx) ** 2 + (z - rz) ** 2
+                            if d < best_d:
+                                best_d, best_y = d, ry
+                r += 1
+            return best_y
+        ny_, nx_ = len(grid_xyz), len(grid_xyz[0])
+        adj = 0
+        for j in range(ny_):
+            for i in range(nx_):
+                x, y, z = grid_xyz[j][i]
+                ry = nearest_road_y(x, z)
+                if ry is None:
+                    continue
+                ny2 = max(ry - _band, min(ry + _band, y))
+                if abs(ny2 - y) > 1e-6:
+                    grid_xyz[j][i] = (x, ny2, z); adj += 1
+        gmax = max(grid_xyz[j][i][1] for j in range(ny_) for i in range(nx_))
+        print(f"[build_mesh] terrain band-clamp ±{_band:.0f} m to nearest road: adjusted {adj} cells, grass max now {gmax:.0f} m (rel)")
+
     # TERRAIN SLOPE-LIMIT: the raw DEM bakes in the real Cowles-area mountains — the grass rises to 300 m+
     # as sheer, COLLIDABLE walls right beside the roads, and the car slams into them. Cap how fast the
     # terrain may rise between adjacent grid cells (a max grade) and relax from the lows: a genuine wall

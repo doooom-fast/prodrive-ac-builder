@@ -512,8 +512,10 @@ def build(project_dir: str | Path) -> dict:
     veg_on = bool(scn.get("vegetation", True))       # palms + zone/riparian/street trees + bushes
     water_on = bool(scn.get("water", True))
     houses_on = bool(scn.get("houses", True))         # mined LA Canyons house props
-    plain_bld = scn.get("buildings") == "plain"
-    containers_on = bool(scn.get("containers", True)) and not plain_bld
+    _bld_mode = scn.get("buildings")
+    buildings_on = _bld_mode not in (False, None, "none", "off")   # False/none => NO buildings at all
+    plain_bld = _bld_mode == "plain"
+    containers_on = bool(scn.get("containers", True)) and buildings_on and not plain_bld
     furniture_on = bool(scn.get("furniture", True))   # streetlights + power poles/wires
     highways_on = bool(scn.get("highways", True))     # raised I-70-style highway decks + creek bridges
     mountains_on = bool(scn.get("mountains", True))   # far Front-Range backdrop silhouettes
@@ -763,7 +765,7 @@ def build(project_dir: str | Path) -> dict:
     roof = {"ROOFS": [], "RFMETAL": []}             # PVC flat roofs; metal sheds get corrugated roofs
     fence_meshes = []                                # chain-link around the big (warehouse) yards
     plain_walls = []                                 # buildings="plain": all footprints, flat colour, no samples
-    for b in bld:
+    for b in (bld if buildings_on else []):
         foot = [(project(lo, la)[0], project(lo, la)[2]) for lo, la in b["coords"]]
         if len(foot) < 3 or _poly_area(foot) < 35:  # skip tiny sheds / noise
             continue
