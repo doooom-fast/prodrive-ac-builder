@@ -28,38 +28,9 @@
     "flip_up": false
   },
   "road_profile": {
-    "_doc": "Hand-authored corkscrew at the Sand Creek Dr turn-in (E 56th -> Sand Creek, idx 867 / build-station ~2585 m). depth_m = how far the road dives DOWN vertically (NOT length); len_m is the along-road span. bank_deg rolls the road (+ve banks a RIGHT-hander: outside/left edge up). The right->left->right bank twist is what nudges the car sideways (slight countersteer); the dip is just a gentle dive. NO camber elsewhere on Sand Creek Dr (a long constant lean drove rough).",
-    "dips": [
-      {
-        "name": "sand_creek_corkscrew_dive",
-        "center_m": 2605,
-        "len_m": 160,
-        "depth_m": 2.0
-      }
-    ],
-    "cambers": [
-      {
-        "name": "sc_entry_right",
-        "start_m": 2575,
-        "len_m": 80,
-        "bank_deg": 7.0,
-        "ramp_m": 22
-      },
-      {
-        "name": "sc_quick_left",
-        "start_m": 2655,
-        "len_m": 75,
-        "bank_deg": -7.0,
-        "ramp_m": 22
-      },
-      {
-        "name": "sc_settle_right",
-        "start_m": 2725,
-        "len_m": 60,
-        "bank_deg": 4.0,
-        "ramp_m": 18
-      }
-    ]
+    "_doc": "Corkscrew dips/cambers REMOVED \u2014 Sand Creek elevation now comes from real USGS 3DEP + capture (user: the hand-authored corkscrew sucks). Re-add dips/cambers here to bring it back.",
+    "dips": [],
+    "cambers": []
   },
   "location": {
     "lat": 39.7839155,
@@ -131,15 +102,7 @@
       "id": "full",
       "ai": "ai/full",
       "uses_connectors": [],
-      "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start."
-    },
-    {
-      "id": "interior",
-      "ai": "ai/interior",
-      "uses_connectors": [
-        "interior_grid"
-      ],
-      "_doc": "Interior circuit: Colorado -> 52nd -> Dahlia -> 56th -> Sand Creek -> inner grid (Pontiac/Olive/Monaco/Ivy/Leyden/49th) -> 46th -> start. Same kn5 mesh."
+      "_doc": "Outer loop: Colorado -> 50th -> Dahlia -> 56th -> Sand Creek -> Quebec -> 45th -> 46th -> start. The 'interior' layout was dropped: its interior_grid connector was never defined, and layouts share one kn5 so a distinct interior circuit isn't achievable without splitting geometry."
     }
   ],
   "lighting": {

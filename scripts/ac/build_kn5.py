@@ -45,11 +45,15 @@ def build(track_dir: Path) -> Path:
     # 1. empty scene
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # 2. import the pre-built meshes (Y-up): the track + the dressed environment if present
-    for obj_file in ("track.obj", "environment.obj"):
-        p = data / obj_file
-        if p.exists():
-            bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
+    # 2. import ALL pre-built meshes (Y-up): the network track+environment PLUS any merged detailed
+    #    tracks (track_<slug>.obj / env_<slug>.obj, e.g. the full-detail Sand Creek + IMI built in the
+    #    same shared frame). They all combine into one kn5. Group names are pre-uniquified per track
+    #    (1ROAD_<slug>_*) so no duplicate-name collision drops a mesh from collision.
+    obj_files = sorted(set(list(data.glob("track*.obj")) + list(data.glob("environment*.obj"))
+                           + list(data.glob("env_*.obj"))), key=lambda p: p.name)
+    for p in obj_files:
+        bpy.ops.wm.obj_import(filepath=str(p), up_axis="Y", forward_axis="NEGATIVE_Z")
+    print(f"[build_kn5] imported {len(obj_files)} OBJ(s): {[p.name for p in obj_files]}")
 
     # 2b. Weld coincident vertices. The geometry generators emit UNWELDED triangles (3 verts each),
     #     so 1GRASS lands at ~283k verts — over AC/ksEditor's hard 65,535-per-mesh limit (16-bit
@@ -105,15 +109,24 @@ def build(track_dir: Path) -> Path:
     #    so place each empty in that SAME Blender frame (x, -z, y) or it lands swapped vs the road.
     import math
 
+    import mathutils
+
     # Spawn/pit FACING: the empty's forward is Blender -Y, and the mesh import puts the centerline
     # travel direction (centreline pts[0]->pts[1]) along Blender -Y for a due-north start. So an
     # un-rotated empty already faces the travel direction; the yaw that aligns local -Y with the
-    # Blender travel vector (tx, -tz) is atan2(tx, tz) (= 0 for north). (The earlier atan2(-tx,-tz)
-    # was 180 deg off and faced the car backwards into the chicane.)
+    # Blender travel vector (tx, -tz) is atan2(tx, tz) (= 0 for north).
     # mirror_x: the dummy POSITIONS already come mirrored via dummies.json (build_mesh placed them on the
     # mirrored centerline). The facing here reads the raw centerline, so mirror its east axis to match.
-    mirror_x = bool(json.loads((track_dir / "track.config.json").read_text()).get("mirror_x", False))
+    cfg_json = json.loads((track_dir / "track.config.json").read_text())
+    mirror_x = bool(cfg_json.get("mirror_x", False))
     sx = -1.0 if mirror_x else 1.0
+    # SUN FIX yaw (deg, about vertical): re-aim the model so AC's world-fixed sun lands correctly
+    # (mirror_x tracks are spun 180deg vs the sun -> sunset went EAST; AC has no sun/north key, so we
+    # yaw the model). Applied to BOTH the meshes AND the dummy positions so spawns stay on the road.
+    # yc/ys map a world (x,z) to the yawed Blender (x,-z) frame consistently with the mesh rotation R.
+    # See scripts/lighting/csp_config.resolve_true_north.
+    yaw_deg = float(cfg_json.get("true_north_rotation_deg", 0.0))
+    yr = math.radians(yaw_deg); yc, ys = math.cos(yr), math.sin(yr)
     start_yaw = 0.0
     cl_path = data / "centerline.local.json"
     if cl_path.exists():
@@ -129,12 +142,27 @@ def build(track_dir: Path) -> Path:
         empty = bpy.data.objects.new(name, None)
         empty.empty_display_type = "ARROWS"
         empty.empty_display_size = 3.0
-        empty.location = (x, -z, y)
+        # Blender frame (x, -z, y), PRE-rotated by the yaw as a clean location (not a matrix_world
+        # rotation, which the kn5 exporter mis-baked -> spawns 500 m off the road).
+        empty.location = (x * yc + z * ys, x * ys - z * yc, y)
         if any(name.startswith(p) for p in FACING):
-            empty.rotation_euler = (0.0, 0.0, start_yaw)
+            empty.rotation_euler = (0.0, 0.0, start_yaw + yr)
         bpy.context.scene.collection.objects.link(empty)
 
-    # 3b. (mirror handling lives below as a single toggle — see MIRROR_AXIS)
+    # 3b. SUN FIX — yaw the MESHES by the same angle (dummies pre-yawed above). A proper rotation, NOT a
+    #     mirror: geometry stays correct-handed, only orientation changes, so the sun sets in the true
+    #     west. Minimap rotated to match in track_folder.py.
+    if abs(yaw_deg) > 1e-6:
+        R = mathutils.Matrix.Rotation(yr, 4, "Z")   # Blender Z = world up here
+        bpy.ops.object.select_all(action="DESELECT")
+        meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+        for o in meshes:
+            o.matrix_world = R @ o.matrix_world
+            o.select_set(True)
+        if meshes:
+            bpy.context.view_layer.objects.active = meshes[0]
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=False)
+        print(f"[build_kn5] applied sun-fix yaw {yaw_deg:.0f}deg to {len(meshes)} meshes (+ pre-yawed dummies)")
 
     # 4. textured PBR material per object (pbr.py: tiling diffuse + normal on the generated UVs) +
     #    stamp the AC shader name from materials.json — the FBX carries the textures (path_mode=COPY)

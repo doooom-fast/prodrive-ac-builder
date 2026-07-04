@@ -68,7 +68,7 @@ def _grid_sampler(grid, meta, elev0):
     def y_at(lon, lat):
         j = min(ny - 1, max(0, int(round((n - lat) / gy))))
         i = min(nx - 1, max(0, int(round((lon - w) / gx))))
-        return grid[j][i] - elev0
+        return max(-50.0, min(600.0, grid[j][i] - elev0))   # clamp: never let a bad cell fling a prop/disc to the sky
     return y_at
 
 
@@ -156,6 +156,8 @@ def _water_disc(cx, cz, y, r, n=48):
 
 def _load_obj(path):
     V, T = [], []
+    if not Path(path).exists():   # optional mined prop (e.g. SRP light pole) absent -> skip gracefully
+        return V, T
     for ln in Path(path).read_text().splitlines():
         if ln.startswith("v "):
             _, x, y, z = ln.split()[:4]; V.append((float(x), float(y), float(z)))
@@ -178,6 +180,7 @@ def build(project_dir: str | Path) -> dict:
     cfg = load_config(proj)
     scn = cfg.raw.get("scenery", {})
     ff = scn.get("freeway_furniture", {})
+    palms_enabled = bool(scn.get("palms", True))   # SoCal palms; false for Colorado -> broadleaf only
     loc = json.loads((data / "network.local.json").read_text())
     o = loc["origin"]; lon0, lat0 = o["lon"], o["lat"]; elev0 = o["elev_m"]
     sx = -1.0 if loc.get("mirror_x", True) else 1.0
@@ -212,6 +215,32 @@ def build(project_dir: str | Path) -> dict:
         edges.append((f["properties"]["road_class"], pts, w / 2.0))
 
     on_road = _corridor(edges, margin=float(scn.get("corridor_margin_m", 3.5)))
+    # strict "on the asphalt" test (half + 1 m) — furniture sits at its OWN shoulder (half+1.8) so it
+    # survives this, but a light/pole/gantry that lands on a CROSSING road at a junction is rejected.
+    # This is the "no cruft on the road at intersections" guard.
+    on_road_tight = _corridor(edges, margin=1.0)
+
+    # track discs: reject any scatter/furniture/buildings/water that would land UNDER a merged detailed
+    # track (Sand Creek, IMI, ...) — the network ground there is cleared + reconciled, so a network tree
+    # or warehouse would float/bury. Footprints shared with build_network_mesh/merge_detailed.
+    try:
+        from scripts.ac.merge_detailed import track_footprints
+        _pads = [(p["cx"], p["cz"], p["radius_m"]) for p in track_footprints(proj).values()]
+    except Exception as _e:  # noqa: BLE001
+        _pads = []; print(f"  (track pad reject skipped: {_e})")
+
+    def in_pad(x, z):
+        for px, pz, pr in _pads:
+            if (x - px) ** 2 + (z - pz) ** 2 < pr * pr:
+                return True
+        return False
+
+    # highway furniture toggles — the SRP freeway guardrails/gantries read wrong on open Colorado plains
+    # (user: "guardrails look like shit"). Default off for cohesion with the kerbed race tracks; keep
+    # the sparse light poles. Config: scenery.freeway_furniture.{guardrails,gantries}.
+    want_guardrails = bool(ff.get("guardrails", True))
+    want_gantries = bool(ff.get("gantries", True))
+    want_streetlights = bool(scn.get("streetlights", True))   # rural Colorado connectors need no light-pole spam
 
     rnd = random.Random(2025)
     guardrails, palms, trees, posts, poles, gantry_metal, gantry_sign, bushes = [], [], [], [], [], [], [], []
@@ -226,7 +255,7 @@ def build(project_dir: str | Path) -> dict:
 
     for cls, pts, half in edges:
         is_fw = cls in FREEWAY
-        if is_fw:
+        if is_fw and want_guardrails:
             guardrails.append(_guardrail(pts, half=half))         # left shoulder
             guardrails.append(_guardrail_other(pts, half))        # right shoulder
         # walk the edge placing props at intervals
@@ -239,21 +268,24 @@ def build(project_dir: str | Path) -> dict:
             tx, tz = b[0] - a[0], b[2] - a[2]; tl = math.hypot(tx, tz) or 1.0
             nx, nz = -tz / tl, tx / tl
             # SRP-style overhead gantry spanning the freeway every gantry_step
-            if is_fw and acc_g >= gantry_step:
+            if is_fw and want_gantries and acc_g >= gantry_step:
                 acc_g = 0.0
-                gm, gs = _gantry(x, y, z, tx / tl, tz / tl, half)
-                gantry_metal.append(gm); gantry_sign.append(gs); ngantry += 1
+                if not on_road_tight(x, z) and not in_pad(x, z):   # not spanning a crossing road at a junction
+                    gm, gs = _gantry(x, y, z, tx / tl, tz / tl, half)
+                    gantry_metal.append(gm); gantry_sign.append(gs); ngantry += 1
             # streetlight posts on surface streets; SRP poles on freeways. Furniture sits right at the
             # shoulder by design, so it is NOT run through the vegetation corridor rejecter (which would
             # reject everything within half+margin of the road — i.e. exactly where furniture belongs).
             if is_fw and acc_p >= pole_step:
                 acc_p = 0.0
                 ox, oz = x + nx * (half + 2.5), z + nz * (half + 2.5)
-                poles.append(_place_obj(pole_V, pole_T, ox, y, oz, yaw=math.atan2(tz, tx))); npole += 1
-            elif not is_fw and acc_l >= light_step:
+                if not on_road_tight(ox, oz) and not in_pad(ox, oz):
+                    poles.append(_place_obj(pole_V, pole_T, ox, y, oz, yaw=math.atan2(tz, tx))); npole += 1
+            elif want_streetlights and not is_fw and acc_l >= light_step:
                 acc_l = 0.0
                 ox, oz = x - nx * (half + 1.8), z - nz * (half + 1.8)
-                posts.append(_post(ox, y, oz)); npost += 1
+                if not on_road_tight(ox, oz) and not in_pad(ox, oz):    # keep the streetlight off crossing roads + tracks
+                    posts.append(_post(ox, y, oz)); npost += 1
             # low SoCal shrubs/chaparral on ALL verges (incl. freeway cuts) — sparse, off the road
             if acc_v >= 13.0:
                 for side in (1.0, -1.0):
@@ -261,7 +293,7 @@ def build(project_dir: str | Path) -> dict:
                         continue
                     off = half + 2.5 + rnd.random() * 11.0
                     bx, bz = x + nx * off * side, z + nz * off * side
-                    if on_road(bx, bz):
+                    if on_road(bx, bz) or in_pad(bx, bz):
                         continue
                     gy = y_at(lon0 + sx * bx / m_lon, lat0 + bz / m_lat) - 0.25
                     sz = 1.1 + rnd.random() * 1.8
@@ -277,10 +309,10 @@ def build(project_dir: str | Path) -> dict:
                             continue
                         off = half + 3.5 + rnd.random() * 9.0
                         px, pz = x + nx * off * side, z + nz * off * side
-                        if on_road(px, pz):
+                        if on_road(px, pz) or in_pad(px, pz):
                             continue
                         gy = y_at(lon0 + sx * px / m_lon, lat0 + pz / m_lat) - 0.3
-                        if rnd.random() < 0.5:   # palm
+                        if palms_enabled and rnd.random() < 0.5:   # palm
                             h = 8.5 + rnd.random() * 6.0
                             palms.append(_billboard_cell(px, gy, pz, rnd.randint(0, PNC - 1), rnd.randint(0, PNR - 1),
                                                          PNC, PNR, h, h * 0.42, rnd.random() * math.pi)); npalm += 1
@@ -289,13 +321,28 @@ def build(project_dir: str | Path) -> dict:
                             trees.append(_billboard_cell(px, gy, pz, rnd.randint(0, 1), rnd.randint(0, 1),
                                                          2, 2, h, h * 0.9, rnd.random() * math.pi)); ntree += 1
 
-    # Lake Murray water
+    # Lake Murray water. NOTE _water_disc(cx, cz, y) — the disc is centred (cx,cz) in X-Z at height y. The
+    # arg ORDER matters: pass (x, z, height), not (x, height, z), or the disc's Z-position becomes its
+    # altitude (this was the K10 reservoir floating at 23 km).
     lk = scn.get("lake_murray", {})
     waters = []
-    if lk:
+    if "center_lon" in lk and lk.get("enabled", True):
         lx, ly, lz = to_local(lk["center_lon"], lk["center_lat"], 0.0)
         wy = y_at(lk["center_lon"], lk["center_lat"]) - 1.0
-        waters.append(_water_disc(lx, wy, lz, float(lk.get("radius_m", 600))))
+        waters.append(_water_disc(lx, lz, wy, float(lk.get("radius_m", 600))))
+
+    # Named water bodies (real reservoirs/lakes along the corridor) — flat discs at terrain level, one WATER
+    # group (CSP [Material_Water]). Gated by scenery.water_bodies.enabled: the K10 inter-track reservoirs are
+    # fictional dressing over compressed positions, so they are OFF by default there.
+    nwater = 0
+    if (scn.get("water_bodies", {}) or {}).get("enabled", True):
+        for wb in (scn.get("water_bodies", {}) or {}).get("bodies", []):
+            wx, _wy, wz = to_local(wb["center_lon"], wb["center_lat"], 0.0)
+            if in_pad(wx, wz):                      # no reservoir inside a race track footprint
+                continue
+            wy = y_at(wb["center_lon"], wb["center_lat"]) - 1.0
+            waters.append(_water_disc(wx, wz, wy, float(wb.get("radius_m", 150))))
+            nwater += 1
 
     # Pacific ocean backdrop: a big flat sea-level quad out to the WEST (the coast is ~1 km past the
     # map edge). Double-sided. CSP water shader + aerial haze sell it as the distant ocean.
@@ -313,6 +360,105 @@ def build(project_dir: str | Path) -> dict:
         waters.append({"vertices": V, "uvs": [(0, 0), (1, 0), (1, 1), (0, 1)],
                        "tris": _ds([(0, 1, 2), (0, 2, 3)])})
 
+    # Front Range backdrop: hazy layered ridges far to the true WEST. Placed by REAL longitude
+    # (dlon<0) through the mirror-aware projector so it lands at true west in-game; after the sun-yaw
+    # fix (true_north_rotation_deg) the sun sets behind it. Flat DOUBLE-SIDED silhouettes; CSP aerial
+    # haze blurs them. Config-driven (scenery.mountains). MUST stay OFF the GrassFX occluder list.
+    mtn_cfg = scn.get("mountains", {})
+    mountains = None
+    if mtn_cfg.get("enabled", False):
+        import random as _mrnd
+        _mr = _mrnd.Random(int(mtn_cfg.get("seed", 9)))
+        layers = mtn_cfg.get("layers", [{"dlon": -0.20, "base_h_m": 720.0, "amp_m": 320.0},
+                                        {"dlon": -0.28, "base_h_m": 1120.0, "amp_m": 440.0}])
+        span = float(mtn_cfg.get("lat_span_deg", 0.34)); ncol = max(4, int(mtn_cfg.get("columns", 140)))
+        # base_y_m seats the ridge skirt near the ground (not a -200 m pit); max_h_m hard-caps the silhouette
+        # so the range reads as a faint FAR backdrop, not a wall towering over the tracks.
+        base_y = float(mtn_cfg.get("base_y_m", 20.0)); max_h = float(mtn_cfg.get("max_h_m", 500.0))
+        mnt_v, mnt_t = [], []
+        for layer, lay in enumerate(layers):
+            wlon = lon0 + float(lay["dlon"]); base_h = float(lay["base_h_m"]); amp = float(lay["amp_m"])
+            x = sx * (wlon - lon0) * m_lon                # mirror-aware -> true west
+            prev = None
+            for i in range(ncol):
+                lat = lat0 - span / 2 + span * i / (ncol - 1)
+                z = (lat - lat0) * m_lat
+                h = base_h + amp * (0.5 * math.sin(i * 0.4 + layer) + 0.3 * math.sin(i * 1.3 + layer * 2)
+                                    + 0.2 * (2 * _mr.random() - 1))
+                h = min(max_h, max(base_h * 0.5, h))
+                b = len(mnt_v)
+                mnt_v.append((x, base_y, z)); mnt_v.append((x, h, z))
+                if prev is not None:
+                    p0, p1 = prev
+                    mnt_t += [(p0, p1, b + 1), (p0, b + 1, b), (p0, b + 1, p1), (p0, b, b + 1)]  # 2-sided
+                prev = (b, b + 1)
+        mountains = {"vertices": mnt_v, "uvs": [(0.0, 0.0)] * len(mnt_v), "tris": mnt_t}
+
+    # --- buildings from OSM footprints (ported from build_env.py): extruded boxes with façade variety,
+    #     kept NEAR the corridor and off the road, capped, double-sided (network convention). ---
+    from collections import defaultdict as _dd
+
+    from scripts.environment import buildings as _bld
+    bcfg = scn.get("buildings", {}) or {}
+    COMMERCIAL = ["BUILDINGS", "BRICK", "STUCCO"]        # tilt-up concrete / brick / stucco
+    WAREHOUSES = ["WAREHOUSE", "WHMETAL"]                # weathered concrete + corrugated metal
+    bwalls = {g: [] for g in COMMERCIAL + WAREHOUSES}
+    broof = {"ROOFS": [], "RFMETAL": []}
+    nbld = 0
+    bpath = data / "buildings.geojson"
+    if bcfg.get("enabled", True) and bpath.exists():
+        bset = json.loads(bpath.read_text()).get("buildings", [])
+        near = float(bcfg.get("near_lap_m", 300)); minA = float(bcfg.get("min_area_m2", 35))
+        offr = float(bcfg.get("off_road_m", 16)); whA = float(bcfg.get("warehouse_area_m2", 700))
+        cap = int(bcfg.get("cap", 2500))
+        RCELL = 40.0
+        rbuckets = _dd(list)
+        for _cls, pts, _h in edges:
+            for x, _y, z in pts:
+                rbuckets[(int(x // RCELL), int(z // RCELL))].append((x, z))
+
+        def _dist_road(cx, cz, rad):
+            ci, cj = int(cx // RCELL), int(cz // RCELL); rr = int(rad // RCELL) + 1; best = 1e18
+            for di in range(-rr, rr + 1):
+                for dj in range(-rr, rr + 1):
+                    for px, pz in rbuckets.get((ci + di, cj + dj), ()):
+                        best = min(best, (cx - px) ** 2 + (cz - pz) ** 2)
+            return best ** 0.5
+
+        def _area(f):
+            a = 0.0
+            for i in range(len(f)):
+                x0, z0 = f[i]; x1, z1 = f[(i + 1) % len(f)]; a += x0 * z1 - x1 * z0
+            return abs(a) * 0.5
+
+        for b in bset:
+            if nbld >= cap:
+                break
+            foot = [(to_local(lo, la, 0.0)[0], to_local(lo, la, 0.0)[2]) for lo, la in b["coords"]]
+            if len(foot) < 3:
+                continue
+            A = _area(foot)
+            if A < minA:
+                continue
+            cx = sum(p[0] for p in foot) / len(foot); cz = sum(p[1] for p in foot) / len(foot)
+            if in_pad(cx, cz):                                        # never inside a race track footprint
+                continue
+            if _dist_road(cx, cz, near) > near:                       # keep near-corridor only
+                continue
+            if any(_dist_road(fx, fz, offr) < offr for fx, fz in foot):  # never ON the road
+                continue
+            bury = 2.5
+            base = min(y_at(lo, la) for lo, la in b["coords"]) - bury
+            box = _bld.extrude(foot, base, float(b.get("height_m") or 6.5) + bury)
+            box["walls"]["tris"] = _ds(box["walls"]["tris"]); box["roof"]["tris"] = _ds(box["roof"]["tris"])
+            if A > whA:
+                g = WAREHOUSES[int(abs(round(cx) * 5 + round(cz) * 11)) % len(WAREHOUSES)]
+                bwalls[g].append(box["walls"]); broof["RFMETAL" if g == "WHMETAL" else "ROOFS"].append(box["roof"])
+            else:
+                g = COMMERCIAL[int(abs(round(cx) * 7 + round(cz) * 13)) % len(COMMERCIAL)]
+                bwalls[g].append(box["walls"]); broof["ROOFS"].append(box["roof"])
+            nbld += 1
+
     groups = []
     groups += _pack("GUARDRAIL", "GUARDRAIL", guardrails)
     groups += _pack("GANTRY", "GANTRY", gantry_metal)
@@ -322,14 +468,23 @@ def build(project_dir: str | Path) -> dict:
     groups += _pack("PALMS", "PALMS", palms)
     groups += _pack("TREES", "TREES", trees)
     groups += _pack("BUSHES", "BUSHES", bushes)
+    for g, ms in bwalls.items():
+        if ms:
+            groups += _pack(g, g, ms)
+    for g, ms in broof.items():
+        if ms:
+            groups += _pack(g, g, ms)
     if waters:
         groups.append(("WATER", "WATER", _merge(waters)))
+    if mountains:
+        groups.append(("MOUNTAINS", "MOUNTAINS", mountains))
 
     nv, nf = write_obj(data / "environment.obj", "environment.mtl", groups)
     _write_mtl(data / "environment.mtl")
     stats = {"guardrail_groups": sum(1 for g in groups if g[0].startswith("GUARDRAIL")),
              "gantries": ngantry, "srp_poles": npole, "streetlights": npost,
-             "palms": npalm, "trees": ntree, "bushes": nbush, "lake": bool(waters),
+             "palms": npalm, "trees": ntree, "bushes": nbush, "buildings": nbld,
+             "water_bodies": nwater, "lake": bool(waters), "mountains": bool(mountains),
              "env_vertices": nv, "env_tris": nf}
     print("network env:", json.dumps(stats))
     return stats
@@ -385,7 +540,12 @@ def _write_mtl(path: Path) -> None:
     path.write_text("newmtl GUARDRAIL\nKd 0.74 0.75 0.77\n\nnewmtl GANTRY\nKd 0.66 0.68 0.70\n\n"
                     "newmtl FWSIGN\nKd 0.06 0.30 0.16\n\nnewmtl LIGHTS\nKd 0.30 0.30 0.32\n\n"
                     "newmtl PALMS\nKd 0.20 0.34 0.14\n\nnewmtl TREES\nKd 0.13 0.30 0.11\n\n"
-                    "newmtl BUSHES\nKd 0.30 0.34 0.18\n\nnewmtl WATER\nKd 0.05 0.20 0.34\n", encoding="utf-8")
+                    "newmtl BUSHES\nKd 0.30 0.34 0.18\n\nnewmtl WATER\nKd 0.05 0.20 0.34\n\n"
+                    "newmtl MOUNTAINS\nKd 0.55 0.60 0.70\n\n"
+                    "newmtl BUILDINGS\nKd 0.62 0.62 0.60\n\nnewmtl BRICK\nKd 0.50 0.32 0.26\n\n"
+                    "newmtl STUCCO\nKd 0.78 0.72 0.60\n\nnewmtl WAREHOUSE\nKd 0.58 0.58 0.55\n\n"
+                    "newmtl WHMETAL\nKd 0.66 0.68 0.70\n\nnewmtl ROOFS\nKd 0.28 0.28 0.30\n\n"
+                    "newmtl RFMETAL\nKd 0.60 0.60 0.62\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

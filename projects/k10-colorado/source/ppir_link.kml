@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<name>PPIR Link</name>
+<Placemark><name>PPIR Link</name>
+<LineString><tessellate>1</tessellate><coordinates>-104.9116582,39.6904277,0 -104.9117094,39.6903318,0 -104.9118119,39.6902934,0 -104.9118916,39.6903414,0 -104.9121591,39.6901112,0 -104.9120965,39.6921442,0 -104.9119883,39.6921442,0 -104.9118403,39.6921442,0</coordinates></LineString>
+</Placemark>
+</Document></kml>
