@@ -172,11 +172,22 @@ def build(project_dir: str | Path) -> dict:
     (data / "heightfield.meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
     write_profile_svg(dist, z_raw, z_smooth, data / "elevation_profile.svg")
+
+    # If a Prodrive Scan drive has been ingested, refine the road profile with it (adds z_fused_m).
+    # Imported lazily: capture_fusion imports helpers from this module.
+    from scripts.elevation import capture_fusion
+    fusion = capture_fusion.build(project_dir)
+    if fusion.get("skipped"):
+        print(f"[heightfield] capture fusion skipped: {fusion['skipped']}")
+    else:
+        print(f"[heightfield] capture fusion applied: {fusion}")
+        stats["capture_fusion"] = fusion
+
     return {**stats, "heightfield": f"{meta['nx']}x{meta['ny']} @ {HF_SPACING_M}m"}
 
 
 def write_profile_svg(dist: list[float], z_raw: list[float], z_smooth: list[float], path: Path,
-                      width: int = 1000, height: int = 280) -> None:
+                      width: int = 1000, height: int = 280, z_fused: list[float] | None = None) -> None:
     pad = 40
     dmax = dist[-1] or 1.0
     zlo, zhi = min(z_raw), max(z_raw)
@@ -199,6 +210,8 @@ def write_profile_svg(dist: list[float], z_raw: list[float], z_smooth: list[floa
         parts.append(f'<text x="4" y="{y + 4}" fill="#6b7785" font-size="11" font-family="monospace">{gz}m</text>')
     parts.append(f'<path d="{poly(z_raw)}" fill="none" stroke="#3a4a5a" stroke-width="1"/>')
     parts.append(f'<path d="{poly(z_smooth)}" fill="none" stroke="#ff3b30" stroke-width="2"/>')
+    if z_fused is not None:  # capture-fused profile (scripts.elevation.capture_fusion)
+        parts.append(f'<path d="{poly(z_fused)}" fill="none" stroke="#ffb340" stroke-width="2"/>')
     parts.append(f'<text x="{pad}" y="20" fill="#cdd6e0" font-size="13" font-family="monospace">'
                  f'Sand Creek Raceway — elevation along lap ({zlo:.0f}–{zhi:.0f} m over {dmax/1000:.2f} km)</text>')
     parts.append("</svg>")

@@ -26,11 +26,26 @@ Samples and integrates real terrain data along the racing line.
 
 > Commerce City is gentle terrain — expect mild grades, not big elevation.
 
+## Capture fusion (phone-measured road altitude)
+
+The DEM samples the *ground*, not always the *road* (vegetation, cut/fill, walls). If a Prodrive
+Scan drive has been ingested (`source/realworld_capture.json`), the heightfield stage automatically
+bends the profile toward the phone's measured road altitude where evidence exists — writing
+`z_fused_m`, which `projection` prefers over `z_smooth_m`. The comparison is relative: a robust
+constant datum fit absorbs GPS vertical bias, the geoid gap, and the configured
+`sensor_height_m` (phone height above the road — windshield mount + car) being only roughly right.
+Bad runs (the phone falling off its mount, GPS dropouts) are rejected by **continuity
+segmentation**: roads can't step, dropped phones can. Knobs live in `track.config.json` →
+`elevation.capture_fusion` (see `scripts/elevation/capture_fusion.py` DEFAULTS); uncovered spans
+keep the pure DEM profile.
+
 ## Output
 
-- Centerline **z-values** (added to the centerline).
+- Centerline **z-values** (added to the centerline) — `z_smooth_m`, plus `z_fused_m` when capture
+  evidence exists.
 - `data/heightfield.npy` — the terrain grid used to build the grass mesh.
 
 ## Scripts
 
-`scripts/elevation/` — `usgs_3dep.py` (DEM fetch), `heightfield.py` (sample-along-path + grid + smooth).
+`scripts/elevation/` — `usgs_3dep.py` (DEM fetch), `heightfield.py` (sample-along-path + grid + smooth),
+`capture_fusion.py` (bend the profile toward ingested Prodrive Scan road altitudes).

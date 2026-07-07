@@ -60,7 +60,9 @@ def build(project_dir: str | Path) -> dict:
     widths = full["properties"].get("widths_m") or [cfg.default_width_m] * len(coords)
 
     elev = json.loads((data / "centerline.elevation.json").read_text(encoding="utf-8"))
-    z = elev["z_smooth_m"]
+    # Prefer the capture-fused profile (DEM bent toward measured road altitude where a Prodrive Scan
+    # drive was ingested — scripts.elevation.capture_fusion); pure DEM otherwise.
+    z = elev.get("z_fused_m") or elev["z_smooth_m"]
 
     origin = centroid(coords)
     elev0 = min(z)

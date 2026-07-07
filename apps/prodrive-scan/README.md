@@ -97,3 +97,10 @@ This projects every GPS fix into the track's mesh frame, matches it to the cente
 **station** + signed lateral offset), and distils the run into committed
 `projects/<slug>/source/realworld_capture.json`. Re-ingesting is idempotent; multiple laps accumulate.
 See [`scripts/capture/ingest.py`](../../scripts/capture/ingest.py).
+
+Once evidence exists, re-running the elevation phase fuses the phone's measured road altitude into
+the profile (`z_fused_m`) — fixing spots where the DEM maps the ground but not the road. Set
+`elevation.capture_fusion.sensor_height_m` in `track.config.json` to the phone's height above the
+road for your mount + car (a constant datum fit absorbs small errors in it); runs where the phone
+fell off the mount are auto-rejected by continuity segmentation. See
+[`scripts/elevation/capture_fusion.py`](../../scripts/elevation/capture_fusion.py).
