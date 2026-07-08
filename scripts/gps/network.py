@@ -129,14 +129,32 @@ def build_network(project_dir: str | Path) -> dict:
     clip_radius = float(net.get("clip_radius_m", 0) or 0)   # 0 = no clip; else truncate to <r of home
     home_ll = (cfg.location["lon"], cfg.location["lat"])
 
-    kml_files = cfg.source.get("kml_files") or [cfg.source.get("kml")]
     lines: list[list[tuple[float, float]]] = []
-    for rel in kml_files:
-        for feat in parse_kml(proj / rel):
-            if feat["type"] == "line" and len(feat["coords"]) >= 2:
-                lines.append(feat["coords"])
-    if not lines:
-        raise SystemExit("no LineStrings found in source KML files")
+    src_type = cfg.source.get("type")
+    if src_type == "osm-network":
+        # Fetch a whole freeway box straight from OSM: every mainline carriageway AND every ramp /
+        # interchange connector (all motorway_link ways) inside source.bbox. No KML — the map is only a
+        # selection aid (CLAUDE.md first principle); real geometry comes from Overpass.
+        from scripts.gps.overpass import fetch_highways_by_class
+        bbox = tuple(cfg.source["bbox"])   # (south, west, north, east)
+        classes = cfg.source.get("highways") or ["motorway", "motorway_link"]
+        refs = cfg.source.get("refs")      # restrict mainlines to these OSM refs (excludes I-805 etc.)
+        ways = fetch_highways_by_class(bbox, classes, refs=refs)
+        lines = [w["geom"] for w in ways]
+        by_hw: dict[str, int] = {}
+        for wobj in ways:
+            by_hw[wobj["highway"]] = by_hw.get(wobj["highway"], 0) + 1
+        print(f"osm-network: fetched {len(ways)} ways in bbox {bbox} — {by_hw}")
+        if not lines:
+            raise SystemExit("osm-network: Overpass returned no ways for the bbox/classes")
+    else:
+        kml_files = cfg.source.get("kml_files") or [cfg.source.get("kml")]
+        for rel in kml_files:
+            for feat in parse_kml(proj / rel):
+                if feat["type"] == "line" and len(feat["coords"]) >= 2:
+                    lines.append(feat["coords"])
+        if not lines:
+            raise SystemExit("no LineStrings found in source KML files")
 
     # OSM AUGMENT (optional, ``network.osm_augment``) — for networks that must include streets the
     # KML directions never traced: the full drivable grid within ``bbox_margin_m`` of home, plus
@@ -206,6 +224,29 @@ def build_network(project_dir: str | Path) -> dict:
         adj[b].append((a, ki))
     degree = {n: len(v) for n, v in adj.items()}
 
+    # KEEP LARGEST CONNECTED COMPONENT — drop orphan fragments. With mainlines restricted to our refs,
+    # a parallel freeway's ramps (e.g. I-805's) lose their trunk and float free as small components;
+    # our 4 freeways + every interchange ramp form one giant component (linked through the 4 stacks).
+    keep_cc = bool(net.get("keep_largest_component", False))
+    big: set[int] = set()
+    if keep_cc:
+        from collections import deque
+        seen: set[int] = set()
+        best_comp: list[int] = []
+        for start in adj:
+            if start in seen:
+                continue
+            q = deque([start]); seen.add(start); comp = [start]
+            while q:
+                u = q.popleft()
+                for (v, _ki) in adj[u]:
+                    if v not in seen:
+                        seen.add(v); q.append(v); comp.append(v)
+            if len(comp) > len(best_comp):
+                best_comp = comp
+        big = set(best_comp)
+        print(f"  largest component: {len(big)}/{len(adj)} nodes kept (orphan ramps dropped)")
+
     def node_pt(n: int) -> tuple[float, float]:
         return (grid.cx[n], grid.cy[n])
 
@@ -239,14 +280,19 @@ def build_network(project_dir: str | Path) -> dict:
             break
         return pts
 
-    # start chains at junctions/endpoints (degree != 2) first, then mop up pure loops
+    # start chains at junctions/endpoints (degree != 2) first, then mop up pure loops. A chain never
+    # leaves its component, so gating the start node on ``big`` keeps only the largest component.
     for n in [n for n in degree if degree[n] != 2]:
+        if keep_cc and n not in big:
+            continue
         for (other, ki) in list(adj[n]):
             if not used[ki]:
                 edges.append({"pts": walk_chain(n, ki)})
     for ki in range(len(keys)):
         if not used[ki]:
             a, _b = keys[ki]
+            if keep_cc and a not in big:
+                continue
             edges.append({"pts": walk_chain(a, ki)})
 
     # CLIP: truncate every edge to the portion within clip_radius of home, splitting into contiguous

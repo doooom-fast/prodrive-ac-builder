@@ -46,6 +46,10 @@ def surfaces_ini() -> str:
         # off-track scrub. Keeps the green neighbourhood ground physical so you don't fall through it.
         ("LAWN",   dict(FRICTION=0.65, DAMPING=0.09, IS_VALID_TRACK=0, DIRT_ADDITIVE=1, IS_PITLANE=0),
                    "grass.wav", 1.0),
+        # WALL = the physical freeway barrier (1WALL_* meshes). A vertical collision surface, not driven
+        # on, so it never counts as valid track — it just bounces the car back onto the road.
+        ("WALL",   dict(FRICTION=0.30, DAMPING=0, IS_VALID_TRACK=0, DIRT_ADDITIVE=0, IS_PITLANE=0),
+                   "", 0),
     ]
     out = []
     for i, (key, p, wav, pitch) in enumerate(blocks):

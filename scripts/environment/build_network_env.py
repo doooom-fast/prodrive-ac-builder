@@ -59,6 +59,26 @@ def _pack(prefix, material, meshes, billboard=False):
     return groups
 
 
+def _ground_local_sampler(data):
+    """Bilinear sampler over the conformed local-XZ ground grid (data/ground.local.json). None if absent."""
+    p = data / "ground.local.json"
+    if not p.exists():
+        return None
+    g = json.loads(p.read_text())
+    x0, z0, dx, dz, nx, ny, Y = g["x0"], g["z0"], g["dx"], g["dz"], g["nx"], g["ny"], g["y"]
+
+    def sample(x, z):
+        fi = (x - x0) / dx if dx else 0.0
+        fj = (z - z0) / dz if dz else 0.0
+        i0 = max(0, min(nx - 1, int(fi))); j0 = max(0, min(ny - 1, int(fj)))
+        i1 = min(nx - 1, i0 + 1); j1 = min(ny - 1, j0 + 1)
+        ti = max(0.0, min(1.0, fi - i0)); tj = max(0.0, min(1.0, fj - j0))
+        a = Y[j0][i0] * (1 - ti) + Y[j0][i1] * ti
+        b = Y[j1][i0] * (1 - ti) + Y[j1][i1] * ti
+        return a * (1 - tj) + b * tj
+    return sample
+
+
 def _grid_sampler(grid, meta, elev0):
     s, w, n, e = meta["bbox_swne"]
     nx, ny, sp = meta["nx"], meta["ny"], meta["spacing_m"]
@@ -195,6 +215,13 @@ def build(project_dir: str | Path) -> dict:
     def to_local(lon, lat, z):
         return (sx * (lon - lon0) * m_lon, z - elev0, (lat - lat0) * m_lat)
 
+    # Prefer the CONFORMED ground (build_network_mesh) so props sit on the real grass mesh, not the raw
+    # heightfield (which floats them wherever the terrain was conformed to a road / clamped for poke).
+    _gl = _ground_local_sampler(data)
+
+    def ground_at(x_local, z_local):
+        return _gl(x_local, z_local) if _gl else y_at(lon0 + sx * x_local / m_lon, lat0 + z_local / m_lat)
+
     # shared viaduct lift (written by build_network_mesh) so freeway furniture rides the elevated deck
     via = {}
     vpath = data / "network.viaduct.json"
@@ -295,7 +322,7 @@ def build(project_dir: str | Path) -> dict:
                     bx, bz = x + nx * off * side, z + nz * off * side
                     if on_road(bx, bz) or in_pad(bx, bz):
                         continue
-                    gy = y_at(lon0 + sx * bx / m_lon, lat0 + bz / m_lat) - 0.25
+                    gy = ground_at(bx, bz) - 0.25
                     sz = 1.1 + rnd.random() * 1.8
                     bushes.append(_billboard_cell(bx, gy, bz, rnd.randint(0, 1), rnd.randint(0, 1),
                                                   2, 2, sz * 0.8, sz, rnd.random() * math.pi)); nbush += 1
@@ -311,7 +338,7 @@ def build(project_dir: str | Path) -> dict:
                         px, pz = x + nx * off * side, z + nz * off * side
                         if on_road(px, pz) or in_pad(px, pz):
                             continue
-                        gy = y_at(lon0 + sx * px / m_lon, lat0 + pz / m_lat) - 0.3
+                        gy = ground_at(px, pz) - 0.3
                         if palms_enabled and rnd.random() < 0.5:   # palm
                             h = 8.5 + rnd.random() * 6.0
                             palms.append(_billboard_cell(px, gy, pz, rnd.randint(0, PNC - 1), rnd.randint(0, PNR - 1),
