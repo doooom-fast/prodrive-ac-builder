@@ -17,7 +17,7 @@
     "type": "osm-network",
     "_doc": "osm-network = fetch every drivable way of the listed highway classes inside bbox straight from Overpass, then node-snap them into one connected road GRAPH (scripts/gps/network.py). No KML. bbox is (south, west, north, east). motorway + motorway_link gives the 4 freeways, both carriageways, and every ramp/interchange connector in the box.",
     "bbox": [
-      32.745,
+      32.705,
       -117.24,
       32.855,
       -117.13
@@ -92,7 +92,7 @@
     "terrain": {
       "_doc": "Override the DEM bbox to reach WEST past I-5 over Mission Bay to the coast, so the bay + ocean have ground under them.",
       "bbox_swne": [
-        32.735,
+        32.7,
         -117.275,
         32.865,
         -117.125

@@ -856,15 +856,19 @@ def build(project_dir: str | Path) -> dict:
     # --- VIADUCT STRUCTURES built now that every deck is known: a pier that would stand in a road passing
     # UNDER the deck is dropped (clear span) so no support column spears a crossing road (audit check A). ---
     def _col_blocks(cx, cz, y_top):
-        gy = terr_y(cx, cz)
+        # Scan reach must COVER the widest clearance radius: ±2 cells (16 m) missed piers in the
+        # (16 .. rhalf+4.5≈17.3] m annulus of wide mainlines — 6 downtown piers speared I-5. ±3 = 24 m.
         ci, cj = int(cx // WCELL), int(cz // WCELL)
-        for di in (-2, -1, 0, 1, 2):
-            for dj in (-2, -1, 0, 1, 2):
+        for di in (-3, -2, -1, 0, 1, 2, 3):
+            for dj in (-3, -2, -1, 0, 1, 2, 3):
                 for (_eid2, rx, ry, rz, _rt, rhalf) in fw_road_hash.get((ci + di, cj + dj), ()):
                     if (cx - rx) ** 2 + (cz - rz) ** 2 > (rhalf + 4.5) ** 2:
                         continue
-                    if gy - 2.0 < ry < y_top - 1.5:        # a road runs under the deck at this pier (incl.
-                        return True                        # at-grade under a flyover) -> drop the column
+                    # Same band the AUDIT calls a speared crossing (y_top-45 .. y_top-1.5). The old
+                    # terrain-based gate (gy-2.0 < ry) missed roads running in a CUT below the pier-base
+                    # terrain (downtown underpasses) — the pier built anyway and stood in the road.
+                    if y_top - 45.0 < ry < y_top - 1.5:
+                        return True                        # a road runs under the deck here -> clear span
         return False
     all_piers = []
     n_dropped = 0
