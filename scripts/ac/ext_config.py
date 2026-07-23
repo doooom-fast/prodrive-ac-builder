@@ -63,8 +63,12 @@ def generate(project_dir: str | Path) -> Path:
                         "BUILDINGS", "BRICK", "STUCCO", "WAREHOUSE", "WHMETAL",
                         "ROOFS", "RFMETAL", "WATER")
     occluders = [g for g in groups if g.upper().startswith(OCCLUDE_PREFIXES)]
-    has_water = any(g.upper() == "WATER" for g in groups)
-    has_lights = any(g.upper() == "LIGHTS" for g in groups)
+    # PREFIX matching everywhere, never exact: split_mesh_under_cap renames every over-cap mesh to
+    # <name>_a.._n (LIGHTS -> LIGHTS_a..). v0.7.5 shipped BOTH street tracks with completely dead
+    # streetlights because `== "LIGHTS"` matched nothing after the split.
+    has_water = any(g.upper().startswith("WATER") for g in groups)
+    lights_groups = [g for g in groups if g.upper().startswith("LIGHTS")]
+    has_lights = bool(lights_groups)
     has_windows = any(g.upper() in ("WINDOWS", "BUILDING", "BUILDINGS") for g in groups)
     has_signs = any(g.upper() == "SIGNS" for g in groups)
 
@@ -127,26 +131,135 @@ def generate(project_dir: str | Path) -> Path:
         out += ["; --- Water: real water shader on Sand Creek ---------------------------------",
                 "[INCLUDE: common/materials_track.ini]", "",
                 "[Material_Water]",
-                "Materials = WATER_mat",
+                f"Materials = {', '.join(f'{g}_mat' for g in groups if g.upper().startswith('WATER')) or 'WATER_mat'}",
                 "Type = POND", ""]
 
     if has_lights:
-        out += ["; --- Streetlights: one light per post + glowing lamp at night ---------------",
-                "[LIGHT_SERIES_STREETLIGHTS]",
-                "MESHES = LIGHTS",
-                "OFFSET = 0, 3.5, 0          ; lift the light toward the top of the ~9 m post",
-                "COLOR = 1.0, 0.82, 0.55, 30 ; warm sodium-ish, last value = intensity",
-                "COLOR_OFF = 0, 0, 0, 0      ; fully off by day",
-                "CONDITION = NIGHT_SMOOTH    ; ramp on at dusk (CSP pre-shipped condition)",
-                "RANGE = 38",
-                "SPOT = 124",
-                "SPOT_SHARPNESS = 0.3",
-                "DIRECTION = 0, -1, 0        ; shine downward",
-                "CLUSTER_THRESHOLD = 8       ; posts are ~48 m apart -> one light each", "",
-                "[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
-                "MATERIALS = LIGHTS_mat",
+        # THE TWO DEAD-LIGHTS BUGS (found on the Lariat, same as San Diego's history through their
+        # v0.5.1): (1) NIGHT_SMOOTH is NOT a built-in CSP condition — without including
+        # common/conditions.ini it evaluates OFF forever; (2) a [LIGHT_SERIES] over ONE merged
+        # LIGHTS mesh emits a single light at the blob's centroid, not one per lamp. Fix per the
+        # working Lake Murray recipe: include the conditions file and emit an explicit [LIGHT_N]
+        # per lamp head — positions CLUSTERED FROM THE BUILT KN5 (frame-proof: whatever yaw/mirror
+        # the export applied, these are the shipped world coordinates).
+        sl = (cfg_raw.get("lighting", {}) or {}).get("streetlight", {}) or {}
+        sl_i = sl.get("intensity", 5.0)
+        sl_r = sl.get("range_m", 24.0)
+        sl_e = sl.get("emissive", 0.35)
+        # pool shaping — CSP RANGE scales deposited energy, not just reach: widening range without
+        # cutting intensity saturates the pool core white (v0.7.4 lesson). Wide+dim needs all four.
+        sl_spot = sl.get("spot_deg", 124)
+        sl_sharp = sl.get("spot_sharpness", 0.3)
+        sl_grad = sl.get("range_gradient_offset", 0.2)
+        sl_spec = sl.get("specular_mult", 0.6)
+        sl_c = sl.get("color", [1.0, 0.82, 0.55])
+        sl_ec = sl.get("emissive_color", [255, 209, 166])
+        out += ["; --- Streetlights (per-lamp; see dead-lights notes in ext_config.py) ---------",
+                "[INCLUDE]",
+                "INCLUDE = common/conditions.ini   ; defines NIGHT_SMOOTH — NOT built-in", ""]
+        heads: list[tuple[float, float, float]] = []
+        kn5p = project_dir / "build" / f"{slug}.kn5"
+        if kn5p.exists():
+            try:
+                from scripts.ac.verify_kn5 import _parse
+                _nodes, _meshes = _parse(kn5p)
+                pts = [v for m in _meshes if m["name"].upper().startswith("LIGHTS") for v in m["P"]]
+                buckets: dict[tuple[int, int], list] = {}
+                for x, y, z in pts:
+                    buckets.setdefault((int(x // 5), int(z // 5)), []).append((x, y, z))
+                for vs in buckets.values():
+                    heads.append(tuple(sum(c) / len(vs) for c in zip(*vs)))
+            except Exception as e:  # kn5 unreadable -> fall through to series
+                print(f"  [ext_config] LIGHTS clustering failed ({e}); falling back to LIGHT_SERIES")
+        if heads:
+            c255 = [round(255 * float(v)) for v in sl_c]
+            for i, (hx, hy, hz) in enumerate(sorted(heads)):
+                out += [f"[LIGHT_{i}]", "ACTIVE = 1",
+                        f"POSITION = {hx:.2f}, {hy - 0.15:.2f}, {hz:.2f}",
+                        "DIRECTION = 0, -1, 0",
+                        f"COLOR = {c255[0]}, {c255[1]}, {c255[2]}, {sl_i}",
+                        "COLOR_OFF = 0, 0, 0, 0",
+                        f"SPOT = {sl_spot}", f"SPOT_SHARPNESS = {sl_sharp}",
+                        f"RANGE = {sl_r}", f"RANGE_GRADIENT_OFFSET = {sl_grad}",
+                        f"SPECULAR_MULT = {sl_spec}",
+                        "FADE_AT = 1200", "FADE_SMOOTH = 200",
+                        "CONDITION = NIGHT_SMOOTH", ""]
+            print(f"  [ext_config] {len(heads)} per-lamp [LIGHT_N] entries clustered from the kn5")
+            # --- DANGER LIGHTS: real red light sources at every warning board, FLASHING, and
+            #     visible from far (Kevin: "just red boxes not lights at all... flashing
+            #     preferably"). Clustered from the kn5 like the lamps. Alternating two-phase
+            #     flash via CSP's flashing keys; if a runtime lacks them the light stays solid.
+            dpts = [v for m in _meshes if m["name"].upper().startswith("DANGERLITE") for v in m["P"]]
+            dbuckets: dict[tuple[int, int], list] = {}
+            for x, y, z in dpts:
+                dbuckets.setdefault((int(x // 6), int(z // 6)), []).append((x, y, z))
+            dboards = [tuple(sum(c) / len(vs) for c in zip(*vs)) for vs in dbuckets.values()]
+            for j, (dx, dy, dz) in enumerate(sorted(dboards)):
+                out += [f"[LIGHT_DANGER_{j}]", "ACTIVE = 1",
+                        f"POSITION = {dx:.2f}, {dy + 0.4:.2f}, {dz:.2f}",
+                        "DIRECTION = 0, -0.3, 0",
+                        "COLOR = 255, 24, 16, 14",              # hot red, strong
+                        "COLOR_OFF = 0, 0, 0, 0",
+                        "RANGE = 34", "RANGE_GRADIENT_OFFSET = 0.25",
+                        "SPECULAR_MULT = 0.4",
+                        "FADE_AT = 3000", "FADE_SMOOTH = 400",  # readable from the far straight
+                        "FLASHING_PERIOD = 0.8",                # CSP blink keys (no-op if absent)
+                        f"FLASHING_SKIP = {0.5 if j % 2 else 0.0}",
+                        ""]
+            if dboards:
+                print(f"  [ext_config] {len(dboards)} flashing danger lights clustered from the kn5")
+        else:
+            out += ["[LIGHT_SERIES_STREETLIGHTS]", "MESHES = LIGHTS", "OFFSET = 0, -0.1, 0",
+                    f"COLOR = {sl_c[0]}, {sl_c[1]}, {sl_c[2]}, {sl_i}", "COLOR_OFF = 0, 0, 0, 0",
+                    "CONDITION = NIGHT_SMOOTH", f"RANGE = {sl_r}", "SPOT = 124", "SPOT_SHARPNESS = 0.3",
+                    "DIRECTION = 0, -1, 0", "CLUSTER_THRESHOLD = 8", ""]
+        # Night damping ENFORCED IN-ENGINE: the kn5's baked ksDiffuse (pbr.KS_PROPS) is the first
+        # line, but CSP dynamic-light response paths vary by shader/version — this pins vegetation
+        # and grass response down at night regardless, so lamp cones read as pools on the ground
+        # instead of floodlit neon foliage ("Floodlights", v0.7.8).
+        veg_mats = ", ".join(f"{g}_mat" for g in groups
+                             if g.upper().startswith(("CONIFER", "TREES", "BUSHES", "PALMS")))
+        grass_mats2 = ", ".join(f"{g}_mat" for g in groups if g.upper().startswith(("1GRASS", "1LAWN")))
+        if veg_mats:
+            out += ["[MATERIAL_ADJUSTMENT_VEG_NIGHT]",
+                    f"MATERIALS = {veg_mats}",
+                    "KEY_0 = ksDiffuse", "VALUE_0 = 0.04", "VALUE_0_OFF = 0.10",
+                    "CONDITION = NIGHT_SMOOTH", ""]
+        if grass_mats2:
+            out += ["[MATERIAL_ADJUSTMENT_GRASS_NIGHT]",
+                    f"MATERIALS = {grass_mats2}",
+                    "KEY_0 = ksDiffuse", "VALUE_0 = 0.14", "VALUE_0_OFF = 0.22",
+                    "CONDITION = NIGHT_SMOOTH", ""]
+        head_mats = ", ".join(f"{g}_mat" for g in groups if g.upper().startswith("LAMPHEAD"))
+        if head_mats:
+            _ussign = [g for g in groups if g.upper().startswith("USSIGN")]
+            if _ussign:
+                out += ["[MATERIAL_ADJUSTMENT_USSIGNS]",
+                        "ACTIVE = 1",
+                        "MATERIALS = " + ", ".join(f"{g}_mat" for g in _ussign),
+                        "CONDITION = NIGHT_SMOOTH",
+                        "KEY_0 = ksEmissive",
+                        "VALUE_0 = 5.5, 4.6, 1.6",    # retroreflective sheeting POPS at night (Kevin: not lit)
+                        ""]
+            _danger = [g for g in groups if g.upper().startswith("DANGERLITE")]
+            if _danger:
+                out += ["[MATERIAL_ADJUSTMENT_DANGER]",
+                        "ACTIVE = 1",
+                        "MATERIALS = " + ", ".join(f"{g}_mat" for g in _danger),
+                        "KEY_0 = ksEmissive",
+                        "VALUE_0 = 80, 1.1, 0.85",    # hot red, blooms at distance
+                        ""]
+            out += ["[MATERIAL_ADJUSTMENT_LAMPHEADS]",
+                    f"MATERIALS = {head_mats}",
+                    "KEY_0 = ksEmissive",
+                    "VALUE_0 = 90, 82, 66, 0.10   ; faintly lit luminaire housing — the lens reads ATTACHED",
+                    "VALUE_0_OFF = 0, 0, 0, 0",
+                    "CONDITION = NIGHT_SMOOTH", ""]
+        lights_mats = ", ".join(f"{g}_mat" for g in lights_groups) or "LIGHTS_mat"
+        out += ["[MATERIAL_ADJUSTMENT_STREETLIGHTS]",
+                f"MATERIALS = {lights_mats}",
                 "KEY_0 = ksEmissive",
-                "VALUE_0 = 255, 209, 166, 0.5  ; ksEmissive is 0-255 RGB + brightness (NOT 0..1!)",
+                f"VALUE_0 = {sl_ec[0]}, {sl_ec[1]}, {sl_ec[2]}, {sl_e}  ; lamp-lens glow (lighting.streetlight.emissive_color/.emissive)",
                 "VALUE_0_OFF = 0, 0, 0, 0",
                 "CONDITION = NIGHT_SMOOTH", ""]
 

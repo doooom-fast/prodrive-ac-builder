@@ -77,6 +77,61 @@ def merge_ways(ways: list[list[Vertex]]) -> list[Vertex]:
     return max(polylines, key=polyline_length)
 
 
+def road_path(ways: list[list[Vertex]]) -> list[Vertex]:
+    """One continuous polyline through a road's ways — the graph-diameter path.
+
+    merge_ways chains ways only where endpoints touch and keeps the longest chain, which breaks on
+    dual carriageways, Y-splits and junction fan-outs (the far half of the road lands in a different
+    chain — 19th Street in Golden loses everything west of the US-6 signal). Treat the road's ways
+    as a graph instead: double-Dijkstra sweep to the two farthest-apart nodes, then return the path
+    between them — one line end-to-end, picking a single carriageway wherever the road divides.
+    """
+    import heapq
+    from collections import defaultdict
+
+    segs = [w for w in ways if len(w) >= 2]
+    if not segs:
+        return []
+    snap = lambda p: (round(p[0], 6), round(p[1], 6))
+    g: dict = defaultdict(list)
+    for w in segs:
+        for i in range(len(w) - 1):
+            a, b = snap(w[i]), snap(w[i + 1])
+            if a == b:
+                continue
+            d = haversine(w[i], w[i + 1])
+            g[a].append((b, d))
+            g[b].append((a, d))
+
+    def sweep(src):
+        dist = {src: 0.0}
+        prev: dict = {}
+        pq = [(0.0, src)]
+        far = src
+        while pq:
+            d, u = heapq.heappop(pq)
+            if d > dist.get(u, 9e18):
+                continue
+            if d > dist[far]:
+                far = u
+            for v, w in g[u]:
+                nd = d + w
+                if nd < dist.get(v, 9e18):
+                    dist[v] = nd
+                    prev[v] = u
+                    heapq.heappush(pq, (nd, v))
+        return far, prev
+
+    seed = snap(max(segs, key=polyline_length)[0])   # bias the sweep to the road's main component
+    a, _ = sweep(seed)
+    b, prev = sweep(a)
+    path = [b]
+    while path[-1] != a:
+        path.append(prev[path[-1]])
+    path.reverse()
+    return path
+
+
 def nearest_pair(a: list[Vertex], b: list[Vertex]) -> tuple[int, int, float]:
     """Indices (ia, ib) and distance of the closest approach between two polylines."""
     best = (0, 0, float("inf"))
@@ -101,6 +156,42 @@ def build_ring(road_lines: list[list[Vertex]]) -> tuple[list[Vertex], list[float
         ring += seg
     corner_gaps = [round(j[2], 1) for j in junc]
     return ring, corner_gaps
+
+
+def remove_folds(ring: list[Vertex], *, apex_deg: float = 150.0) -> list[Vertex]:
+    """Collapse out-and-back spikes left by junction trims. Where two fetched roads OVERLAP along a
+    shared carriageway for a few metres, build_ring's nearest-pair trim walks the ring out past the
+    corner and straight back — a fold. The swept ribbon then lays two decks on top of each other:
+    3 m 'steps', phantom obstructions, grass between the layers (the Lariat's ramp gore and the
+    Colfax junction both had one). A fold shows as a near-reversal at a single vertex (>150 deg);
+    real hairpins spread their 180 deg over many vertices and never trip it. Removing the apex
+    re-exposes the next reversal until the whole stub dissolves."""
+    pts = list(ring)
+    changed = True
+    removed = 0
+    while changed and len(pts) > 3:
+        changed = False
+        i = 1
+        while i < len(pts) - 1:
+            v1 = (pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+            v2 = (pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1])
+            n1 = math.hypot(*v1)
+            n2 = math.hypot(*v2)
+            if n1 < 1e-12 or n2 < 1e-12:
+                del pts[i]
+                changed = True
+                removed += 1
+                continue
+            cosang = (v1[0] * v2[0] + v1[1] * v2[1]) / (n1 * n2)
+            if cosang < math.cos(math.radians(apex_deg)):   # direction change > apex_deg = backtrack
+                del pts[i]
+                changed = True
+                removed += 1
+                continue
+            i += 1
+    if removed:
+        print(f"  [centerline] removed {removed} fold vertices (out-and-back junction stubs)")
+    return pts
 
 
 def resample(pl: list[Vertex], spacing_m: float = RESAMPLE_SPACING_M) -> list[Vertex]:
@@ -156,12 +247,24 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
     all_names = list(road_names) + [n for v in connectors_cfg.values() for n in v]
     fetched = overpass.fetch_ways(bbox, all_names)
 
-    road_lines = [merge_ways(fetched[n]) for n in road_names]
+    road_lines = [road_path(fetched[n]) for n in road_names]
     missing = [n for n, line in zip(road_names, road_lines) if not line]
     if missing:
         raise SystemExit(f"No geometry returned for: {missing} — check road names/bbox in config.")
 
     ring, corner_gaps = build_ring(road_lines)
+    ring = remove_folds(ring)
+    # route.start_at = [lat, lon]: rotate the closed ring so station 0 (start/finish, pits, hotlap
+    # spawn — dummies all key off station 0) sits at the real-world start line instead of wherever
+    # the first roads[] entry happened to get trimmed. The Lariat's list order put station 0 in the
+    # US-6 interchange gore — the one place on the lap you can't park a pit box.
+    start_at = route.get("start_at")
+    if start_at and cfg.loop and len(ring) > 2:
+        if _key(ring[0]) == _key(ring[-1]):
+            ring = ring[:-1]
+        tgt = (float(start_at[1]), float(start_at[0]))          # config [lat, lon] -> (lon, lat)
+        k = min(range(len(ring)), key=lambda i: haversine(ring[i], tgt))
+        ring = ring[k:] + ring[:k]
     if cfg.loop and ring and _key(ring[0]) != _key(ring[-1]):
         ring.append(ring[0])
     ring = resample(ring, RESAMPLE_SPACING_M)
