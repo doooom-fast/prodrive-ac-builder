@@ -583,10 +583,10 @@ def check(project_dir: str | Path) -> dict:
             if s9 is not None and s9 > g9:
                 continue
             # DECK-OVER-DECK: pavement of ANOTHER road between the grass and this deck (merge flare /
-            # overpass overlap) — the deck rides over a road, not over the mountain. below9 excludes
-            # the sample's OWN surface (a vert sits exactly ON it, delta 0) while catching the
-            # 0.25 m+ carriageway splits that read as phantom floats.
-            p9 = _surf_of(tri_pav, x, z, y, below9=y - 0.25)
+            # overpass overlap, near-level gore fans) — the deck rides over a road, not over the
+            # mountain. below9 excludes the sample's OWN surface (a vert sits exactly ON it, delta
+            # 0.000) while catching every real overlap from a 5 cm merge step up to a full flyover.
+            p9 = _surf_of(tri_pav, x, z, y, below9=y - 0.05)
             if p9 is not None and p9 > g9:
                 continue
         tot += 1
