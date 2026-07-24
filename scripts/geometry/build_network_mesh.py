@@ -205,6 +205,15 @@ def _viaduct_struct(pts, terr_y, half, *, pier_step=24.0, gap_min=3.0, deck_thic
     (a clear span instead), so no support column spears a crossing road. Returns (mesh, placed_piers)."""
     import math as _m
     V, T = [], []
+    # extend the slab one short step past BOTH ends: a ribbon tip at a junction node otherwise sits
+    # exactly on (or just before) the slab's first row and misses barycentric support
+    if len(pts) >= 2:
+        (x0, y0, z0), (x1, y1, z1) = pts[0], pts[1]
+        L0 = _m.hypot(x1 - x0, z1 - z0) or 1.0
+        (xa, ya, za), (xb, yb, zb) = pts[-2], pts[-1]
+        L1 = _m.hypot(xb - xa, zb - za) or 1.0
+        pts = ([(x0 - (x1 - x0) / L0 * 1.2, y0, z0 - (z1 - z0) / L0 * 1.2)] + list(pts)
+               + [(xb + (xb - xa) / L1 * 1.2, yb, zb + (zb - za) / L1 * 1.2)])
 
     def quad(a, b, c, d):
         o = len(V); V.extend([a, b, c, d]); T.extend([(o, o + 1, o + 2), (o, o + 2, o + 3)])
@@ -218,13 +227,16 @@ def _viaduct_struct(pts, terr_y, half, *, pier_step=24.0, gap_min=3.0, deck_thic
             j = (k + 1) % 4
             T.extend([(o + k, o + j, o + j + 4), (o + k, o + j + 4, o + k + 4)])
     rows = []
+    slab_half = half + 0.4      # slab slightly proud of the deck edge (decks overhang their
+    #                             structure) — an edge vert exactly on the slab's 2D hull otherwise
+    #                             misses barycentric containment and voids the support exemption
     for i in range(len(pts)):
         x, y, z = pts[i]
         a = pts[max(0, i - 1)]; b = pts[min(len(pts) - 1, i + 1)]
         tx, tz = b[0] - a[0], b[2] - a[2]; tl = _m.hypot(tx, tz) or 1.0
         nx, nz = -tz / tl, tx / tl
-        rows.append(((x + nx * half, y - deck_thick, z + nz * half),
-                     (x - nx * half, y - deck_thick, z - nz * half), (x, y, z)))
+        rows.append(((x + nx * slab_half, y - deck_thick, z + nz * slab_half),
+                     (x - nx * slab_half, y - deck_thick, z - nz * slab_half), (x, y, z)))
     for k in range(len(rows) - 1):       # underside slab
         L0, R0, _ = rows[k]; L1, R1, _ = rows[k + 1]
         quad(R0, L0, L1, R1)
@@ -524,31 +536,184 @@ def _merge_taper(deck_pts, base_w, road_hash, self_eid, *, cell=12.0, dy=3.0, ta
     return w
 
 
-def _clamp_terrain_poke(grid_xyz, edge_local, *, margin=10.0, clear=0.30, cell=24.0):
-    """One-sided anti-poke: push any terrain node that sits ABOVE a nearby road surface down to
-    road-height minus ``clear``, so no grass triangle pokes up through the drivable ribbon. Never raises
-    a node (natural dips survive). Road heights are the AT-GRADE ``edge_local`` samples so terrain stays
-    low under flyover decks. margin covers the coarse-grid gap so a triangle can't cross onto the road."""
+def _densify(pts, max_step=6.0):
+    """Interpolate extra samples so consecutive points are <= max_step apart. OSM vertex spacing on
+    straights reaches 50+ m — every radius test against RAW vertices (carve, verge filter) has holes
+    midway between them at that spacing (the residual-88-pokes lesson). Yields (x, y, z)."""
+    prev = None
+    for p in pts:
+        if prev is not None:
+            d = math.hypot(p[0] - prev[0], p[2] - prev[2])
+            n = int(d // max_step)
+            for k in range(1, n + 1):
+                t = k / (n + 1)
+                yield (prev[0] + (p[0] - prev[0]) * t, prev[1] + (p[1] - prev[1]) * t,
+                       prev[2] + (p[2] - prev[2]) * t)
+        yield p
+        prev = p
+
+
+def _carve_cut_corridor(grid_xyz, edge_local, *, clear=0.30, bench=None, slope=0.5,
+                        grid_spacing=27.5, depth_reach=60.0):
+    """CUT CARVE — one-sided: terrain never crosses ABOVE a road deck, and where the road runs in a
+    CUT below natural ground the corridor is carved DOWN to deck-clearance with a real cut face,
+    instead of the grass sheet chording straight across the cut (the sunken-freeway "grass ceiling"
+    the vertex-only anti-poke provably missed: clamped VERTICES were legal while the 27 m triangles
+    BETWEEN them bridged the cut +9 m over the deck).
+
+    Cone-field formulation (chord-proof by construction): every terrain node's allowed height is
+        min over at-grade road samples of  (road_y - clear + slope * max(0, d_past_edge - bench))
+    - ``bench`` >= HALF THE GRID DIAGONAL (default 0.72 * spacing): with every node within the bench
+      held at deck-clearance, NO linear interpolation across a grid triangle can rise above the deck
+      over the pavement (for any point p inside a triangle, the barycentric mean of vertex distances
+      to p is <= half the cell diagonal — so the cone term vanishes over the footprint).
+    - beyond the bench the limit RECOVERS at ``slope`` (2:1 default) — a realistic excavated batter,
+      not a reach-wide shaved moat (the CO dark-moat lesson); at-grade/fill sections are untouched
+      because natural ground already sits below the cone there.
+    - ONE-SIDED: only pushes DOWN. Underpasses can never be filled, natural dips survive, and the
+      layer question resolves itself: the MIN over samples keeps terrain at the LOWEST road through
+      a stacked interchange (the upper deck bridges the cut; pier suppression protects the road below).
+    Road heights are the AT-GRADE ``edge_local`` samples so terrain stays low under flyover decks.
+    Mutates grid_xyz in place."""
     from collections import defaultdict
+    if bench is None:
+        # half the cell diagonal (0.7071..) + the sample-lateral slack: cone distances are measured
+        # to the ~6 m-spaced CENTRELINE samples, up to ~3-4 m to the side of the pavement point a
+        # chord crosses — without the extra term the bound leaks ~0.3 m chords at the bench rim.
+        bench = 0.72 * grid_spacing + 4.0
+    half_max = max((float(w) / 2.0 for _pr, _p, w in edge_local), default=6.0)
+    reach = half_max + bench + depth_reach     # depth_reach: horizontal run of the deepest cut face
+    cell = max(24.0, reach / 3.0)
+    R = int(reach // cell) + 1
     buckets = defaultdict(list)
     for _pr, pts, w in edge_local:
         half = float(w) / 2.0
-        for x, y, z in pts:
+        for x, y, z in _densify(pts):          # <=6 m sampling: no cone holes between sparse OSM verts
             buckets[(int(x // cell), int(z // cell))].append((x, y, z, half))
+    reach2 = reach * reach
     for row in grid_xyz:
         for k in range(len(row)):
             gx, gy, gz = row[k]
             ci, cj = int(gx // cell), int(gz // cell)
-            lim = None
-            for di in (-1, 0, 1):
-                for dj in (-1, 0, 1):
+            lim = None                 # min cone/bench limit over carving samples
+            own = None                 # shelf of the NEAREST sample of any height (the "owning" road)
+            own_d2 = 1e18
+            in_bench_of_carver = False
+            for di in range(-R, R + 1):
+                for dj in range(-R, R + 1):
                     for rx, ry, rz, half in buckets.get((ci + di, cj + dj), ()):
-                        if (gx - rx) ** 2 + (gz - rz) ** 2 <= (half + margin) ** 2:
-                            t = ry - clear
-                            if lim is None or t < lim:
-                                lim = t
-            if lim is not None and gy > lim:
+                        d2 = (gx - rx) ** 2 + (gz - rz) ** 2
+                        if d2 > reach2:
+                            continue
+                        if d2 < own_d2:
+                            own_d2, own = d2, ry - clear
+                        shelf = ry - clear
+                        if shelf >= gy:        # this sample can only carve DOWN — fills/at-grade skip
+                            continue
+                        past = math.sqrt(d2) - half - bench
+                        if past <= 0.0:
+                            in_bench_of_carver = True
+                        t = shelf + slope * max(0.0, past)
+                        if t < gy and (lim is None or t < lim):
+                            lim = t
+            if lim is None:
+                continue
+            # OWN-GRADE FLOOR: chord-proofness only needs nodes INSIDE a carving road's bench held at
+            # its shelf (any face over that pavement has all verts within the bench radius). A node
+            # merely in the CONE zone that belongs to a *higher* neighbouring road (parallel ramp /
+            # frontage split) must stay at ITS road's grade — without the floor, the lower road's
+            # cone dragged the upper road's own verge ground 1–3 m under its deck (600 gate samples).
+            if not in_bench_of_carver and own is not None:
+                lim = max(lim, own)
+            if gy > lim:
                 row[k] = (gx, lim, gz)
+
+
+def _road_tri_hash(road_meshes, *, cell=8.0):
+    """Spatial hash of the ACTUAL built 1ROAD triangles (each registered across its XZ bbox cells) —
+    the same ground truth the mesh audit measures against."""
+    from collections import defaultdict
+    h = defaultdict(list)
+    for _nm, m in road_meshes:
+        V, T = m["vertices"], m["tris"]
+        for a, b, c in T:
+            t = (V[a], V[b], V[c])
+            xs = (t[0][0], t[1][0], t[2][0]); zs = (t[0][2], t[1][2], t[2][2])
+            for ci in range(int(min(xs) // cell), int(max(xs) // cell) + 1):
+                for cj in range(int(min(zs) // cell), int(max(zs) // cell) + 1):
+                    h[(ci, cj)].append(t)
+    return h
+
+
+HANG_MAX_M = 3.5    # a verge vert more than this above the ground beneath = a bridge edge, not a shoulder
+#                     (same threshold as the bridge detector's BRIDGE_MIN_H_M: past it you SPAN, not fill)
+
+
+def _filter_verge_over_roads(verge_meshes, road_th, *, cell=8.0, above=0.05, dy_max=40.0,
+                             ground_at=None):
+    """Gap the freeway GRASS VERGE wherever it hangs over pavement — the "grass sheeted over sunken
+    decks" defect: at a grade-separated crossing the upper road's 3 m shoulder strip swept straight
+    across the cut, putting physical 1GRASS 0.2–20 m above the sunken carriageway (14k kn5 pokes +
+    every double-sheet cell); tight loop ramps did the same over their OWN lower winding. A real
+    overpass edge is concrete/barrier, not grass — the viaduct slab and walls already provide it.
+
+    TRIANGLE-EXACT against the built road ribbons (``road_th`` from _road_tri_hash) — the identical
+    criterion the audit's check B applies, so verge B-pokes are impossible by construction: drop each
+    triangle with ANY vertex sitting ``above``..``dy_max`` over a road surface at its own XZ, then
+    prune orphaned verts (no cruft into the audit). A verge UNDER a flyover is untouched; the vert's
+    own ribbon edge shares its height (delta 0), so legitimate shoulders never trip the test.
+
+    ``ground_at(x, z) -> y`` (optional, the CARVED terrain): additionally drop tris HANGING more than
+    HANG_MAX_M above the ground beneath — a viaduct/overpass edge riding a canyon or a carved cut is
+    a bridge edge (concrete slab + barrier), not a grass shoulder floating in the sky (these were
+    every residual double-sheet cell: verge at deck height + canyon floor 30 m below in one XZ cell)."""
+    def _over_road(v):
+        vx, vy, vz = v
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for a, b, c in road_th.get((int(vx // cell) + di, int(vz // cell) + dj), ()):
+                    d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                    if abs(d) < 1e-12:
+                        continue
+                    w0 = ((b[2] - c[2]) * (vx - c[0]) + (c[0] - b[0]) * (vz - c[2])) / d
+                    w1 = ((c[2] - a[2]) * (vx - c[0]) + (a[0] - c[0]) * (vz - c[2])) / d
+                    w2 = 1.0 - w0 - w1
+                    if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                        yy = w0 * a[1] + w1 * b[1] + w2 * c[1]
+                        if above < vy - yy < dy_max:
+                            return True
+        return False
+
+    def _hanging(v):
+        if ground_at is None:
+            return False
+        g = ground_at(v[0], v[2])
+        return g is not None and v[1] - g > HANG_MAX_M
+
+    out = []
+    n_tris_dropped = 0
+    for name, m in verge_meshes:
+        V, U, T = m["vertices"], m.get("uvs"), m["tris"]
+        drop = set()
+        for ti, (a, b, c) in enumerate(T):
+            if _over_road(V[a]) or _over_road(V[b]) or _over_road(V[c]) \
+                    or _hanging(V[a]) or _hanging(V[b]) or _hanging(V[c]):
+                drop.add(ti)
+        if not drop:
+            out.append((name, m))
+            continue
+        n_tris_dropped += len(drop)
+        keep_t = [t for ti, t in enumerate(T) if ti not in drop]
+        used = sorted({i for tri in keep_t for i in tri})
+        remap = {o: n for n, o in enumerate(used)}
+        m2 = {"vertices": [V[o] for o in used],
+              "uvs": [U[o] for o in used] if U else None,
+              "tris": [(remap[a], remap[b], remap[c]) for a, b, c in keep_t]}
+        if m2["tris"]:
+            out.append((name, m2))
+    if n_tris_dropped:
+        print(f"  verge gap: {n_tris_dropped} shoulder tris dropped over pavement (no grass over a deck)")
+    return out
 
 
 def _track_road_sampler(data: Path, conform_r: float = 30.0):
@@ -685,6 +850,7 @@ def build(project_dir: str | Path) -> dict:
     marking_meshes: list[tuple[str, dict]] = []     # MARKINGS lane lines (visual)
     wall_jobs: list[tuple[str, list, float]] = []   # (eid, deck_pts, half) — walls built AFTER the loop
     via_jobs: list[tuple[str, list, float]] = []     # (eid, deck_pts, half) — viaduct structs built AFTER the loop
+    deck_all: list[tuple[str, list, float]] = []     # (eid, deck_pts, half) — EVERY freeway deck (bridge runs)
     fw_edge_decks: list[tuple[str, list, float]] = []  # (eid, road-surface pts, half) — mainlines, for median fill
     from collections import defaultdict as _wdd
     fw_road_hash = _wdd(list)                        # deck pts (eid,x,y,z,tangent,half) for crossing/pier tests
@@ -776,6 +942,7 @@ def build(project_dir: str | Path) -> dict:
                                       ground_drop=GRASS_CLEARANCE_M, bank_at=bank_at)
             orient_up(sh)   # physical surface -> face up (NOT double-sided: verify wants drivable face-up)
             verge_meshes.append((f"v{eid}", sh))
+            deck_all.append((eid, deck_pts, w / 2.0))   # every freeway deck: bridge-run detection
             # deck hash ALWAYS (walls, pier suppression, crossing tests all read it): (eid,x,y,z,tan,half)
             for wi in range(len(deck_pts)):
                 rx, ry, rz = deck_pts[wi]
@@ -784,8 +951,10 @@ def build(project_dir: str | Path) -> dict:
                     (eid, rx, ry, rz, math.atan2(b[2] - a[2], b[0] - a[0]), w / 2.0))
             if want_walls:   # defer wall build until every deck is known (so crossings can be gapped)
                 wall_jobs.append((eid, deck_pts, w / 2.0))
-            if not f["properties"].get("is_ramp"):   # mainline carriageways -> median fill between pairs
-                fw_edge_decks.append((eid, [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in deck_pts], w / 2.0))
+            # ALL freeway edges (mainlines AND ramps) feed the median/gore fill: a gore wedge between
+            # a ramp and its mainline is paved in the real world, and filling it keeps the gap the
+            # verge-gap opens there covered by drivable 1RUNOFF instead of a bare drop to the bench.
+            fw_edge_decks.append((eid, [(x, y + ROAD_LIFT_M, z2) for x, y, z2 in deck_pts], w / 2.0))
         else:
             cb = ribbon.curb_sidewalk(deck_pts, [w] * len(deck_pts), lift=ROAD_LIFT_M, curb_h=0.12,
                                       curb_face_w=0.06, sidewalk_w=1.0, grade_w=1.0,
@@ -870,14 +1039,8 @@ def build(project_dir: str | Path) -> dict:
                     if y_top - 45.0 < ry < y_top - 1.5:
                         return True                        # a road runs under the deck here -> clear span
         return False
-    all_piers = []
-    n_dropped = 0
-    for _veid, dpts, vhalf in via_jobs:
-        struct, piers = _viaduct_struct(dpts, terr_y, vhalf, skip_column=_col_blocks)
-        viaduct_meshes.append(struct)
-        all_piers.extend(piers)
-    (data / "network.piers.json").write_text(json.dumps(all_piers), encoding="utf-8")
-    print(f"  viaducts: {len(via_jobs)} decks, {len(all_piers)} piers (columns under roads suppressed)")
+    # NOTE: the structs themselves are built AFTER the terrain grid is conformed+carved (below), so
+    # piers reach the CARVED ground in a cut instead of hanging from the raw-DEM height.
 
     # MEDIAN FILL: flat drivable 1RUNOFF between close parallel carriageways so crossing the median doesn't
     # bounce the car over the verge dip / coarse grass (the strip left open when median walls were removed).
@@ -898,12 +1061,93 @@ def build(project_dir: str | Path) -> dict:
     main_pts, main_w = (extra[0][0], extra[0][1]) if extra else ([], [])
     ribbon.conform_terrain_to_road(grid_xyz, main_pts, main_w, corridor=22.0, blend=26.0,
                                    extra_roads=extra[1:], clearance=GRASS_CLEARANCE_M)
-    # HARD anti-poke clamp (audit check B): after conform, force any terrain node still ABOVE the road
-    # surface — within the road footprint + a grid-coarseness margin — down to just below it. One-sided
-    # (only pushes DOWN), so natural dips are untouched. Kills the "terrain pokes through the road and
-    # launches the car" defect on cuts + coarse-grid corners. Uses AT-GRADE road heights so terrain still
-    # stays low under flyover decks.
-    _clamp_terrain_poke(grid_xyz, edge_local, margin=10.0, clear=GRASS_CLEARANCE_M)
+    # CUT CARVE (audit check B + the sunken-deck grass ceiling): after conform, carve the corridor so
+    # terrain NEVER crosses above a deck — deck-clearance bench under+beside the footprint (wide enough
+    # that no coarse-grid triangle can chord over the pavement), then a 2:1 cut face back to natural.
+    # One-sided (only pushes DOWN): underpasses are never filled, dips survive, flyovers keep their
+    # at-grade ground (AT-GRADE edge_local samples).
+    _grid_sp = float(meta.get("spacing_m", 55.0))
+    _carve_cut_corridor(grid_xyz, edge_local, clear=GRASS_CLEARANCE_M, grid_spacing=_grid_sp)
+
+    # VIADUCT STRUCTURES (deferred from the edge loop): built against the CARVED ground so piers land
+    # on the terrain that actually ships — a pier based on the raw DEM hangs in the air once the cut
+    # is carved beneath it. Sampler = min(raw DEM, carved grid).
+    _cg_x0 = grid_xyz[0][0][0]; _cg_z0 = grid_xyz[0][0][2]
+    _cg_nx = len(grid_xyz[0]); _cg_ny = len(grid_xyz)
+    _cg_dx = (grid_xyz[0][_cg_nx - 1][0] - _cg_x0) / max(1, _cg_nx - 1)
+    _cg_dz = (grid_xyz[_cg_ny - 1][0][2] - _cg_z0) / max(1, _cg_ny - 1)
+
+    def _carved_y(x, z):
+        fi = (x - _cg_x0) / _cg_dx if _cg_dx else 0.0
+        fj = (z - _cg_z0) / _cg_dz if _cg_dz else 0.0
+        if not (0 <= fi < _cg_nx - 1 and 0 <= fj < _cg_ny - 1):
+            return terr_y(x, z)
+        i0, j0 = int(fi), int(fj)
+        ti, tj = fi - i0, fj - j0
+        a = grid_xyz[j0][i0][1] * (1 - ti) + grid_xyz[j0][i0 + 1][1] * ti
+        b = grid_xyz[j0 + 1][i0][1] * (1 - ti) + grid_xyz[j0 + 1][i0 + 1][1] * ti
+        return a * (1 - tj) + b * tj
+
+    def _carved_low(x, z):
+        """PESSIMISTIC carved ground: the LOWEST of the four surrounding grid nodes. The bilinear
+        under a deck's own bench nodes averages the cut away — the grass FACES beneath still dip to
+        the low node via the triangulation, so span detection must see the node, not the average."""
+        fi = (x - _cg_x0) / _cg_dx if _cg_dx else 0.0
+        fj = (z - _cg_z0) / _cg_dz if _cg_dz else 0.0
+        if not (0 <= fi < _cg_nx - 1 and 0 <= fj < _cg_ny - 1):
+            return terr_y(x, z)
+        i0, j0 = int(fi), int(fj)
+        return min(grid_xyz[j0][i0][1], grid_xyz[j0][i0 + 1][1],
+                   grid_xyz[j0 + 1][i0][1], grid_xyz[j0 + 1][i0 + 1][1])
+
+    def _terr_min(x, z):
+        return min(terr_y(x, z), _carved_y(x, z))
+
+    # BRIDGE RUNS: a deck riding high over the CARVED ground with no viaduct lift of its own — an
+    # at-grade road crossing a freeway cut — is a real bridge. Give the run the same underside slab
+    # + piers, so the crossing is structurally supported instead of a bare ribbon floating over the
+    # carve (and the kn5 gate can see that support).
+    via_ids = {str(e) for e, _p, _h in via_jobs}
+    n_runs = 0
+    RUN_H = 2.8       # clears-ground threshold: BELOW the verge hang-drop (3.5) so every stretch
+    #                   whose grass shoulder is dropped as "a bridge edge" is guaranteed its slab
+    RUN_ARC = 4.0     # short culvert-sized spans still get structure (12 m left slabless gaps)
+    for eid, dp, half in deck_all:
+        if str(eid) in via_ids:
+            continue
+        dens = list(_densify(dp))              # raw OSM spacing (50 m+) chopped runs + missed spans
+        high = [y - min(terr_y(x, z2), _carved_low(x, z2)) > RUN_H for x, y, z2 in dens]
+        i = 0
+        while i < len(dens):
+            if not high[i]:
+                i += 1
+                continue
+            j = i
+            while j < len(dens) and high[j]:
+                j += 1
+            a = max(0, i - 1); b = min(len(dens), j + 1)   # pad one sample past each hang edge
+            run = dens[a:b]
+            arc = sum(math.hypot(run[k][0] - run[k - 1][0], run[k][2] - run[k - 1][2])
+                      for k in range(1, len(run)))
+            if len(run) >= 2 and arc >= RUN_ARC:
+                via_jobs.append((eid, run, half)); n_runs += 1
+            i = j
+    if n_runs:
+        print(f"  bridge runs: {n_runs} at-grade deck spans over carved ground get slab + piers")
+    all_piers = []
+    for _veid, dpts, vhalf in via_jobs:
+        struct, piers = _viaduct_struct(dpts, _terr_min, vhalf, skip_column=_col_blocks)
+        viaduct_meshes.append(struct)
+        all_piers.extend(piers)
+    (data / "network.piers.json").write_text(json.dumps(all_piers), encoding="utf-8")
+    print(f"  viaducts: {len(via_jobs)} decks, {len(all_piers)} piers (columns under roads suppressed)")
+
+    # VERGE GAP: no physical grass over a deck, no grass shoulder hanging in the sky. Drop shoulder
+    # triangles over pavement (grade-separated crossings, loop ramps over their own lower winding,
+    # superelevated parallel overlaps) and triangles hanging >HANG_MAX_M over the carved ground
+    # (viaduct/overpass edges are concrete, not grass). Triangle-exact vs the built ribbons.
+    verge_meshes = _filter_verge_over_roads(verge_meshes, _road_tri_hash(road_meshes),
+                                            ground_at=_carved_y)
 
     # green-vs-dry classifier: a tile is irrigated LAWN if it sits near a SURFACE street (not just a
     # freeway) on gentle ground; canyon/hill/freeway-cut tiles stay dry chaparral. Spatial-hash the
