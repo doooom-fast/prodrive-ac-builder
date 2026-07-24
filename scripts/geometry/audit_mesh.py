@@ -173,7 +173,10 @@ def audit(project_dir: str | Path) -> dict:
     proj = Path(project_dir)
     data = proj / "data"
     slug = json.loads((proj / "track.config.json").read_text())["slug"]
-    g = _obj_groups(data / "track.obj", ("1ROAD_MAIN", "1ROAD", "1GRASS", "HWYSTRUCT", "1WALL", "KERB"))
+    # curb prefix is "1KERB": built OBJ groups are 1KERB_sidewalk_a / 1KERB_corners / ... — a bare
+    # "KERB" prefix matched NOTHING, which made check F report "0 (of 0 curb verts)" forever
+    # (a vacuous gate; pinned by tests/geometry/test_audit_mesh_f.py).
+    g = _obj_groups(data / "track.obj", ("1ROAD_MAIN", "1ROAD", "1GRASS", "HWYSTRUCT", "1WALL", "1KERB"))
     g["1ROAD"] = g["1ROAD"] + g["1ROAD_MAIN"]   # full road set (main + shoulder) for B/H
     road_hash = _hash(g["1ROAD"], 8.0)
     road_hash4 = _hash(g["1ROAD"], 4.0)
@@ -307,10 +310,17 @@ def audit(project_dir: str | Path) -> dict:
                 continue           # a grounded post nearby: rail member, not a hover
             wall_float += 1; worst_float = max(worst_float, gap)
     # F. curb-not-flush — a KERB vert that meets NEITHER the road nor the ground within reach (a gap/step).
+    #    Reach 3.5 m: the height tolerance (|dy| < 0.5) is the defect being hunted — a curb stepped or
+    #    gapped VERTICALLY from everything around it. The reach only has to FIND the neighbour surface,
+    #    so it must exceed the built meshes' vertex spacing: on Sand Creek the sidewalk curb's nearest
+    #    road-vertex row is exactly 2.80 m away (measured over all 40 928 curb verts, worst case), so
+    #    the old 2.0 m reach flagged 6 250 perfectly-flush verts. 3.5 m covers that spacing with margin
+    #    and stays inside nearest_y's guaranteed +/-1-cell coverage (4.0 m at cell 4.0).
+    CURB_REACH = 3.5
     curb_bad = 0
-    for x, y, z in g["KERB"]:
-        near_r = any(abs(y - ry) < 0.5 for ry in nearest_y(road_hash4, x, z, 2.0, 4.0))
-        near_g = any(abs(y - ry) < 0.5 for ry in nearest_y(grass_hash4, x, z, 2.0, 4.0))
+    for x, y, z in g["1KERB"]:
+        near_r = any(abs(y - ry) < 0.5 for ry in nearest_y(road_hash4, x, z, CURB_REACH, 4.0))
+        near_g = any(abs(y - ry) < 0.5 for ry in nearest_y(grass_hash4, x, z, CURB_REACH, 4.0))
         if not (near_r or near_g):
             curb_bad += 1
     # I. sidewalk-isolating-pavement — Kevin's invariant: "sidewalks should never isolate driving
@@ -432,7 +442,7 @@ def audit(project_dir: str | Path) -> dict:
 
     report = {
         "slug": slug, "road_verts": len(g["1ROAD"]), "grass_verts": len(g["1GRASS"]), "piers": len(piers),
-        "wall_verts": len(g["1WALL"]), "curb_verts": len(g["KERB"]),
+        "wall_verts": len(g["1WALL"]), "curb_verts": len(g["1KERB"]),
         "A_supports_in_road": len(support_hits),
         "B_terrain_poke": len(poke_hits),
         "C_junction_crossings": len(cross),
@@ -459,7 +469,7 @@ def audit(project_dir: str | Path) -> dict:
     print(f"  C. at-grade junction crossings : {len(cross)}  ({report['C_by_kind']})")
     print(f"  D. walls sitting on a road     : {wall_on_road}")
     print(f"  E. walls floating over ground  : {wall_float}  (worst +{report['worst_float_m']} m)")
-    print(f"  F. curbs not flush             : {curb_bad}  (of {len(g['KERB'])} curb verts)")
+    print(f"  F. curbs not flush             : {curb_bad}  (of {len(g['1KERB'])} curb verts)")
     print(f"  G. plants floating over ground : {'(env not built)' if prop_float is None else prop_float}")
     print(f"  H. ground cutting into road    : {'(no ground grid)' if ground_cut is None else ground_cut}"
           f"  (worst +{report['worst_ground_cut_m']} m)")
