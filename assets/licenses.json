@@ -15,7 +15,10 @@
     {"name": "CorrugatedSteel002", "files": ["roof_diffuse.jpg", "roof_normal.jpg"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=CorrugatedSteel002"},
     {"name": "Procedural kerb stripe", "files": ["kerb_diffuse.png"], "source": "prodrive-ac-builder (generated)", "license": "CC0-1.0", "url": ""},
     {"name": "Street-name sign atlas", "files": ["signs_atlas.png"], "source": "prodrive-ac-builder (generated; system font is a build-time tool, not shipped)", "license": "CC0-1.0", "url": ""},
-    {"name": "Tree billboard (PLACEHOLDER)", "files": ["tree_diffuse.png"], "source": "placeholder — not a verified CC0 asset yet; replaced in the v0.6.0 props pass", "license": "UNVERIFIED", "url": ""}
+    {"name": "Tree billboard (PLACEHOLDER)", "files": ["tree_diffuse.png"], "source": "placeholder — not a verified CC0 asset yet; replaced in the v0.6.0 props pass", "license": "UNVERIFIED", "url": ""},
+    {"name": "Plaster004 (loop-path house props)", "files": ["house_diffuse.png"], "source": "ambientCG", "license": "CC0-1.0", "url": "https://ambientcg.com/view?id=Plaster004"},
+    {"name": "Palm trunk bark (loop-path 3D palms)", "files": ["palm_bark.png"], "source": "k10-san-diego scripts/assets/generate_textures.py (original procedural art)", "license": "CC0-1.0", "url": "https://github.com/k10-motorsports/k10-san-diego"},
+    {"name": "Palm frond, alpha cutout (loop-path 3D palms)", "files": ["palm_frond.png"], "source": "k10-san-diego scripts/assets/generate_textures.py (original procedural art)", "license": "CC0-1.0", "url": "https://github.com/k10-motorsports/k10-san-diego"}
   ],
   "stock_audio_note": "Surface scrub/rumble (data/surfaces.ini WAV=) references the player's own stock Assetto Corsa sounds (content/sfx). No audio is bundled or redistributed."
 }

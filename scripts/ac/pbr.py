@@ -17,7 +17,15 @@ TEXTURES = {
     "1ROAD":   ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.80, (0.10, 0.10, 0.11, 1), 0.0, False),  # cracked/alligator asphalt (LA Canyons lac_tarmac_cracked)
     "1RUNOFF": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.85, (0.16, 0.15, 0.14, 1), 0.0, False),
     "CALIB":   (None, None, 0.4, (1.0, 0.05, 0.6, 1), 0.9, False),  # bright emissive magenta — temp orientation poles
+    # 1KERB_SIDEWALK BEFORE 1KERB: prefix order = match priority. The loop-path street curb+sidewalk
+    # (build_kn5_loop renames CURB -> 1KERB_sidewalk) binds CONCRETE (grey), not the red racing kerb,
+    # and MUST carry a diffuse — a textureless kn5 material renders BLACK in-engine (the "curbs are
+    # black" bug). Bound to the documented-CC0 concrete tile (building_*); San Diego's local
+    # concrete_diffuse.jpg has no provenance entry in its licenses.json, so it stays out of the engine.
+    "1KERB_SIDEWALK": ("building_diffuse.jpg", "building_normal.jpg", 0.75, (0.66, 0.66, 0.64, 1), 0.0, False),
     "1KERB":   ("kerb_diffuse.png",    None,                 0.55, (0.62, 0.10, 0.08, 1), 0.0, False),
+    "CURB":    ("building_diffuse.jpg", "building_normal.jpg", 0.70, (0.64, 0.64, 0.66, 1), 0.0, False),   # concrete street curb (fallback if a loop mesh keeps this name)
+    "SIDEWALK": ("building_diffuse.jpg", "building_normal.jpg", 0.75, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete sidewalk slab
     "MARKINGS": ("line_white.png", None, 0.45, (0.88, 0.88, 0.85, 1), 0.0, False),  # white lane lines — solid-colour TEXTURE, not a bare colour: texture-less kn5 materials render BLACK in-engine (the San Diego lines-end-up-black bug)
     "YLINE":   ("line_yellow.png", None, 0.45, (0.85, 0.68, 0.10, 1), 0.0, False),  # double-yellow centreline (two-way roads, Lake Murray style)
     "ROADTEXT": ("roadtext_atlas.png", None, 0.5, (0.92, 0.92, 0.90, 1), 0.0, False),  # painted street-name decals (alpha cutout)
@@ -28,6 +36,10 @@ TEXTURES = {
     "RETWALL":  ("stone_tan.png", None, 0.85, (0.55, 0.48, 0.38, 1), 0.0, False),           # retaining wall body — task #17 consumer
     "1WALL_PARA": ("stone_tan.png", None, 0.85, (0.58, 0.51, 0.41, 1), 0.0, False),          # 1913 stone guard parapets (collidable; MUST precede the generic 1WALL entry — prefix match is dict-ordered)
     "1WALL_CHAINL": ("chainlink_diffuse.png", None, 0.6, (0.55, 0.56, 0.58, 1), 0.3, False),  # chain-link warning fences (Kevin: 'use chain link, not wood') — before 1WALL, dict-ordered
+    # 1WALL_GUARD BEFORE 1WALL: build_kn5_loop renames GUARDRAIL -> 1WALL_guard before materials
+    # bind, and prefix order = match priority — without the sub-prefix first it would fall through
+    # to the barrier-module tile. Low grey concrete rail (the loop's I-8 bridge rail).
+    "1WALL_GUARD": ("building_diffuse.jpg", "building_normal.jpg", 0.55, (0.74, 0.75, 0.77, 1), 0.10, False),
     "BUSHES":  ("bushes_atlas.png", None, 0.9, (0.36, 0.37, 0.24, 1), 0.0, False),  # dry scrub billboards (LA Canyons bo_bushes_11)
     "HIGHWAY": ("asphalt_cracked_diffuse.jpg", "asphalt_cracked_normal.jpg", 0.80, (0.30, 0.30, 0.32, 1), 0.0, False),  # I-70 deck
     "HWYSTRUCT": ("building_diffuse.jpg", "building_normal.jpg", 0.85, (0.68, 0.68, 0.66, 1), 0.0, False),  # concrete parapets/piers
@@ -57,6 +69,16 @@ TEXTURES = {
     "GANTRY":  ("warehouse_metal_diffuse.jpg", "warehouse_metal_normal.jpg", 0.50, (0.66, 0.68, 0.70, 1), 0.40, False),  # galvanized-steel overhead sign portal (SRP-style expressway gantry)
     "FWSIGN":  (None, None, 0.55, (0.06, 0.30, 0.16, 1), 0.0, False),  # green US freeway overhead sign panel
     "PALMS":   ("palms_atlas.png", None, 0.85, (0.20, 0.34, 0.14, 1), 0.0, False),  # California fan palm billboards (SoCal surface streets)
+    # loop-path 3D vegetation (San Diego Blender-first scenes): tapered palm trunks + drooping
+    # fan-crown frond cards, broadleaf yard trees, dry chaparral scrub.
+    "PALMTRUNK": ("palm_bark.png", None, 0.90, (0.45, 0.38, 0.28, 1), 0.0, False),  # tapered palm trunk (procedural bark)
+    "PALMFROND": ("palm_frond.png", None, 0.72, (0.24, 0.40, 0.16, 1), 0.0, False),  # drooping fan-crown leaf cards (alpha cutout)
+    "TREETRUNK": ("palm_bark.png", None, 0.92, (0.34, 0.26, 0.18, 1), 0.0, False),  # broadleaf shade-tree trunk (bark)
+    "TREECANOPY": (None, None, 0.94, (0.21, 0.36, 0.16, 1), 0.0, False),            # opaque green shade canopy (off-road, in yards)
+    "SCRUB":    (None, None, 0.95, (0.40, 0.42, 0.25, 1), 0.0, False),              # dry chaparral bush on the open hillsides
+    "HOUSE": ("house_diffuse.png", None, 0.88, (0.60, 0.55, 0.48, 1), 0.0, False),  # plaster house props on residential streets (no normal map shipped — CC0 diffuse only)
+    "BLDGPLAIN": (None, None, 0.90, (0.72, 0.71, 0.68, 1), 0.0, False),  # extruded OSM footprints, FLAT concrete colour, NO mined sample texture
+    "GREEN": (None, None, 0.92, (0.24, 0.42, 0.18, 1), 0.0, False),       # lush green grass over golf/park/open-space OSM zones (flat colour, ksGrass-like)
     "TREES":   ("trees_atlas.png", None, 0.90, (0.13, 0.30, 0.11, 1), 0.0, False),  # mined Colorado 2x2 broadleaf cutout atlas
     "CONIFER": ("conifer_atlas.png", None, 0.90, (0.09, 0.20, 0.09, 1), 0.0, False),  # pine/spruce billboards (mountain tracks, scenery.tree_style "conifer")
     "LIGHTS":  ("solid_lens_warm.png", None, 0.40, (0.95, 0.82, 0.42, 1), 0.4, False),  # cobra-head lamp lens — SOLID TEXTURE (texture-less = renders BLACK); CSP adds ksEmissive at night
@@ -72,7 +94,7 @@ TEXTURES = {
 # materials drawn as alpha-cutout — wire the texture alpha + clip the transparent bg (trees as
 # billboards; painted street names as flat road decals). The export addon also reads this set to set
 # ALPHATEST=1 on these materials so the kn5 cuts out the transparent background in-engine.
-BILLBOARD = {"TREES", "CONIFER", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS", "EUROSIGN"}
+BILLBOARD = {"TREES", "CONIFER", "ROADTEXT", "BUSHES", "CHAINLINK", "PALMS", "EUROSIGN", "PALMFROND"}
 
 # Shader property overrides written into the kn5 material (export_kn5_addon persistence INI).
 # WHY: materials shipped with NO properties -> AC falls back to shader defaults (ksDiffuse ~1.0).
@@ -85,6 +107,7 @@ KS_PROPS = {
     "TREES":    {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
     "BUSHES":   {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
     "PALMS":    {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
+    "PALMFROND": {"ksAmbient": 0.55, "ksDiffuse": 0.10, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
     "FENCEWOOD": {"ksAmbient": 0.45, "ksDiffuse": 0.35, "ksSpecular": 0.05, "ksSpecularEXP": 8.0},
     "1GRASS":   {"ksAmbient": 0.50, "ksDiffuse": 0.22, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
     "POLE":     {"ksAmbient": 0.40, "ksDiffuse": 0.15, "ksSpecular": 0.0, "ksSpecularEXP": 1.0},
