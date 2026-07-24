@@ -9,6 +9,7 @@ transient 504s the public instance occasionally returns.
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -21,10 +22,25 @@ Vertex = tuple[float, float]
 
 
 def build_query(bbox: tuple[float, float, float, float], road_names: list[str], timeout: int = 90) -> str:
-    """Build an Overpass QL query: every named way (clipped to bbox), returned with geometry."""
+    """Build an Overpass QL query: every named way (clipped to bbox), returned with geometry.
+
+    A ``"ref:US 40"`` entry matches by the ``ref`` tag instead of ``name`` — how numbered highways
+    whose ways are unnamed in OSM (rural US routes) get onto a route. Motorways are excluded from
+    ref matches so a US-route ref that rides an interstate concurrency never drags the freeway in.
+    An ``"id:123,456"`` entry selects explicit way ids — for the nameless, refless pieces a real
+    route needs (interchange ramps: the Lariat lap leaves US-6 on the 19th St off-ramp).
+    """
     south, west, north, east = bbox
     bb = f"({south},{west},{north},{east})"
-    clauses = "".join(f'  way["highway"]["name"={json.dumps(n)}]{bb};\n' for n in road_names)
+    clauses = ""
+    for n in road_names:
+        if n.startswith("ref:"):
+            ref_re = json.dumps(f"(^|;)\\s*{re.escape(n[4:])}\\s*(;|$)")
+            clauses += f'  way["highway"]["highway"!~"motorway"]["ref"~{ref_re}]{bb};\n'
+        elif n.startswith("id:"):
+            clauses += f'  way(id:{n[3:]});\n'
+        else:
+            clauses += f'  way["highway"]["name"={json.dumps(n)}]{bb};\n'
     return f"[out:json][timeout:{timeout}];\n(\n{clauses});\nout geom;"
 
 
@@ -53,13 +69,25 @@ def fetch_ways(
             time.sleep(2 * (attempt + 1))  # back off on transient 504/timeout
 
     out: dict[str, list[list[Vertex]]] = {n: [] for n in road_names}
+    refs = {n: n[4:] for n in road_names if n.startswith("ref:")}
+    ids = {n: {int(i) for i in n[3:].split(",")} for n in road_names if n.startswith("id:")}
     for el in payload.get("elements", []):
         if el.get("type") != "way":
             continue
-        name = el.get("tags", {}).get("name")
+        tags = el.get("tags", {})
         geom = [(g["lon"], g["lat"]) for g in el.get("geometry") or []]
-        if name in out and len(geom) >= 2:
+        if len(geom) < 2:
+            continue
+        name = tags.get("name")
+        if name in out:
             out[name].append(geom)
+        way_refs = [r.strip() for r in (tags.get("ref") or "").split(";")]
+        for entry, ref in refs.items():
+            if ref in way_refs and "motorway" not in (tags.get("highway") or ""):
+                out[entry].append(geom)
+        for entry, wanted in ids.items():
+            if el.get("id") in wanted:
+                out[entry].append(geom)
     return out
 
 
@@ -83,6 +111,25 @@ def _post(query: str, *, retries: int = 3) -> dict:
                 raise
             time.sleep(2 * (attempt + 1))
     return {}
+
+
+def fetch_drivable_ways(bbox: tuple[float, float, float, float], *, timeout: int = 120) -> list[dict]:
+    """Every drivable OSM way in the bbox, for map-matching: ``[{id, name, highway, geom:[(lon,lat)]}]``.
+    Unlike :func:`fetch_ways` (named route roads only), this pulls the whole road network so a recorded
+    drive can be snapped onto it regardless of what the streets are called."""
+    s, w, n, e = bbox
+    query = (f'[out:json][timeout:{timeout}];\n'
+             f'way["highway"~"^({DRIVABLE})$"]({s},{w},{n},{e});\nout geom;')
+    payload = _post(query)
+    out: list[dict] = []
+    for el in payload.get("elements", []):
+        if el.get("type") != "way":
+            continue
+        geom = [(g["lon"], g["lat"]) for g in el.get("geometry") or []]
+        if len(geom) >= 2:
+            out.append({"id": el.get("id"), "name": el.get("tags", {}).get("name"),
+                        "highway": el.get("tags", {}).get("highway"), "geom": geom})
+    return out
 
 
 def fetch_highways_by_class(

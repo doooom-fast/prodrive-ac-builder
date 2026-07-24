@@ -31,8 +31,13 @@ from pathlib import Path
 DRIVABLE = ("1ROAD", "1GRASS", "1KERB", "1RUNOFF", "1LAWN")
 VERT_CAP = 65535
 FACE_UP_MIN = 0.90          # ≥90% of a drivable mesh's faces must point up (rest = holes_fill scraps)
-PIT_ROAD_MAX_M = 8.0        # a pit/start box must be within this of a 1ROAD vertex
+PIT_ROAD_MAX_M = 13.5       # a pit/start box must be within this of a 1ROAD vertex — the nearest road vert
+#                            is an EDGE vert, so a centreline spawn sits ~half-width away; real widths +
+#                            junction flares reach ~25 m wide, so allow ~half of that (was 8 m for ~16 m roads)
 PIT_DY_MAX_M = 1.0          # ...and within this height of it
+POKE_ABOVE_M = 0.15         # a 1GRASS vert this far above a nearby drivable (road/kerb) vert = a poke
+POKE_R = 5.0                # horizontal reach (matches geometry/audit_mesh.py check B)
+POKE_MAX = 20               # tolerate a handful of holes_fill scraps; more = the seam regressed
 
 
 def _parse(path: Path) -> tuple[list, list]:
@@ -96,7 +101,7 @@ def _parse(path: Path) -> tuple[list, list]:
                     up += 1
                 elif ny < 0:
                     dn += 1
-            meshes.append({"name": name, "up": up, "dn": dn, "nverts": vc, "P": P})
+            meshes.append({"name": name, "up": up, "dn": dn, "nverts": vc, "P": P, "T": idx})
             for _ in range(cc):
                 rd(par)
         else:
@@ -157,6 +162,54 @@ def verify(project_dir: str | Path) -> list[str]:
                 d = math.hypot(nr[0] - x, nr[2] - z)
                 if d > PIT_ROAD_MAX_M or abs(y - nr[1]) > PIT_DY_MAX_M:
                     fails.append(f"SPAWN off-road '{spk.name}:{nm}': {d:.1f} m from road, dY {y - nr[1]:+.1f} m")
+
+    # 6. terrain-poke ON THE SHIPPED BINARY — a 1GRASS vert sitting above the drivable surface AT
+    #    ITS OWN XZ launches the car. audit_mesh checks this on track.obj (pre-export); this re-checks
+    #    the kn5 AFTER the weld + holes_fill + export so a regression there can't ship silently.
+    #    FOOTPRINT-EXACT like the audit: barycentric over the drivable triangles directly at the grass
+    #    vert, near-vertical tris excluded (paved skirts are walls; the shoulder's buried hem verts are
+    #    0.8 m into dirt by design), 20 m layer window for stacked legs. Vertex-radius here false-flagged
+    #    the contact bench at +1.24 against buried hem tips. A regular clean build reads 0.
+    grass = [v for m in meshes if m["name"].upper().startswith("1GRASS") for v in m["P"]]
+    dtris: dict[tuple[int, int], list] = {}
+    cell = 8.0
+    for m in meshes:
+        if not any(m["name"].upper().startswith(p) for p in ("1ROAD", "1KERB")):
+            continue
+        P, idx = m["P"], m["T"]
+        for t in range(0, len(idx) - 2, 3):
+            a, b, c = P[idx[t]], P[idx[t + 1]], P[idx[t + 2]]
+            ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+            vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+            nx = uy * vz - uz * vy; ny = uz * vx - ux * vz; nz = ux * vy - uy * vx
+            nl = math.sqrt(nx * nx + ny * ny + nz * nz) or 1e-12
+            if abs(ny) / nl < 0.5:
+                continue                       # wall-steep (skirt/hem face), not a surface
+            xs = (a[0], b[0], c[0]); zs = (a[2], b[2], c[2])
+            for ci in range(int(min(xs) // cell), int(max(xs) // cell) + 1):
+                for cj in range(int(min(zs) // cell), int(max(zs) // cell) + 1):
+                    dtris.setdefault((ci, cj), []).append((a, b, c))
+    if dtris and grass:
+        pokes = worst = 0
+        for gx, gy, gz in grass:
+            surf = None
+            for a, b, c in dtris.get((int(gx // cell), int(gz // cell)), ()):
+                d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2])
+                if abs(d) < 1e-12:
+                    continue
+                w0 = ((b[2] - c[2]) * (gx - c[0]) + (c[0] - b[0]) * (gz - c[2])) / d
+                w1 = ((c[2] - a[2]) * (gx - c[0]) + (a[0] - c[0]) * (gz - c[2])) / d
+                w2 = 1.0 - w0 - w1
+                if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
+                    y = w0 * a[1] + w1 * b[1] + w2 * c[1]
+                    if abs(y - gy) <= 20.0 and (surf is None or y < surf):
+                        surf = y
+            if surf is not None and gy > surf + POKE_ABOVE_M:
+                pokes += 1
+                worst = max(worst, gy - surf)
+        if pokes > POKE_MAX:
+            fails.append(f"TERRAIN POKE x{pokes} (worst +{worst:.2f} m) — 1GRASS pokes through the "
+                         f"drivable surface in the exported kn5 (>{POKE_MAX} tolerated)")
     return fails
 
 

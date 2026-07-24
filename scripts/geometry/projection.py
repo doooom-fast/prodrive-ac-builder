@@ -62,6 +62,32 @@ def build(project_dir: str | Path) -> dict:
     elev = json.loads((data / "centerline.elevation.json").read_text(encoding="utf-8"))
     z = elev["z_smooth_m"]
 
+    # ROUTE ORIENTATION — applied here (not just in the OSM gps stage) so EVERY source type
+    # (aerial trace, KML, GPS drive) gets it, and the parallel widths/elevation arrays stay aligned.
+    #   route.reverse  = true       -> run the lap in the opposite direction (the REAL race direction;
+    #                                  practicing a circuit backwards is worthless).
+    #   route.start_at = [lat, lon] -> rotate the ring so station 0 (start/finish, pits, hotlap spawn)
+    #                                  sits at the real start line.
+    route = cfg.raw.get("route", {}) or {}
+    if route.get("reverse") or route.get("start_at"):
+        was_closed = len(coords) > 2 and coords[0] == coords[-1]
+        if was_closed:
+            coords, widths, z = coords[:-1], widths[:-1], z[:-1]
+        if route.get("reverse"):
+            coords, widths, z = coords[::-1], widths[::-1], z[::-1]
+            print("  [projection] route.reverse: lap direction flipped")
+        sa = route.get("start_at")
+        if sa and cfg.loop and len(coords) > 2:
+            m_lon, m_lat = _meters_per_degree(float(sa[0]))
+            k = min(range(len(coords)),
+                    key=lambda i: ((coords[i][0] - float(sa[1])) * m_lon) ** 2
+                                + ((coords[i][1] - float(sa[0])) * m_lat) ** 2)
+            if k:
+                coords, widths, z = coords[k:] + coords[:k], widths[k:] + widths[:k], z[k:] + z[:k]
+                print(f"  [projection] route.start_at: ring rotated by {k} points to the real start line")
+        if was_closed:
+            coords, widths, z = coords + [coords[0]], widths + [widths[0]], z + [z[0]]
+
     # origin: default = centroid of THIS centerline; but config.origin may pin a SHARED origin (a
     # {lon,lat,elev_m} dict) so a detailed track builds in another map's frame (K10 merge) — its mesh
     # then lands directly in that frame, ready to import into one shared kn5 with no post-translation.
@@ -90,8 +116,12 @@ def build(project_dir: str | Path) -> dict:
     }
     (data / "centerline.local.json").write_text(json.dumps(out), encoding="utf-8")
 
-    # Persist the resolved true north back to the source of truth (default projection => 0).
-    cfg.write_back(true_north_rotation_deg=0.0)
+    # Persist the resolved true north back to the source of truth — but only when it has never been
+    # resolved. The lighting stage (csp_config.resolve_true_north) owns the real value (180 on
+    # mirror_x tracks); a re-run of projection must not clobber it back to 0 or the exported sun
+    # sets in the east.
+    if cfg.raw.get("true_north_rotation_deg") is None:
+        cfg.write_back(true_north_rotation_deg=0.0)
 
     write_plan_svg(local, ys, data / "plan_view.svg")
     return {k: out[k] for k in ("extent_x_m", "extent_z_m", "height_m", "point_count")} | {

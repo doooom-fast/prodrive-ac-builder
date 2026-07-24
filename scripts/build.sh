@@ -67,16 +67,37 @@ active gps     && { run gps     "$PY" -m scripts.gps.centerline "$PROJ"
                     run gps     "$PY" -m scripts.gps.street_labels "$PROJ"; }
 active elev    &&   run elev    "$PY" -m scripts.elevation.heightfield "$PROJ"
 active project &&   run project "$PY" -m scripts.geometry.projection "$PROJ"
+# Real street circuits (osm_road_widths=true): replace the flat default width with per-vertex OSM
+# lane-derived curb-to-curb widths + intersection pads. Runs after project (which writes the widths it
+# overrides) and hits Overpass. Racetracks keep their configured widths.
+active project && [ "$($PY -c "import json;print(json.load(open('$PROJ/track.config.json')).get('osm_road_widths',False))")" = "True" ] \
+               &&  run widths  "$PY" -m scripts.gps.widths_from_osm "$PROJ"
 active mesh    &&   run mesh    "$PY" -m scripts.geometry.build_mesh "$PROJ"
 active env     &&   run env     "$PY" -m scripts.environment.build_env "$PROJ"
+# Gates: the virtual DRIVE TEST (wheel paths over the built triangles) AND the mesh audit
+# (geometry classes incl. E: walls floating over ground — the check that would have caught the
+# hovering barrier runs v0.7.4 shipped with). A FAIL in either aborts before Blender/kn5.
+active env     &&   run drive   "$PY" -m scripts.geometry.drive_test "$PROJ"
+active env     &&   run audit   "$PY" -m scripts.geometry.audit_mesh "$PROJ"
 
 if active blend || active kn5; then
-  BLENDER="${BLENDER:-$("$ROOT/scripts/bootstrap_blender.sh")}"   # pin/download Blender 4.2 if needed
-  active blend && run blend "$BLENDER" --background --python scripts/ac/build_kn5.py -- "$PROJ"
-  active kn5   && run kn5   "$BLENDER" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ"
+  if [[ "${KN5_WRITER:-blender}" == "native" ]]; then
+    # NATIVE PATH (KN5_WRITER=native): write the kn5 straight from the audited OBJs with
+    # scripts/ac/kn5_write.py — no Blender import/weld/yaw/exporter between the geometry the gates
+    # measure and the bytes the driver loads. Fidelity reads 0.00 m by construction. No .blend is
+    # produced (use the default path when a hand-editable scene is needed).
+    active kn5 && run kn5 "$PY" -m scripts.ac.kn5_write "$PROJ"
+  else
+    BLENDER="${BLENDER:-$("$ROOT/scripts/bootstrap_blender.sh")}"   # pin/download Blender 4.2 if needed
+    active blend && run blend "$BLENDER" --background --python scripts/ac/build_kn5.py -- "$PROJ"
+    active kn5   && run kn5   "$BLENDER" --background --python scripts/ac/export_kn5_addon.py -- "$PROJ"
+  fi
   # Gate: assert the exported kn5 is actually drivable (no dup meshes, drivable surfaces face-up, spawns
   # on the road) — every past fall-through, encoded as a check. A failure aborts BEFORE packaging/release.
   active kn5   && run verify "$PY" -m scripts.ac.verify_kn5 "$PROJ"
+  # Gate: the SHIPPED kn5 must equal the audited OBJs up to the configured yaw (kn5 fidelity).
+  # Catches assembly bugs (dropped/displaced groups, stale meshes) that no OBJ-stage gate can see.
+  active kn5   && run fidelity "$PY" -m scripts.ac.kn5_ground_check "$PROJ"
 fi
 
 if active pack; then
@@ -94,11 +115,12 @@ with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED, 6) as z:
             z.write(f, f.relative_to(root))
 print(f"  -> {zp}  ({zp.stat().st_size/1e6:.1f} MB)")
 PY
-  # publish the installable folder to a committed, git-pullable location (tracks/<slug>/). The .svg
-  # render previews are OURS, not AC assets (CM uses preview.png) — exclude them to keep it lean.
-  mkdir -p "$ROOT/tracks/$SLUG"
-  rsync -a --delete --exclude='*.svg' "$PROJ/build/$SLUG/" "$ROOT/tracks/$SLUG/"
-  find "$ROOT/tracks/$SLUG" -name '*.svg' -delete 2>/dev/null || true
-  echo "  synced -> tracks/$SLUG/  (git pull lands this in content/tracks via a junction/symlink)"
+  # NOTE: build.sh used to publish the content folder to tracks/<slug>/ via `rsync -a --delete`.
+  # When the AC slug equals a track/project dir name, that --delete rsync WIPES the track's own
+  # config/source/data (it did exactly that in the k10-colorado layout, where tracks/<slug>/ IS the
+  # source project dir). The installable deliverable is build/<slug>_v<ver>.zip (+ build/<slug>/);
+  # publish to tracks/ by hand if a git-pullable copy is wanted. Do NOT re-add an rsync --delete
+  # that writes into tracks/<slug>/.
+  echo "  installable: $PROJ/build/${SLUG}_v${VER}.zip  (+ folder $PROJ/build/$SLUG/)"
 fi
 echo; echo "✓ build complete: $PROJ ($SLUG v$VER)"

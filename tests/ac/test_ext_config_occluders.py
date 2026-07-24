@@ -26,13 +26,18 @@ ALL_GROUPS = [
 ]
 
 
-def _occluding_line(groups):
+def _generate(groups, *, grassfx=True):
     d = Path(tempfile.mkdtemp())
     (d / "data").mkdir()
-    (d / "track.config.json").write_text(json.dumps({"slug": "t"}))
+    # GrassFX (and with it the occluder list) is OPT-IN per track via lighting.grassfx: over a huge
+    # network its occlusion field busts the GPU watchdog (whole-PC freeze), so the default is OFF.
+    (d / "track.config.json").write_text(json.dumps({"slug": "t", "lighting": {"grassfx": grassfx}}))
     (d / "data" / "environment.obj").write_text("\n".join(f"o {g}" for g in groups) + "\n")
-    cfg = ext_config.generate(d)
-    for ln in cfg.read_text().splitlines():
+    return ext_config.generate(d).read_text()
+
+
+def _occluding_line(groups):
+    for ln in _generate(groups).splitlines():
         if ln.startswith("OCCLUDING_MESHES"):
             return [s.strip() for s in ln.split("=", 1)[1].split(",") if s.strip()]
     raise AssertionError("no OCCLUDING_MESHES line emitted")
@@ -51,3 +56,11 @@ def test_farfield_foliage_and_thin_props_never_occlude():
     for banned in ("MOUNTAINS", "HIGHWAY", "HWYSTRUCT", "TREES", "BUSHES",
                    "LIGHTS", "POLE", "WIRE", "SIGNS", "SIGNPOST", "CHAINLINK"):
         assert banned not in occ, f"{banned} must NOT be a GrassFX occluder (PC-freeze risk / cosmetic)"
+
+
+def test_grassfx_defaults_off_and_emits_no_occluders():
+    # the other half of the crash guard: without lighting.grassfx=true, NO [GRASS_FX] section (and no
+    # occluder list) may be emitted — big networks must stay watchdog-safe by default.
+    txt = _generate(ALL_GROUPS, grassfx=False)
+    assert "[GRASS_FX]" not in txt
+    assert "OCCLUDING_MESHES" not in txt
