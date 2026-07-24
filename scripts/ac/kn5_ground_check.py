@@ -25,7 +25,13 @@ from scripts.ac.verify_kn5 import _parse
 
 BUCKETS = ("1ROAD_MAIN", "1ROAD_SHOULDER", "1GRASS", "1WALL", "1KERB", "1RUNOFF",
            "LIGHTPOST", "LIGHTS", "LAMPHEAD", "FENCEWOOD", "CONIFER", "MARKINGS", "YLINE",
-           "HIGHWAY", "HWYSTRUCT", "EUROSIGN", "SIGNPOST", "GANTRY")
+           "HIGHWAY", "HWYSTRUCT", "EUROSIGN", "SIGNPOST", "GANTRY",
+           # generic road bucket LAST (prefix match is first-hit): catches road groups that are
+           # not named 1ROAD_MAIN/_SHOULDER — network tracks (1ROAD_part*) and Blender-first loop
+           # tracks (1ROAD_road). CO-style names still land in their specific buckets above.
+           "1ROAD",
+           # loop-path (Blender-first) props
+           "PALMTRUNK", "TREETRUNK", "SCRUB", "BUILDING", "HOUSE", "CURB")
 TOL = 0.08          # m — importer/exporter float chatter is ~mm; anything real is metres
 SAMPLE = 23         # every Nth vert per bucket
 ROAD_GAP_M = 0.05   # deck vs the MOUNTAIN (grass only). Construction pins the world at
@@ -140,14 +146,22 @@ def check(project_dir: str | Path) -> dict:
         return h
 
     fails: list[str] = []
-    print(f"KN5 FIDELITY {kn5p.name}  (yaw {math.degrees(yaw):.0f} deg)")
+    # KN5-INTERNAL MODE (loop front-end): a Blender-first project has NO generated OBJs — there is
+    # nothing to compare the kn5 against, so the fidelity half (alignment + per-bucket vertex
+    # matching) is skipped honestly rather than failing "missing on one side". Every kn5-only
+    # physical check below (double-sheet terrain, base seating, lamp integrity, road-over-ground)
+    # still runs on the shipped binary. Do NOT fake OBJs to force the fidelity half.
+    has_objs = any(obj.values())
+    print(f"KN5 FIDELITY {kn5p.name}  (yaw {math.degrees(yaw):.0f} deg)"
+          + ("" if has_objs else "  [Blender-authored: no source OBJs — kn5-internal checks only]"))
 
-    # pick the working un-rotation on the road bucket
-    road_h = hash_pts(obj.get("1ROAD_MAIN", []))
+    # pick the working un-rotation on the road buckets (specific + generic road names)
+    road_h = hash_pts(obj.get("1ROAD_MAIN", []) + obj.get("1ROAD", []))
+    kn5_road = kn5.get("1ROAD_MAIN", []) + kn5.get("1ROAD", [])
     unrot = None
-    for cand in unrots:
+    for cand in (unrots if has_objs else []):
         ok = 0
-        pts = kn5.get("1ROAD_MAIN", [])[:: max(1, len(kn5.get("1ROAD_MAIN", [])) // 200)]
+        pts = kn5_road[:: max(1, len(kn5_road) // 200)]
         for x, y, z in pts:
             ox, oy, oz = cand(x, y, z)
             ci, cj = int(ox // 2.0), int(oz // 2.0)
@@ -159,11 +173,12 @@ def check(project_dir: str | Path) -> dict:
             unrot = cand
             break
     if unrot is None:
-        print("  !! could not align kn5 road to OBJ road under either yaw convention")
-        fails.append("1ROAD_MAIN unalignable")
+        if has_objs:
+            print("  !! could not align kn5 road to OBJ road under either yaw convention")
+            fails.append("1ROAD unalignable")
         unrot = unrots[0]
 
-    for b in BUCKETS:
+    for b in (BUCKETS if has_objs else ()):
         src, dst = obj.get(b, []), kn5.get(b, [])
         if not src and not dst:
             continue
@@ -289,7 +304,8 @@ def check(project_dir: str | Path) -> dict:
                             best = yv
         return best
     for b, label in (("1WALL", "walls"), ("FENCEWOOD", "fences"), ("LIGHTPOST", "lampposts"),
-                     ("GANTRY", "pylons"), ("SIGNPOST", "signposts")):
+                     ("GANTRY", "pylons"), ("SIGNPOST", "signposts"),
+                     ("PALMTRUNK", "palms"), ("TREETRUNK", "trees")):   # loop-path 3D vegetation
         pts_b = kn5.get(b, [])
         if not pts_b:
             continue
@@ -497,7 +513,7 @@ def check(project_dir: str | Path) -> dict:
     # shoulder/kerb/underside apron is the road resting on itself — self-referential support let a
     # metre of air over the ACTUAL mountain read as median 0.00. The reference is the terrain.
     ground_h = hash_pts(kn5.get("1GRASS", []), cell=6.0)
-    road = kn5.get("1ROAD_MAIN", [])
+    road = kn5_road
     gaps_c = []
     tot = 0
     for x, y, z in road[::7]:

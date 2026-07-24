@@ -304,7 +304,10 @@ def generate(project_dir: str | Path, kn5_name: str | None = None) -> dict:
 
     # Network tracks (top-level "network" config block, or built from network.geojson) carry the
     # swept 1WALL_* freeway barriers and need the WALL surface entry; circuits don't emit one.
-    wall_surface = bool(cfg.raw.get("network")) or net is not None
+    # Loop-path (Blender-first) tracks carry hand-authored 1WALL_guard rails, so a project with a
+    # loop.blend gets the entry too (build_kn5_loop renames GUARDRAIL -> 1WALL_guard).
+    wall_surface = (bool(cfg.raw.get("network")) or net is not None
+                    or (project_dir / "loop.blend").exists())
 
     out = project_dir / "build" / cfg.slug
     (out / "data").mkdir(parents=True, exist_ok=True)
