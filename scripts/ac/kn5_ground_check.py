@@ -268,22 +268,37 @@ def check(project_dir: str | Path) -> dict:
                    for sx2, sz2 in span_h.get((ci + di, cj + dj), ()))
 
     tri_h = defaultdict(list)
+    tri_sup = defaultdict(list)     # SUPPORT for feet: terrain + drivable decks + HWYSTRUCT structure
     tri_pav = defaultdict(list)
     tri_grs = defaultdict(list)
     for _mn, _mp, _mi in _parse_tris(kn5p):
         _up9 = _mn.upper()
-        if _up9.startswith(("1ROAD", "1GRASS", "1KERB")):
+        if _up9.startswith(("1ROAD", "1GRASS", "1KERB", "HWYSTRUCT")):
             for _t in range(0, len(_mi) - 2, 3):
                 _a, _b, _c = _mp[_mi[_t]], _mp[_mi[_t + 1]], _mp[_mi[_t + 2]]
                 _key9 = (int((_a[0] + _b[0] + _c[0]) / 3 // 8), int((_a[2] + _b[2] + _c[2]) / 3 // 8))
+                tri_sup[_key9].append((_a, _b, _c))
+                if _up9.startswith("HWYSTRUCT"):
+                    continue        # structural decks SUPPORT walls but are not terrain/pavement
                 tri_h[_key9].append((_a, _b, _c))
                 (tri_pav if _up9.startswith("1ROAD") else tri_grs)[_key9].append((_a, _b, _c))
 
-    def tri_surf(x, z, y_near):
-        best = None
+    # Layer window for foot support (San Diego lesson): walls/barriers legitimately stand on
+    # ELEVATED 1ROAD + HWYSTRUCT decks — measured against bare earth alone, the freeway proof read
+    # "walls hovering 40.3%" while ~96% of feet sat at their own height on decks. Support is the
+    # surface CLOSEST to the foot's own height within SUPPORT_WIN (same layer-window idiom as
+    # build_mesh's 3.5 m seating window), so stacked interchange decks don't cross-grab: the old
+    # highest-within-25 m rule let an upper deck 15 m overhead read a lower-deck foot as "seated".
+    # A foot with NOTHING inside the window is measured against the highest surface BELOW it
+    # (never one far above), so a genuine hover over distant ground still gaps loudly.
+    SUPPORT_WIN = 4.0
+
+    def tri_surf(x, z, y_near, tris=None, win=None):
+        h9 = tri_h if tris is None else tris
+        cands = []
         for di in (-1, 0, 1):
             for dj in (-1, 0, 1):
-                for a, b, c2 in tri_h.get((int(x // 8) + di, int(z // 8) + dj), ()):
+                for a, b, c2 in h9.get((int(x // 8) + di, int(z // 8) + dj), ()):
                     d0 = (b[2] - c2[2]) * (a[0] - c2[0]) + (c2[0] - b[0]) * (a[2] - c2[2])
                     if abs(d0) < 1e-12:
                         continue
@@ -300,9 +315,17 @@ def check(project_dir: str | Path) -> dict:
                     w2 = 1 - w0 - w1
                     if w0 >= -1e-6 and w1 >= -1e-6 and w2 >= -1e-6:
                         yv = w0 * a[1] + w1 * b[1] + w2 * c2[1]
-                        if abs(yv - y_near) < 25 and (best is None or yv > best):
-                            best = yv
-        return best
+                        if abs(yv - y_near) < 25:
+                            cands.append(yv)
+        if not cands:
+            return None
+        if win is None:
+            return max(cands)           # legacy: highest surface near the reference
+        inwin = [yv for yv in cands if abs(yv - y_near) <= win]
+        if inwin:
+            return min(inwin, key=lambda yv: abs(yv - y_near))
+        below = [yv for yv in cands if yv <= y_near + win]
+        return max(below) if below else None
     for b, label in (("1WALL", "walls"), ("FENCEWOOD", "fences"), ("LIGHTPOST", "lampposts"),
                      ("GANTRY", "pylons"), ("SIGNPOST", "signposts"),
                      ("PALMTRUNK", "palms"), ("TREETRUNK", "trees")):   # loop-path 3D vegetation
@@ -332,7 +355,8 @@ def check(project_dir: str | Path) -> dict:
         for x, base, z in feet:
             if b in ("1WALL", "FENCEWOOD") and on_bridge_span(x, z):
                 continue        # bridge railing over the creek/underpass — floating is its function
-            g2 = tri_surf(x, z, base)
+            # feet may legitimately stand on elevated 1ROAD/HWYSTRUCT decks: support hash + window
+            g2 = tri_surf(x, z, base, tris=tri_sup, win=SUPPORT_WIN)
             if g2 is None:
                 nog += 1
             else:
