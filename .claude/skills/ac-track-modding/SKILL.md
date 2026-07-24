@@ -85,6 +85,18 @@ one-shotting is a CONFIG exercise, not a code exercise.
     "fill_per_station": 6, "fill_range_m": 220,
     "forest3d": {"module": "pine|poplar", "spacing_m": 24, "off_min_m": 7, "off_max_m": 26,
                  "cap": 700, "scale_min": 2.2, "scale_max": 4.2},
+    "treefx": {                                                 // OPT-IN CSP TreeFX (Mac-native, no kn5 bake)
+      "enabled": false,                                         // ON => reuses the SAME foliage positions as
+      "seed": 20260724,                                         //       config; emits extension/trees/trees.txt
+      "zones": {                                                //       + [TREES], NO baked billboards
+        "forest": {"source": "fill_terrain",
+                   "species": ["MRS_pine_high_2_1.bin", "MRS_Sapin_3_0_high.bin", "treePine1"],
+                   "size_variance": [0.85, 1.15],
+                   "density": {"by": "elevation", "elev_lo_m": 1750, "elev_hi_m": 2100,
+                               "keep_lo": 0.2, "keep_hi": 1.0, "curve": 1.4,
+                               "aspect_bonus": 0.25, "aspect_favored": ["N", "E"]}}
+      }
+    },
     "road_signs": {"enabled": true},                            // MUTCD diamonds at turn entries
     "fences": [ {"start_m": 0, "end_m": 999, "side": 1, "offset_m": 8} ]   // right-of-way lines
   }
@@ -210,6 +222,38 @@ unusable — ask for FBX/OBJ.
   three probe schemes; the exact per-vertex filter ended it).
 - When a driver says "make the test fail on this" — encode it as a HARD gate with no advisory
   mode, then let the gate drive the fix loop. It caught three further regressions same-day.
+
+## Vegetation: TreeFX + GrassFX (Mac-native, no kn5 bake)
+
+An alternative to baking billboard/OBJ foliage into the kn5: emit CSP config that renders **3D
+TreeFX** trees + **GrassFX** grass at runtime. Emitter `scripts/environment/treefx.py` (pure stdlib);
+full reference **`docs/TREEFX-FORMAT.md`**.
+
+- **License-clean — reference, DON'T bundle.** The `.bin` tree **models** are third-party, licensed,
+  **user-supplied**. We never download/commit them (`*.bin` is gitignored). We only generate config
+  that references a species by its `.bin` **filename**; a build **logs the expected filenames** and
+  writes an `extension/trees/README` manifest. A missing model renders nothing (harmless). The
+  `trees.txt` + `[TREES]` we generate are ours and fine to commit.
+- **Path.** `scenery.treefx.enabled` gates it. build_env reuses the SAME foliage positions (ground-Y
+  sampled, pavement/clearance-rejected) but records them to a `TreeFXCollector` instead of building
+  billboards → writes `data/treefx.json`; `ext_config.generate()` renders
+  `extension/trees/trees.txt` + the `[TREES]`/`[GRASS_FX]` sections. Legacy baked path is unchanged
+  when the flag is off.
+- **`trees.txt` grammar** (validated vs docs + a real pack): `tree: <model>.bin; X, Y, Z` — **filename
+  first** (= species id), then position (metres, **Y up**); extended form
+  `tree: m.bin; pos=X,Y,Z; angle = <deg>; size = <mult>; width = <mult>; color = R,G,B`. `configure:
+  size variance = 0.9, 1.1` sets defaults for the trees that FOLLOW (per-zone variance, not per-line
+  jitter). `;` comments.
+- **`[TREES]`**: `LIST_0 = trees/trees.txt`; `SURFACE_MATERIALS =` THIS track's **real** grass/road
+  materials (trees snap onto them) — read them from the build, never hardcode Nordschleife's.
+  `COMPILED_LIST` (baked VAO) is optional/commented — external bakery, not us.
+- **Density is config-driven per zone** (`source` → a build_env loop): mountain forests use
+  `density.by: elevation` (sparse low, thick toward the summit; N/E slopes denser); riparian uses
+  `source: creek` + `band_m`; urban uses `poly_scatter` / `bush`. See the `scenery.treefx` template
+  above and `docs/TREEFX-FORMAT.md`.
+- **`[GRASS_FX]`** keeps the crash-safe occluder ALLOW-LIST (ground-level solids only — a far-field/
+  oversized mesh here freezes the PC) and adds `SHAPE_SIZE` + a texture group + one configuration
+  block. Opt-in via `lighting.grassfx`. **VERIFY IN-GAME** — CSP appearance keys shift between versions.
 
 ## Scope boundary
 

@@ -52,6 +52,11 @@ vendor/io_import_accsv/**/*.pyc
 assets/props/_raw/
 *.dds
 
+# TreeFX/GrassFX: third-party .bin tree MODELS are USER-SUPPLIED + licensed — NEVER commit them.
+# We only generate config that REFERENCES them by filename (extension/trees/trees.txt + [TREES]).
+# The user drops licensed models into extension/trees/ locally. See docs/TREEFX-FORMAT.md.
+*.bin
+
 # --- iOS capture app (apps/prodrive-scan) --------------------------------------
 # The .xcodeproj is generated from project.yml by xcodegen — commit the spec, not the project.
 *.xcodeproj/
