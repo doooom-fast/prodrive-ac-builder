@@ -283,6 +283,29 @@ def check(project_dir: str | Path) -> dict:
                 tri_h[_key9].append((_a, _b, _c))
                 (tri_pav if _up9.startswith("1ROAD") else tri_grs)[_key9].append((_a, _b, _c))
 
+    # SUPPORT surfaces for the ROAD-OVER-GROUND gate (separate pass so it stays independent of the
+    # base tri build + #16's tri_sup foot-support build above): paved 1RUNOFF (median/gore fill)
+    # counts as ground cover exactly like 1KERB, and HWYSTRUCT slabs are the declared structural
+    # support a deck may ride over a cut/underpass/canyon. Slab quads span 8-12 m between deck rows,
+    # so they register across their XZ BBOX cells (centroid-only registration missed them 2 cells
+    # away and voided the exemption). This deliberately leaves #16's tri_sup untouched — that hash
+    # is the WALL/FOOT-seating lens and must keep its exact contents; these two lenses are separate.
+    tri_struct = defaultdict(list)
+    for _mn, _mp, _mi in _parse_tris(kn5p):
+        _up9 = _mn.upper()
+        if _up9.startswith("1RUNOFF"):
+            for _t in range(0, len(_mi) - 2, 3):
+                _a, _b, _c = _mp[_mi[_t]], _mp[_mi[_t + 1]], _mp[_mi[_t + 2]]
+                _key9 = (int((_a[0] + _b[0] + _c[0]) / 3 // 8), int((_a[2] + _b[2] + _c[2]) / 3 // 8))
+                tri_grs[_key9].append((_a, _b, _c))
+        elif _up9.startswith("HWYSTRUCT"):
+            for _t in range(0, len(_mi) - 2, 3):
+                _a, _b, _c = _mp[_mi[_t]], _mp[_mi[_t + 1]], _mp[_mi[_t + 2]]
+                _xs9 = (_a[0], _b[0], _c[0]); _zs9 = (_a[2], _b[2], _c[2])
+                for _ci9 in range(int(min(_xs9) // 8), int(max(_xs9) // 8) + 1):
+                    for _cj9 in range(int(min(_zs9) // 8), int(max(_zs9) // 8) + 1):
+                        tri_struct[(_ci9, _cj9)].append((_a, _b, _c))
+
     # Layer window for foot support (San Diego lesson): walls/barriers legitimately stand on
     # ELEVATED 1ROAD + HWYSTRUCT decks — measured against bare earth alone, the freeway proof read
     # "walls hovering 40.3%" while ~96% of feet sat at their own height on decks. Support is the
@@ -431,7 +454,10 @@ def check(project_dir: str | Path) -> dict:
     # block) and the unconditional road-over-ground pass at the end — nesting it inside
     # `if edge_pts:` made check() crash with UnboundLocalError on any project without a
     # finished_centerline.json (ported-in fix; real builds always have one, synthetics may not).
-    def _surf_of(h9, x9, z9, yn9):
+    def _surf_of(h9, x9, z9, yn9, below9=None):
+        """Highest surface directly beneath (x,z) near yn9; ``below9`` caps candidates (e.g. "the
+        highest slab AT OR BELOW this deck" — without it a mid-level deck in a 3-high stack reads
+        the TOP deck's slab and misses its own)."""
         best9 = None
         for di9 in (-1, 0, 1):
             for dj9 in (-1, 0, 1):
@@ -444,7 +470,8 @@ def check(project_dir: str | Path) -> dict:
                     w29 = 1 - w09 - w19
                     if w09 >= -1e-6 and w19 >= -1e-6 and w29 >= -1e-6:
                         yv9 = w09 * a9[1] + w19 * b9[1] + w29 * c9[1]
-                        if abs(yv9 - yn9) < 25 and (best9 is None or yv9 > best9):
+                        if abs(yv9 - yn9) < 25 and (below9 is None or yv9 <= below9) \
+                                and (best9 is None or yv9 > best9):
                             best9 = yv9
         return best9
 
@@ -546,6 +573,22 @@ def check(project_dir: str | Path) -> dict:
         g9 = _surf_of(tri_grs, x, z, y)      # TRIANGLE-exact grass surface directly beneath
         if g9 is None or g9 > y + 0.3:
             continue
+        if y - g9 > ROAD_GAP_M:
+            # STRUCTURE-SUPPORTED: a viaduct/bridge-run slab (HWYSTRUCT) between the grass and the
+            # deck means the deck rides its declared structure over a cut/underpass/canyon — same
+            # exemption as a declared bridge span, but read from the BUILT geometry (network tracks
+            # have no finished_centerline to declare spans against). below9 = this deck's own slab,
+            # not the top of the stack.
+            s9 = _surf_of(tri_struct, x, z, y, below9=y + 0.3)
+            if s9 is not None and s9 > g9:
+                continue
+            # DECK-OVER-DECK: pavement of ANOTHER road between the grass and this deck (merge flare /
+            # overpass overlap) — the deck rides over a road, not over the mountain. below9 excludes
+            # the sample's OWN surface (a vert sits exactly ON it, delta 0) while catching the
+            # 0.25 m+ carriageway splits that read as phantom floats.
+            p9 = _surf_of(tri_pav, x, z, y, below9=y - 0.25)
+            if p9 is not None and p9 > g9:
+                continue
         tot += 1
         gaps_c.append(y - g9)
     gaps_c.sort()
