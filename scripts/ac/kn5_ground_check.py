@@ -269,6 +269,7 @@ def check(project_dir: str | Path) -> dict:
 
     tri_h = defaultdict(list)
     tri_sup = defaultdict(list)     # SUPPORT for feet: terrain + drivable decks + HWYSTRUCT structure
+    sup_v = defaultdict(list)       # the SAME support meshes, indexed by VERTEX (deck-edge reach)
     tri_pav = defaultdict(list)
     tri_grs = defaultdict(list)
     for _mn, _mp, _mi in _parse_tris(kn5p):
@@ -282,6 +283,8 @@ def check(project_dir: str | Path) -> dict:
                     continue        # structural decks SUPPORT walls but are not terrain/pavement
                 tri_h[_key9].append((_a, _b, _c))
                 (tri_pav if _up9.startswith("1ROAD") else tri_grs)[_key9].append((_a, _b, _c))
+            for _p in _mp:          # vertex index of the support surfaces (4 m bins) — see foot_sup
+                sup_v[(int(_p[0] // 4.0), int(_p[2] // 4.0))].append(_p)
 
     # SUPPORT surfaces for the ROAD-OVER-GROUND gate (separate pass so it stays independent of the
     # base tri build + #16's tri_sup foot-support build above): paved 1RUNOFF (median/gore fill)
@@ -349,6 +352,33 @@ def check(project_dir: str | Path) -> dict:
             return min(inwin, key=lambda yv: abs(yv - y_near))
         below = [yv for yv in cands if yv <= y_near + win]
         return max(below) if below else None
+
+    # FOOT SUPPORT — reconcile the wall/foot-seating lens with OBJ audit E (audit_mesh check E), the
+    # honest floater count. tri_surf alone tests point-IN-triangle containment: a viaduct guardrail
+    # whose foot sits ~3 m past the deck edge is not INSIDE any deck triangle, so it read either
+    # no-ground or snapped down to a lower verge it overhangs — the San Diego freeway proof reported
+    # 71.8% of rail feet "hovering" (+0.9 m median) while OBJ audit E, reaching the deck within a 4.5 m
+    # radius, found only ~74 genuinely floating columns. foot_sup measures each foot against the SAME
+    # #16 support set (terrain + 1ROAD + 1KERB + HWYSTRUCT) the way audit E does: the HIGHEST support
+    # within a 4.5 m XZ reach AND within the SUPPORT_WIN layer window of the foot. So the deck edge a
+    # rail rides seats it (gap ~ 0); a deck far overhead stays outside the window (no cross-grab —
+    # #16's guard); a genuine hover with nothing in its window still returns None (no-ground). Both the
+    # tri_sup slab under the foot (barycentric) and the sup_v deck-edge vertices are candidates; the
+    # surface it actually stands on is the highest of them.
+    SUPPORT_R = 4.5
+
+    def foot_sup(x, z, y_near, win=SUPPORT_WIN, R=SUPPORT_R):
+        best = tri_surf(x, z, y_near, tris=tri_sup, win=win)   # barycentric slab directly beneath
+        if best is not None and abs(best - y_near) > win:
+            best = None                                        # slab out of the layer window
+        ci, cj = int(x // 4.0), int(z // 4.0)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for rx, ry, rz in sup_v.get((ci + di, cj + dj), ()):
+                    if (x - rx) ** 2 + (z - rz) ** 2 <= R * R and abs(ry - y_near) <= win:
+                        if best is None or ry > best:
+                            best = ry
+        return best
     for b, label in (("1WALL", "walls"), ("FENCEWOOD", "fences"), ("LIGHTPOST", "lampposts"),
                      ("GANTRY", "pylons"), ("SIGNPOST", "signposts"),
                      ("PALMTRUNK", "palms"), ("TREETRUNK", "trees")):   # loop-path 3D vegetation
@@ -378,8 +408,10 @@ def check(project_dir: str | Path) -> dict:
         for x, base, z in feet:
             if b in ("1WALL", "FENCEWOOD") and on_bridge_span(x, z):
                 continue        # bridge railing over the creek/underpass — floating is its function
-            # feet may legitimately stand on elevated 1ROAD/HWYSTRUCT decks: support hash + window
-            g2 = tri_surf(x, z, base, tris=tri_sup, win=SUPPORT_WIN)
+            # feet may legitimately stand on elevated 1ROAD/HWYSTRUCT decks — including at the deck
+            # EDGE, past the slab triangles: highest support (terrain+deck) within reach + the layer
+            # window (audit-E reconciliation — see foot_sup)
+            g2 = foot_sup(x, z, base)
             if g2 is None:
                 nog += 1
             else:
