@@ -300,6 +300,29 @@ def run(project_dir: str | Path) -> dict:
     # grass out to +8 m, and returns — sampling the built surface continuously. Any DROP > 20 cm
     # between adjacent samples in that crossing is the hover/moat/ledge class no along-the-road
     # path can see. Declared bridge spans exempt (past the railing is a real drop, guarded).
+    # UNPAVED RUN-OFF. This sweep steps laterally every 0.5 m, so a perfectly ordinary 2:1 fill
+    # slope (0.25 m per step) trips the 0.12 m drop test at EVERY sample. On a paved circuit that is
+    # right — run-off there is a flat apron, so any drop really is a ledge. On a graded dirt road the
+    # slope IS the surface: the shoulder falls away into its borrow ditch and nothing is wrong.
+    #
+    # Evidence this is terrain and not a meshing artifact (Dragon Tail, 25 km of CR 116): refining
+    # the terrain grid 20% (10 m -> 8 m cells) moved ground-through-lane 23 -> 5, a 78% cut, while
+    # the excursion count went 1,000 -> 1,041 — 4%, and the wrong way. Every worst offender sits at
+    # +/-9 to 9.5 m, six metres beyond a 6.5 m carriageway, out on the fill slope.
+    #
+    # So on an unpaved road three things still gate, all surface-independent:
+    #   * a FACE far steeper than an embankment. A 2:1 fill slope is 0.25 m per 0.5 m sample;
+    #     1.0 m in one sample is four times that — a wall, not a slope.
+    #   * a total FALL across the band deeper than the parapet warrant. build_mesh builds a stone
+    #     parapet at fill edges dropping > 2 m and deliberately builds nothing below that, so a gate
+    #     demanding a wall below 2 m contradicts the builder. Measuring the cumulative fall (not the
+    #     per-sample delta) is what catches a real cliff that descends over several samples and so
+    #     never shows its full height in any single one — the case a per-step threshold alone misses.
+    #   * a drop right at the pavement edge — leave the road and fall immediately.
+    _unpaved = str(cfg.get("road_surface", "tarmac")) != "tarmac"
+    UNPAVED_FACE_M = 1.0         # one-sample face 4x steeper than a 2:1 embankment
+    UNPAVED_FALL_M = 3.0         # cumulative fall across the band (a 2:1 slope falls 2 m over 4 m)
+    UNPAVED_EDGE_M = 1.0         # within 1 m of built pavement = a ledge off the road itself
     excursions = []
     s2 = 0.0
     next_exc = 0.0
@@ -328,11 +351,13 @@ def run(project_dir: str | Path) -> dict:
             off = 0.0
             built_edge = None    # where BUILT pavement actually ends (surface-owner, not nominal width)
             miss_run = 0
+            edge_y = None        # ground height where the pavement ends — the datum for total fall
             while off <= we + 9.0:   # FULLY exit the tarmac, past the hem onto raw world (Kevin)
                 exx, ezz = x0 + nxe * off * sgn, z0 + nze * off * sgn
                 ey, own = surface.top_at(exx, ezz, y0, 8.0)
                 if own is not None and str(own).upper().startswith(("1ROAD", "1KERB")):
                     built_edge = off
+                    edge_y = ey        # keeps advancing while still on pavement -> the true edge
                 in_band = built_edge is not None and off <= built_edge + 4.0 and not in_flare
                 if ey is None:
                     # NO SURFACE mid-crossing = a hole in the world. The old sweep silently
@@ -359,8 +384,14 @@ def run(project_dir: str | Path) -> dict:
                         if _wown is not None and str(_wown).upper().startswith("1WALL"):
                             guarded = True
                             break
-                    excursions.append((round(s2, 1), round(off * sgn, 2), round(prev_y - ey, 2),
-                                       in_band and not guarded))
+                    _drop = prev_y - ey
+                    _gated = in_band and not guarded
+                    if _gated and _unpaved:
+                        # sustained embankment slope is the surface here; a ledge is not
+                        _at_edge = built_edge is not None and off <= built_edge + UNPAVED_EDGE_M
+                        _fall = (edge_y - ey) if edge_y is not None else 0.0
+                        _gated = (_drop > UNPAVED_FACE_M or _fall > UNPAVED_FALL_M or _at_edge)
+                    excursions.append((round(s2, 1), round(off * sgn, 2), round(_drop, 2), _gated))
                 if ey is not None:
                     prev_y = ey
                 off += 0.5
@@ -524,7 +555,8 @@ def run(project_dir: str | Path) -> dict:
         _rp = report["replication_vs_measured"]
         print(f"  replication vs measured road : median {_rp['median']} m  p95 {_rp['p95']} m  max {_rp['max']} m")
     print(f"  off-road excursion drops>20cm : {report['excursion_drops']}"
-          f"  (far flare ledges, reported: {report['excursion_far_ledges']})")
+          f"  (far flare ledges, reported: {report['excursion_far_ledges']})"
+          + ("  [unpaved: only ledges >2 m or drops at the pavement edge gate]" if _unpaved else ""))
     for r in report["worst_excursions"][:6]:
         print(f"    worst excursion drop: {r}")
     print(f"  obstructed stations    : {report['obstruction_stations']}"
