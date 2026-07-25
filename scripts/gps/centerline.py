@@ -158,6 +158,36 @@ def build_ring(road_lines: list[list[Vertex]]) -> tuple[list[Vertex], list[float
     return ring, corner_gaps
 
 
+def build_open_path(road_lines: list[list[Vertex]]) -> tuple[list[Vertex], list[float]]:
+    """Chain ordered road polylines into ONE OPEN path, for a point-to-point route (a rally stage).
+
+    :func:`build_ring` exists to close a lap: it trims every road at the junctions with its
+    neighbours *including the wrap from the last road back to the first*. Handed a single open road
+    that wrap is the road against itself, the two "corners" land on the same vertex, and the whole
+    route collapses to one point. An open route instead keeps the free ends of the first and last
+    roads and only trims at the real junctions in between."""
+    n = len(road_lines)
+    if n == 1:
+        return list(road_lines[0]), []
+    junc = [nearest_pair(road_lines[k], road_lines[k + 1]) for k in range(n - 1)]
+    path: list[Vertex] = []
+    for k in range(n):
+        line = road_lines[k]
+        last = len(line) - 1
+        if k == 0:
+            # Keep the whole first road, oriented so it ENDS at the junction with the next one.
+            b = junc[0][0]
+            a = 0 if b * 2 >= last else last
+        elif k == n - 1:
+            # Keep the whole last road, oriented so it STARTS at the junction with the previous one.
+            a = junc[k - 1][1]
+            b = last if a * 2 < last else 0
+        else:
+            a, b = junc[k - 1][1], junc[k][0]
+        path += line[a:b + 1] if a <= b else list(reversed(line[b:a + 1]))
+    return path, [round(j[2], 1) for j in junc]
+
+
 def remove_folds(ring: list[Vertex], *, apex_deg: float = 150.0) -> list[Vertex]:
     """Collapse out-and-back spikes left by junction trims. Where two fetched roads OVERLAP along a
     shared carriageway for a few metres, build_ring's nearest-pair trim walks the ring out past the
@@ -252,19 +282,26 @@ def build_centerline(project_dir: str | Path) -> tuple[Path, dict]:
     if missing:
         raise SystemExit(f"No geometry returned for: {missing} — check road names/bbox in config.")
 
-    ring, corner_gaps = build_ring(road_lines)
+    ring, corner_gaps = (build_ring(road_lines) if cfg.loop else build_open_path(road_lines))
     ring = remove_folds(ring)
-    # route.start_at = [lat, lon]: rotate the closed ring so station 0 (start/finish, pits, hotlap
-    # spawn — dummies all key off station 0) sits at the real-world start line instead of wherever
-    # the first roads[] entry happened to get trimmed. The Lariat's list order put station 0 in the
-    # US-6 interchange gore — the one place on the lap you can't park a pit box.
     start_at = route.get("start_at")
     if start_at and cfg.loop and len(ring) > 2:
+        # route.start_at = [lat, lon]: rotate the closed ring so station 0 (start/finish, pits, hotlap
+        # spawn — dummies all key off station 0) sits at the real-world start line instead of wherever
+        # the first roads[] entry happened to get trimmed. The Lariat's list order put station 0 in the
+        # US-6 interchange gore — the one place on the lap you can't park a pit box.
         if _key(ring[0]) == _key(ring[-1]):
             ring = ring[:-1]
         tgt = (float(start_at[1]), float(start_at[0]))          # config [lat, lon] -> (lon, lat)
         k = min(range(len(ring)), key=lambda i: haversine(ring[i], tgt))
         ring = ring[k:] + ring[:k]
+    elif start_at and not cfg.loop and len(ring) > 2:
+        # An open route can't be rotated — it has two fixed ends. start_at picks WHICH end is the
+        # stage start, so the road is reversed when the far end is nearer to it. Station 0 has to be
+        # the real start line: the grid, the splits and the finish all key off travel direction.
+        tgt = (float(start_at[1]), float(start_at[0]))
+        if haversine(ring[-1], tgt) < haversine(ring[0], tgt):
+            ring.reverse()
     if cfg.loop and ring and _key(ring[0]) != _key(ring[-1]):
         ring.append(ring[0])
     ring = resample(ring, RESAMPLE_SPACING_M)

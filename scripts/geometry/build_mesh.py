@@ -1026,7 +1026,12 @@ def build(project_dir: str | Path) -> dict:
     _mk_line = [sorted(widths[max(0, i - _mkw):i + _mkw + 1])[len(widths[max(0, i - _mkw):i + _mkw + 1]) // 2]
                 for i in range(len(widths))]
     _mk_widths = [min(m0, w0) for m0, w0 in zip(_mk_line, widths)]
-    if mk_cfg.get("style") == "lane":
+    if mk_cfg.get("style") == "none":
+        # Unpaved road: nobody paints lane lines on graded dirt. Without this the else-branch below
+        # lays track-style stripes down a gravel rally stage.
+        marks = {"vertices": [], "uvs": [], "tris": []}
+        yline = {"vertices": [], "uvs": [], "tris": []}
+    elif mk_cfg.get("style") == "lane":
         # Lake Murray-style painted lines: solid double-yellow centre (two-way), solid white edge
         # lines, dashed dividers where width allows (ported ribbon.lane_markings)
         _lm = ribbon.lane_markings(centerline, _mk_widths, bank_at=bnk,
