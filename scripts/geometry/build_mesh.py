@@ -613,6 +613,19 @@ def build(project_dir: str | Path) -> dict:
     if _apexes:
         print(f"  [fold plateaus] {len(_apexes)} apex(es) leveled locally "
               f"(declared: {[round(_stp[m]) for m in _declared]})")
+    # DECLARED CORNER FLARE. widths_from_osm applies route.wide_corners too, but only runs when
+    # osm_road_widths is on — and a graded dirt road has no OSM lane data to derive widths from, so
+    # that path is off and the declared flare silently did nothing. wide_corners is a hand-declared
+    # config fact, not an OSM-derived one; it must work on any track. A real graded switchback IS cut
+    # wider at the apex than the road it joins, which is what makes a 150-degree hairpin drivable.
+    for _wc in (cfg_raw.get("route", {}) or {}).get("wide_corners", []) or []:
+        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - float(_wc["station_m"])))
+        _tw = float(_wc.get("width_m", 14.0))
+        for _i in range(len(widths)):
+            _d = max(0.0, abs(_stp[_i] - _stp[_si]) - 18.0)   # full width over ±18 m, then taper
+            widths[_i] = max(widths[_i], _tw - 0.14 * _d)
+    if (cfg_raw.get("route", {}) or {}).get("wide_corners"):
+        print(f"  [wide corners] flared {len(cfg_raw['route']['wide_corners'])} declared apex(es)")
     # discs help exactly where the fold zone is FLAT (valley junctions: rims meet the plateau
     # cleanly; the U-complex bin vanished with discs) and hurt on GRADED mountain folds (rims
     # step against residual camber: +6/km when every fold got one). Grade decides.

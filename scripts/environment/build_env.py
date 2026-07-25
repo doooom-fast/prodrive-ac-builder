@@ -758,7 +758,11 @@ def build(project_dir: str | Path) -> dict:
                                          aspect=_aspect(rx, rz)):
                             ntrees += 1
                         continue
-                    h = 8.0 + _tf.random() * 8.0
+                    # Billboard height. The 8-16 m default is mature montane forest (ponderosa on the
+                    # Lariat); a high-desert pinyon-juniper woodland tops out around 3-8 m, and
+                    # scaling only the forest3d modules left 16 m conifers towering over 7 m ones.
+                    h = (float(scn.get("fill_tree_h_min_m", 8.0))
+                         + _tf.random() * float(scn.get("fill_tree_h_span_m", 8.0)))
                     _sy9 = seat_y(rx, rz, h * t_wfrac / 2)
                     if _sy9 is None:
                         continue
