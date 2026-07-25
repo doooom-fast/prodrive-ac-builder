@@ -97,6 +97,21 @@ def write_obj(path: Path, mtl_name: str, groups: list[tuple[str, str, dict]]) ->
     return nv, nf
 
 
+def _chunk_suffix(i: int) -> str:
+    """Chunk suffix: a, b, ... z, aa, ab, ... — spreadsheet-column style.
+
+    A plain ``chr(ord('a') + i)`` runs off the end of the alphabet at the 27th chunk and starts
+    emitting punctuation and control characters ('1GRASS_{', '1GRASS_\\x7f'). Nothing had ever needed
+    more than 26 until a 25 km stage split its terrain into 34, and those names go straight into kn5
+    mesh + material names. Letters only, and unique for any count."""
+    s = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(ord("a") + r) + s
+    return s
+
+
 def split_mesh_under_cap(name: str, mat: str, mesh: dict, cap: int = 30000) -> list[tuple[str, str, dict]]:
     """Split a mesh into uniquely-named chunks under AC's 65,535 per-mesh vertex cap.
 
@@ -133,7 +148,7 @@ def split_mesh_under_cap(name: str, mat: str, mesh: dict, cap: int = 30000) -> l
         chunk = {"vertices": cv, "tris": ct}
         if uvs:
             chunk["uvs"] = cuv
-        out.append((f"{name}_{chr(ord('a') + len(out))}", mat, chunk))
+        out.append((f"{name}_{_chunk_suffix(len(out))}", mat, chunk))
     print(f"  [split] {name}: {len(mesh['vertices'])} verts > {cap} cap -> "
           f"{len(out)} uniquely-named meshes ({[g[0] for g in out]})")
     return out
@@ -260,7 +275,13 @@ def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]
             spans.append((st[i], st[j - 1]))
         i = j
     if not spans:
-        return None
+        # A NO-OP, not None — which is what this function's own docstring has always promised, and
+        # what its six call sites assume: they invoke bridge_of(...) unguarded. Returning None meant
+        # any track with no detected spans died with "'NoneType' object is not callable" deep in the
+        # ring construction. It never fired because every track built so far happened to have at
+        # least one span; the first genuinely bridge-free road found it.
+        _bridge_detector.last_spans = []
+        return lambda _station_m: False
     print(f"  bridge spans: {len(spans)} ({[f'{a:.0f}-{b:.0f}m' for a, b in spans]}) — deck+piers, no fill")
     _bridge_detector.last_spans = [(float(a), float(b)) for a, b in spans]   # for persistence
 
@@ -292,13 +313,19 @@ def smooth_centerline(pts: list[Vertex], *, lam: float = 0.45, iterations: int =
     """Light GLOBAL Laplacian smoothing to kill the GPS-level wobble (3-15° per-vertex jogs in the
     OSM/KML centerline) that makes the road EDGES ripple on curves. Each vertex is pulled only a
     fraction toward its neighbours' midpoint, so straights stay straight and the route is preserved —
-    it just removes the high-frequency noise. Closed-loop aware; vertex count preserved."""
+    it just removes the high-frequency noise. Vertex count preserved.
+
+    On an OPEN road the ends have no neighbour to average with. Wrapping the index there (as this
+    did) pulls vertex 0 toward the midpoint of the LAST vertex and vertex 1 — on a 25 km
+    point-to-point stage that drags the two ends 17 km across the map toward each other and inflates
+    the route from 25 km to 38 km. Open curves pin their endpoints instead."""
     closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][2] - pts[-1][2]) < 1e-6
     P = [list(p) for p in (pts[:-1] if closed else pts)]
     m = len(P)
+    span = range(m) if closed else range(1, m - 1)
     for _ in range(iterations):
         new = [p[:] for p in P]
-        for i in range(m):
+        for i in span:
             a, b = P[(i - 1) % m], P[(i + 1) % m]
             for c in (0, 1, 2):
                 new[i][c] = P[i][c] + lam * ((a[c] + b[c]) / 2.0 - P[i][c])
@@ -314,10 +341,15 @@ def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
     """Round only the SHARP kinks (a hard ~90° street corner has no zero-radius point — real ones have
     a curb radius). Localized corner-cutting near kinks > ``angle_thr``; straights and gentle bends are
     untouched, so the route shape is preserved. Fixes the ribbon self-pinching + the stub kerbs at
-    corners. Closed-loop aware; vertex count (and the parallel widths) is preserved."""
+    corners. Vertex count (and the parallel widths) is preserved.
+
+    Like :func:`smooth_centerline`, an OPEN road's endpoints have no wrap-around neighbour — the
+    "corner" between the last vertex and the first is not a corner, it's the two ends of the road,
+    and cutting it drags them together. Open curves pin their endpoints."""
     closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][2] - pts[-1][2]) < 1e-6
     P = [list(p) for p in (pts[:-1] if closed else pts)]
     m = len(P)
+    span = range(m) if closed else range(1, m - 1)
 
     def kink(Q: list, i: int) -> float:
         a, b, c = Q[(i - 1) % m], Q[i], Q[(i + 1) % m]
@@ -330,12 +362,13 @@ def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
 
     for _ in range(iterations):
         mark = [False] * m
-        for i in range(m):
+        for i in span:
             if kink(P, i) > angle_thr:
                 for w in range(-window, window + 1):
-                    mark[(i + w) % m] = True
+                    if closed or 0 <= i + w < m:
+                        mark[(i + w) % m] = True
         new = [p[:] for p in P]
-        for i in range(m):
+        for i in span:
             if mark[i]:
                 a, b = P[(i - 1) % m], P[(i + 1) % m]
                 for c in (0, 1, 2):
@@ -522,6 +555,30 @@ def build(project_dir: str | Path) -> dict:
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
+    _lead_offset = 0.0        # metres of lead-in road prepended; config stations exclude it
+
+    # LEAD-IN / LEAD-OUT on an open road. A rally stage is a SEGMENT of a longer county road: the
+    # tarmac continues past the start line and past the flying finish, and the car reaches the start
+    # by driving, not by materialising on a cliff edge. Without it the ribbon simply stops at station
+    # 0, and the drive test's very first sample sits exactly on the boundary of the first triangle —
+    # degenerate, and it reported ground-through-lane there on every build.
+    # Flat continuation at each tip's own height and width, so it adds road without inventing terrain.
+    if not cfg_raw.get("loop", True) and len(raw_pts) > 2:
+        _lead_m, _lead_step = 30.0, 3.0
+        _n_lead = int(_lead_m / _lead_step)
+        _head, _tail = [], []
+        for _tip, _inw, _sink in ((0, 1, _head), (len(raw_pts) - 1, -2, _tail)):
+            _cx, _cy, _cz = raw_pts[_tip]
+            _px, _, _pz = raw_pts[_tip + _inw]
+            _dx, _dz = _cx - _px, _cz - _pz
+            _L = math.hypot(_dx, _dz) or 1.0
+            _dx, _dz = _dx / _L, _dz / _L
+            for _k in range(1, _n_lead + 1):
+                _sink.append((_cx + _dx * _lead_step * _k, _cy, _cz + _dz * _lead_step * _k))
+        raw_pts = list(reversed(_head)) + list(raw_pts) + _tail
+        widths = [widths[0]] * _n_lead + list(widths) + [widths[-1]] * _n_lead
+        _lead_offset = _lead_m
+        print(f"  [lead-in/out] {_n_lead} verts ({_lead_m:.0f} m) of road past each open end")
 
     # ROAD PROFILE: corner-round, mirror, and bake the hand-authored dip (the Sand Creek corkscrew) into
     # the centerline Y. Shared with build_env so the scenery anchors to the SAME road. dip_of/bank_at are
@@ -569,7 +626,11 @@ def build(project_dir: str | Path) -> dict:
         _i += 1
     _declared = []
     for _wc in (cfg_raw.get("route", {}) or {}).get("wide_corners", []) or []:
-        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - float(_wc["station_m"])))
+        # +lead offset: config station_m is measured from the REAL stage start, not from the tip of
+        # the lead-in road. Without this, adding a 30 m lead-in silently slides every declared flare
+        # 30 m up the route.
+        _target = float(_wc["station_m"]) + _lead_offset
+        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - _target))
         _declared.append(_si)
         if all(abs(_stp[_si] - _stp[a]) > 30.0 for a in _apexes):
             _apexes.append(_si)
@@ -586,6 +647,20 @@ def build(project_dir: str | Path) -> dict:
     if _apexes:
         print(f"  [fold plateaus] {len(_apexes)} apex(es) leveled locally "
               f"(declared: {[round(_stp[m]) for m in _declared]})")
+    # DECLARED CORNER FLARE. widths_from_osm applies route.wide_corners too, but only runs when
+    # osm_road_widths is on — and a graded dirt road has no OSM lane data to derive widths from, so
+    # that path is off and the declared flare silently did nothing. wide_corners is a hand-declared
+    # config fact, not an OSM-derived one; it must work on any track. A real graded switchback IS cut
+    # wider at the apex than the road it joins, which is what makes a 150-degree hairpin drivable.
+    for _wc in (cfg_raw.get("route", {}) or {}).get("wide_corners", []) or []:
+        _si = min(range(len(centerline)),
+                  key=lambda k: abs(_stp[k] - (float(_wc["station_m"]) + _lead_offset)))
+        _tw = float(_wc.get("width_m", 14.0))
+        for _i in range(len(widths)):
+            _d = max(0.0, abs(_stp[_i] - _stp[_si]) - 18.0)   # full width over ±18 m, then taper
+            widths[_i] = max(widths[_i], _tw - 0.14 * _d)
+    if (cfg_raw.get("route", {}) or {}).get("wide_corners"):
+        print(f"  [wide corners] flared {len(cfg_raw['route']['wide_corners'])} declared apex(es)")
     # discs help exactly where the fold zone is FLAT (valley junctions: rims meet the plateau
     # cleanly; the U-complex bin vanished with discs) and hurt on GRADED mountain folds (rims
     # step against residual camber: +6/km when every fold got one). Grade decides.
@@ -660,9 +735,22 @@ def build(project_dir: str | Path) -> dict:
     # deck+apron raft perched a metre above the ACTUAL terrain along the whole Lariat while flat
     # Sand Creek sat perfectly (same code, different terrain frequency). ~6 m cells halve the
     # bench error at the source; split_mesh_under_cap absorbs the vertex count.
-    up = 8
-    while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 1_100_000:
-        up -= 1
+    # terrain_cell_m (opt-in): drive the upsample from a TARGET CELL SIZE instead of the flat budget.
+    # The rule this whole block exists for is "terrain triangles must be fine enough to follow the
+    # road cut" — but a cell can only follow a cut it is smaller than. A 6.5 m graded county road on
+    # 10 m cells is narrower than one triangle, so the triangle spanning it bridges over the deck no
+    # matter how well its corner nodes are clamped. Tracks that want terrain finer than their road
+    # declare it; everything else keeps the 1.1 M budget and its exact current output.
+    _cell_target = (cfg_raw.get("terrain_cell_m") or 0.0)
+    if _cell_target:
+        _budget = int(cfg_raw.get("terrain_vertex_budget", 3_000_000))
+        up = max(3, min(8, int(math.ceil(float(meta["spacing_m"]) / float(_cell_target)))))
+        while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > _budget:
+            up -= 1
+    else:
+        up = 8
+        while up > 3 and ((_nx0 - 1) * up + 1) * ((_ny0 - 1) * up + 1) > 1_100_000:
+            up -= 1
     grid, meta = ribbon.upsample_grid(grid, meta, up)
     print(f"[build_mesh] grass upsample x{up} -> {meta['nx']}x{meta['ny']} = {meta['nx']*meta['ny']} verts (< 65535)")
     grid_xyz = project_grid(grid, meta, origin, elev0, mirror_x=mirror_x)
@@ -826,9 +914,34 @@ def build(project_dir: str | Path) -> dict:
         cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
         conn_meshes.append((f"1ROAD_{name}", cm))
     conn_verts = [v for _n, cm in conn_meshes for v in cm["vertices"]]
+
+    # OPEN-ROAD END APRONS. clamp_terrain_below_road lets the allowed terrain height RECOVER with
+    # distance from the road, so the corridor rejoins the real ground instead of sitting in a shaved
+    # moat. On a lap "distance from the road" only ever grows sideways. On an OPEN road it also grows
+    # off the two TIPS — so the recovery ramp rises along the road's own axis right at the start and
+    # the finish, and the grid triangle spanning the first cross-section bridges up over the deck.
+    # That is the ground-through-lane cluster the drive test reported at station 0.
+    # Fix: hand the clamp a short apron of virtual road verts continuing past each open end, at the
+    # end's own deck height, so the terrain there is held under the deck plane like anywhere else.
+    _end_apron: list = []
+    if not cfg_raw.get("loop", True) and len(centerline) > 2:
+        for _tip, _inw in ((0, 1), (len(centerline) - 1, -2)):
+            _cx, _cy, _cz = centerline[_tip]
+            _px, _, _pz = centerline[_tip + _inw]
+            _tdx, _tdz = _cx - _px, _cz - _pz          # outward tangent at this tip
+            _tl = math.hypot(_tdx, _tdz) or 1.0
+            _tdx, _tdz = _tdx / _tl, _tdz / _tl
+            _hw = widths[_tip] / 2.0 + 1.0
+            for _step in range(1, 13):                 # 12 x 2.5 m = 30 m of apron past the tip
+                _ax, _az = _cx + _tdx * 2.5 * _step, _cz + _tdz * 2.5 * _step
+                for _lat in (-_hw, 0.0, _hw):
+                    _end_apron.append((_ax - _tdz * _lat, _cy, _az + _tdx * _lat))
+        print(f"  [end aprons] {len(_end_apron)} virtual verts past the two open ends "
+              f"(keeps the clamp's recovery ramp off the deck)")
     # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors) so the
     # graded grass surface is FINAL before the edge strips drape onto it. One-sided (natural dips survive).
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts,
+    ribbon.clamp_terrain_below_road(grid_xyz,
+                                    road["vertices"] + runoff["vertices"] + conn_verts + _end_apron,
                                     clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]),
                                     foot_m=8.0, recover=0.35)
     # The finalized grass SURFACE (bilinear on the graded+clamped grid) — the single source of truth the
@@ -1013,7 +1126,7 @@ def build(project_dir: str | Path) -> dict:
     print(f"  [contact] bent {_bent} grid nodes through the shoulder meet line (they TOUCH)")
     # the bend seals seams but must NEVER raise ground through pavement — re-run the ROAD clamp
     # after it (audit B caught exactly one bent node poking +2.74 through a hairpin deck).
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"],
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + _end_apron,
                                     clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]),
                                     foot_m=8.0, recover=0.35)
     ribbon.clamp_terrain_below_road(grid_xyz, shoulder["vertices"] + kerb["vertices"], clear=0.05, reach=6.0,
@@ -1026,7 +1139,12 @@ def build(project_dir: str | Path) -> dict:
     _mk_line = [sorted(widths[max(0, i - _mkw):i + _mkw + 1])[len(widths[max(0, i - _mkw):i + _mkw + 1]) // 2]
                 for i in range(len(widths))]
     _mk_widths = [min(m0, w0) for m0, w0 in zip(_mk_line, widths)]
-    if mk_cfg.get("style") == "lane":
+    if mk_cfg.get("style") == "none":
+        # Unpaved road: nobody paints lane lines on graded dirt. Without this the else-branch below
+        # lays track-style stripes down a gravel rally stage.
+        marks = {"vertices": [], "uvs": [], "tris": []}
+        yline = {"vertices": [], "uvs": [], "tris": []}
+    elif mk_cfg.get("style") == "lane":
         # Lake Murray-style painted lines: solid double-yellow centre (two-way), solid white edge
         # lines, dashed dividers where width allows (ported ribbon.lane_markings)
         _lm = ribbon.lane_markings(centerline, _mk_widths, bank_at=bnk,
@@ -1514,7 +1632,13 @@ def build(project_dir: str | Path) -> dict:
                 _col.append((_px, _gy17, _pz))
                 _py17 = _gy17
             _cols.append((_col, _kcut))
-        _pairs = [(_a, _a + 1) for _a in range(_m17 - 1)] + ([(_m17 - 1, 0)] if _m17 > 2 else [])
+        # The final pair closes the annulus from the last cross-section back to the first. On a lap
+        # those are neighbours. On an OPEN road they are the finish and the start — 17 km apart and
+        # 145 m apart vertically — and stitching them lays a grass strip across the whole map, over
+        # the start line. That strip is what stood above the deck in the first 20 m of the stage.
+        _pairs = [(_a, _a + 1) for _a in range(_m17 - 1)]
+        if _m17 > 2 and cfg_raw.get("loop", True):
+            _pairs.append((_m17 - 1, 0))
         for _a17, _b17 in _pairs:
             _ea, _eb = _cols[_a17], _cols[_b17]
             if _ea is None or _eb is None:
@@ -2054,10 +2178,14 @@ def build(project_dir: str | Path) -> dict:
                       "uvs": list(shoulder.get("uvs", [])),
                       "tris": [(a, c, b) for a, b, c in shoulder["tris"]]}
 
-    dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
+    # loop=false is a point-to-point road (a rally stage): the grid goes at the start, AC_TIME_0 at
+    # the far end as the finish, and no gate wraps. See dummies.py.
+    is_loop = bool(cfg_raw.get("loop", True))
+    dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3, loop=is_loop)
     # REVERSE LAYOUT (Kevin: drive it both ways): same world, opposite travel — its own grid on
-    # the reversed lap's best straight, timing line armed in the reverse direction.
-    dummies_rev = dummies_mod.place_dummies(centerline[::-1], widths[::-1], n_sectors=3)
+    # the reversed lap's best straight, timing line armed in the reverse direction. On a stage this
+    # is the same road run the other way, start and finish swapping ends.
+    dummies_rev = dummies_mod.place_dummies(centerline[::-1], widths[::-1], n_sectors=3, loop=is_loop)
 
     # Persist the FINISHED centerline (corner-rounded, mirrored — the exact line the ribbon was
     # swept along) for the drive test: near sharp junctions it deviates metres from the raw local

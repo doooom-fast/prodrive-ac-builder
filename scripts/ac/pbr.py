@@ -154,6 +154,16 @@ def load_overrides(project_dir: str | Path) -> dict[str, dict]:
             td = texture_dir()
             out["1WALL"] = {"diffuse": str(td / "building_diffuse.jpg"),
                             "normal": str(td / "building_normal.jpg")}
+        # 1c) road_surface: gravel — the stock 1ROAD/1RUNOFF textures are all asphalt, so a rally
+        #     stage built on the same geometry would LOOK paved while driving like dirt. One config
+        #     knob drives both halves of the fork (physics live in track_folder.ROAD_SURFACES). An
+        #     explicit texture_overrides entry is the human's word and still wins.
+        if str(cfg.get("road_surface", "tarmac")) == "gravel":
+            td = texture_dir()
+            for mat in ("1ROAD", "1RUNOFF"):
+                if mat not in out:
+                    out[mat] = {"diffuse": str(td / "gravel_road_diffuse.png"),
+                                "normal": str(td / "gravel_road_normal.png")}
     # 2) capture-level overrides (real-world textures) fill in ONLY where the config didn't
     #    speak — an explicit track.config.json override is the human's word and wins (Kevin:
     #    Sand Creek uses the Lariat's road/grass look, not the phone-captured pavement).

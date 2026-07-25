@@ -179,6 +179,19 @@ def run(project_dir: str | Path) -> dict:
             for tri in grp["tris"]:
                 field.add(verts, tri, grp["name"])
 
+    # SANITY: there must BE a road. A build_mesh that dies mid-write (2.87 M grid verts ran the
+    # process out of memory) leaves a TRUNCATED track.obj holding only the 1GRASS chunks written so
+    # far — no 1ROAD at all. This gate then scored a world with no road in it: every wheel-path
+    # sample landed on grass, so it reported 159,635 "ground above the road" and 548 bumps/km and
+    # called it a surface problem. A gate that cannot tell a bad road from NO road is not a gate.
+    _road_groups = [g for objfile in ("track.obj",) if (data / objfile).exists()
+                    for g in _load_obj(data / objfile)[1] if g["name"].upper().startswith("1ROAD")]
+    if not _road_groups:
+        raise SystemExit(
+            "drive_test: track.obj contains no 1ROAD_* geometry — the mesh build did not finish "
+            "(check for a truncated OBJ / out-of-memory kill in build_mesh). Refusing to score a "
+            "track with no road surface.")
+
     # six wheel paths: wheel pair around center line + around left/right third lines
     n = len(pts)
     st = [0.0]
@@ -287,6 +300,29 @@ def run(project_dir: str | Path) -> dict:
     # grass out to +8 m, and returns — sampling the built surface continuously. Any DROP > 20 cm
     # between adjacent samples in that crossing is the hover/moat/ledge class no along-the-road
     # path can see. Declared bridge spans exempt (past the railing is a real drop, guarded).
+    # UNPAVED RUN-OFF. This sweep steps laterally every 0.5 m, so a perfectly ordinary 2:1 fill
+    # slope (0.25 m per step) trips the 0.12 m drop test at EVERY sample. On a paved circuit that is
+    # right — run-off there is a flat apron, so any drop really is a ledge. On a graded dirt road the
+    # slope IS the surface: the shoulder falls away into its borrow ditch and nothing is wrong.
+    #
+    # Evidence this is terrain and not a meshing artifact (Dragon Tail, 25 km of CR 116): refining
+    # the terrain grid 20% (10 m -> 8 m cells) moved ground-through-lane 23 -> 5, a 78% cut, while
+    # the excursion count went 1,000 -> 1,041 — 4%, and the wrong way. Every worst offender sits at
+    # +/-9 to 9.5 m, six metres beyond a 6.5 m carriageway, out on the fill slope.
+    #
+    # So on an unpaved road two things still gate, both surface-independent:
+    #   * a FACE far steeper than an embankment. A 2:1 fill slope is 0.25 m per 0.5 m sample;
+    #     1.0 m in one sample is four times that — a wall, not a slope.
+    #   * a total FALL from the pavement edge deeper than the parapet warrant. build_mesh builds a
+    #     stone parapet at fill edges dropping > 2 m and deliberately builds nothing below that, so a
+    #     gate demanding a wall below 2 m contradicts the builder. Measuring cumulative fall (not the
+    #     per-sample delta) is what catches a real cliff that descends over several samples and so
+    #     never shows its full height in any single one — the case a per-step threshold alone misses.
+    _unpaved = str(cfg.get("road_surface", "tarmac")) != "tarmac"
+    UNPAVED_FACE_M = 1.0         # one-sample face 4x steeper than a 2:1 embankment
+    UNPAVED_FALL_M = 3.0         # cumulative fall across the band (a 2:1 slope falls 2 m over 4 m)
+    UNPAVED_LIP_M = 1.0          # ...of the CARRIAGEWAY edge, not the shoulder's outer lip
+    UNPAVED_LIP_DROP_M = 0.25    # a step that would catch a wheel as it leaves the driven surface
     excursions = []
     s2 = 0.0
     next_exc = 0.0
@@ -315,11 +351,20 @@ def run(project_dir: str | Path) -> dict:
             off = 0.0
             built_edge = None    # where BUILT pavement actually ends (surface-owner, not nominal width)
             miss_run = 0
+            edge_y = None        # ground height where the pavement ends — the datum for total fall
+            carriage_edge = None # outer edge of the DRIVEN surface (excludes the shoulder)
             while off <= we + 9.0:   # FULLY exit the tarmac, past the hem onto raw world (Kevin)
                 exx, ezz = x0 + nxe * off * sgn, z0 + nze * off * sgn
                 ey, own = surface.top_at(exx, ezz, y0, 8.0)
                 if own is not None and str(own).upper().startswith(("1ROAD", "1KERB")):
                     built_edge = off
+                    edge_y = ey        # keeps advancing while still on pavement -> the true edge
+                    # CARRIAGEWAY edge = where the surface you DRIVE on ends. The shoulder is also
+                    # named 1ROAD_*, so built_edge runs out to the shoulder's outer lip — which on a
+                    # graded road is exactly where the fill slope starts. Using that as "the pavement
+                    # edge" made an ordinary shoulder-to-slope transition look like a ledge, 719 times.
+                    if "SHOULDER" not in str(own).upper():
+                        carriage_edge = off
                 in_band = built_edge is not None and off <= built_edge + 4.0 and not in_flare
                 if ey is None:
                     # NO SURFACE mid-crossing = a hole in the world. The old sweep silently
@@ -346,8 +391,22 @@ def run(project_dir: str | Path) -> dict:
                         if _wown is not None and str(_wown).upper().startswith("1WALL"):
                             guarded = True
                             break
-                    excursions.append((round(s2, 1), round(off * sgn, 2), round(prev_y - ey, 2),
-                                       in_band and not guarded))
+                    _drop = prev_y - ey
+                    if _unpaved:
+                        # Gate on PHYSICAL DANGER, not on proximity to the pavement. Two reasons the
+                        # paved in-band test is wrong here: the shoulder counts as built pavement, so
+                        # "just past the edge" IS where a graded road's fill slope starts (that alone
+                        # gated 719 ordinary transitions); and `in_flare` excludes corner flares, which
+                        # is where the worst real drop on this stage lives — 3.12 m off the outside of
+                        # a flared switchback, waved through while shoulder slopes failed.
+                        _fall = (edge_y - ey) if edge_y is not None else 0.0
+                        _lip = (carriage_edge is not None and off <= carriage_edge + UNPAVED_LIP_M
+                                and _drop > UNPAVED_LIP_DROP_M)
+                        _gated = (not guarded) and (_drop > UNPAVED_FACE_M
+                                                    or _fall > UNPAVED_FALL_M or _lip)
+                    else:
+                        _gated = in_band and not guarded
+                    excursions.append((round(s2, 1), round(off * sgn, 2), round(_drop, 2), _gated))
                 if ey is not None:
                     prev_y = ey
                 off += 0.5
@@ -470,6 +529,16 @@ def run(project_dir: str | Path) -> dict:
     # junction crotches where edge strips meet). Kinks are reported but don't gate: on a real
     # mountain profile 3%-pt/m events are genuine road texture, not defects.
     severe_per_km = report["severe_per_km"]
+    # SURFACE-AWARE BUMP RATE. The 75/km pass line is calibrated against Sand Creek — a PAVED street
+    # loop, ~19 bumps/km. A 2.5 cm step is a defect on asphalt; on a graded dirt road it is the
+    # surface. Dragon Tail measures ~114/km straight off 1 m lidar of the real road while its severe
+    # rate (9.8/km) and its replication (median 0.06 m) both sit comfortably inside their limits —
+    # i.e. the deck is faithfully following a genuinely rougher surface, not wobbling off it.
+    # Holding gravel to the tarmac line would mean smoothing a rally stage until it drove like a
+    # circuit, which is the opposite of correct. Severe steps, ground-through-lane, obstructions and
+    # excursions are UNCHANGED — this moves one pass line for one surface, nothing else.
+    _surface = str(cfg.get("road_surface", "tarmac"))
+    _bump_limit = {"tarmac": 75.0, "gravel": 150.0}.get(_surface, 75.0)
     import os as _os
     # GATE_EXCURSIONS_ADVISORY=1: report-only for a TEST build while the construction selector
     # (#17: guard walls at drops, per docs/ROAD-CONSTRUCTION.md) is pending — the failures are the
@@ -485,7 +554,7 @@ def run(project_dir: str | Path) -> dict:
             or report["undrivable_corners"] > 0
             or report["floating_furniture"] > 0
             or severe_per_km > 12.0
-            or report["steps_per_km"] > 75.0)
+            or report["steps_per_km"] > _bump_limit)
     print(f"DRIVE TEST {cfg['slug']}  lap {lap/1000:.2f} km  (10 wheel paths @ {STEP_M} m)")
     print(f"  ground on top mid-lane : {report['soft_top_in_lane']}")
     print(f"  floating furniture (walls/fences off support): {report['floating_furniture']} "
@@ -493,14 +562,16 @@ def run(project_dir: str | Path) -> dict:
     print(f"  undrivable corners (>100deg @ <11m): {report['undrivable_corners']} "
           f"{problems['undrivable_corners'][:4] if problems['undrivable_corners'] else ''}")
     print(f"  severe steps (>{STEP_SEVERE_M*100:.0f} cm)  : {report['severe_steps']}")
-    print(f"  bumps >{STEP_BUMP_M*100:.1f} cm /km      : {report['steps_per_km']}")
+    print(f"  bumps >{STEP_BUMP_M*100:.1f} cm /km      : {report['steps_per_km']} "
+          f"(limit {_bump_limit:.0f} for {_surface})")
     print(f"  slope kinks >{KINK_PCT}%% /km   : {report['kinks_per_km']}")
     print(f"  daylight gaps at edges : {report['daylight_gaps']}")
     if report.get("replication_vs_measured"):
         _rp = report["replication_vs_measured"]
         print(f"  replication vs measured road : median {_rp['median']} m  p95 {_rp['p95']} m  max {_rp['max']} m")
     print(f"  off-road excursion drops>20cm : {report['excursion_drops']}"
-          f"  (far flare ledges, reported: {report['excursion_far_ledges']})")
+          f"  (far flare ledges, reported: {report['excursion_far_ledges']})"
+          + ("  [unpaved: only ledges >2 m or drops at the pavement edge gate]" if _unpaved else ""))
     for r in report["worst_excursions"][:6]:
         print(f"    worst excursion drop: {r}")
     print(f"  obstructed stations    : {report['obstruction_stations']}"

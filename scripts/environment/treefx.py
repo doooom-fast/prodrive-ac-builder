@@ -10,6 +10,19 @@ its ``.bin`` filename; the config we generate (``trees.txt`` + the ext_config ``
 ours and license-clean. The user drops the licensed models into ``extension/trees/`` locally; a
 build logs exactly which filenames it expects so nothing is guessed.
 
+**Never ship a dangling manifest.** A ``tree:`` line naming a ``.bin`` that isn't in the packaged
+``extension/trees/`` is the "tree manifest missing" failure — CSP loads the list, can't resolve the
+model, and complains. So resolution is a BUILD-TIME gate, not a runtime hope: :func:`resolve_models`
+looks each species up in the configured search dirs, and
+:meth:`TreeFXCollector.drop_unresolved_species` deletes every tree of a species with no model file
+*before* anything is written. What ships always references models that are actually present — either
+because ``bundle`` copied them into the build, or because the species was dropped. If that leaves no
+species at all, the caller skips the ``[TREES]`` block entirely rather than emit an empty manifest.
+
+``scenery.treefx.bundle`` (with ``bundle_dir``, default ``source/trees/``) copies the resolved models
+into the packaged track. That's for personal, non-distributed builds — bundling third-party models
+into a track you publish is the licensing problem this module exists to avoid.
+
 **The verified format** (validated against docs and a real pack — see ``docs/TREEFX-FORMAT.md``):
 
 Per-track ``extension/trees/trees.txt``, one directive per line::
@@ -350,6 +363,10 @@ class TreeFXCollector:
         self.grassfx = cfg.get("grassfx")  # optional per-track GrassFX tuning (dict) or None
         self.compiled_list = cfg.get("compiled_list")  # optional baked VAO filename (not produced here)
         self.header = cfg.get("header")  # optional custom trees.txt header (list of lines)
+        # Copy the resolved .bin models into the packaged track (personal builds — see the module
+        # docstring's licensing note). bundle_dir is where the user keeps them, relative to the project.
+        self.bundle = bool(cfg.get("bundle", False))
+        self.bundle_dir = str(cfg.get("bundle_dir", "source/trees"))
         self.zones: dict[str, Zone] = {
             name: Zone.from_config(name, z) for name, z in (cfg.get("zones") or {}).items()
         }
@@ -400,6 +417,23 @@ class TreeFXCollector:
         declared = {sp for zone in self.zones.values() for sp in zone.species}
         return sorted(self._expected | declared)
 
+    def drop_unresolved_species(self, resolved: Iterable[str]) -> list:
+        """Delete every tree whose species has no model file, and stop declaring those species.
+
+        ``resolved`` is the set of ``.bin`` filenames that actually exist (see :func:`resolve_models`).
+        Returns the sorted list of dropped species so the caller can report them. This is what keeps a
+        shipped ``trees.txt`` honest: after this call, every ``tree:`` line names a model that is
+        really there. Call it BEFORE :meth:`trees_txt` / :meth:`expected_species`."""
+        keep = set(resolved)
+        dropped = sorted(sp for sp in self.expected_species() if sp not in keep)
+        if not dropped:
+            return []
+        for zone in self.zones.values():
+            zone.species = [sp for sp in zone.species if sp in keep]
+            self._by_zone[zone.name] = [t for t in self._by_zone[zone.name] if t.species in keep]
+        self._expected = {sp for sp in self._expected if sp in keep}
+        return dropped
+
     def directives(self) -> list:
         """Ordered directive list: per zone, a header comment, its ``configure`` lines, then its
         trees. Zones with no placed trees are skipped."""
@@ -433,6 +467,8 @@ class TreeFXCollector:
             "grassfx": self.grassfx,
             "compiled_list": self.compiled_list,
             "header": self.header,
+            "bundle": self.bundle,
+            "bundle_dir": self.bundle_dir,
             "expected_species": self.expected_species(),
             "zones": zones_json,
         }
@@ -453,6 +489,8 @@ class TreeFXCollector:
         self.grassfx = obj.get("grassfx")
         self.compiled_list = obj.get("compiled_list")
         self.header = obj.get("header")
+        self.bundle = bool(obj.get("bundle", False))
+        self.bundle_dir = str(obj.get("bundle_dir", "source/trees"))
         self.zones = {}
         self._source_index = {}
         self._by_zone = {}
@@ -549,23 +587,63 @@ def grassfx_block(*, grass_meshes: Sequence[str], occluding_meshes: Sequence[str
 
 
 # --------------------------------------------------------------------------------------------------
-# extension/trees/README — the license-clean "reference, don't bundle" manifest.
+# Model resolution — the gate that stops a build shipping a manifest it can't satisfy.
 # --------------------------------------------------------------------------------------------------
-def trees_readme(slug: str, expected_species: Sequence[str]) -> str:
+def resolve_models(species: Iterable[str], search_dirs: Iterable) -> tuple:
+    """Locate each species' ``.bin`` model. Returns ``(found, missing)`` where ``found`` maps
+    ``species -> Path`` and ``missing`` is the sorted list with no file anywhere.
+
+    ``search_dirs`` are tried in order, first hit wins — typically the project's own model dir
+    (``scenery.treefx.bundle_dir``) then a shared engine-level library. A species is matched on its
+    exact filename; a species declared without the ``.bin`` suffix is also tried with it, since
+    ``trees.txt`` requires the suffix but configs are written both ways."""
+    dirs = [Path(d) for d in search_dirs]
+    found: dict = {}
+    missing: list = []
+    for sp in sorted(set(species)):
+        names = [sp] if sp.endswith(".bin") else [sp, f"{sp}.bin"]
+        hit = next((d / n for d in dirs for n in names if (d / n).is_file()), None)
+        if hit is not None:
+            found[sp] = hit
+        else:
+            missing.append(sp)
+    return found, missing
+
+
+# --------------------------------------------------------------------------------------------------
+# extension/trees/README — what this build actually references, and where those models came from.
+# --------------------------------------------------------------------------------------------------
+def trees_readme(slug: str, expected_species: Sequence[str], *, bundled: bool = False) -> str:
     lines = [
-        f"{slug} — TreeFX models (user-supplied, NOT committed)",
+        f"{slug} — TreeFX models",
         "=" * 56,
         "",
-        "This track renders 3D trees via CSP TreeFX. The tree MODELS are third-party, licensed,",
-        "and USER-SUPPLIED — prodrive-ac-builder never downloads or commits them. We only generate",
-        "the config that REFERENCES each species by its .bin filename (trees.txt + ext_config",
-        "[TREES]); those config files are ours and license-clean.",
+        "This track renders 3D trees via CSP TreeFX. The tree MODELS are third-party and licensed;",
+        "prodrive-ac-builder never downloads or commits them. We generate only the config that",
+        "REFERENCES each species by its .bin filename (trees.txt + ext_config [TREES]) — those config",
+        "files are ours and license-clean.",
         "",
-        "PLACE the licensed .bin models listed below in THIS folder (extension/trees/). They are",
-        "gitignored (*.bin) so they never end up in a committed/published track. A missing model is",
-        "harmless — its 'tree:' lines simply render nothing until you drop the file in.",
+    ]
+    if bundled:
+        lines += [
+            "This build BUNDLES its models: the .bin files listed below were copied into THIS folder",
+            "from the project's own model dir at pack time, so the track runs as-is. That is fine for a",
+            "personal build; do NOT redistribute the packaged track unless you hold the right to",
+            "redistribute those models.",
+        ]
+    else:
+        lines += [
+            "This build REFERENCES its models without bundling them. PLACE the .bin files listed below",
+            "in THIS folder (extension/trees/). They are gitignored (*.bin) so they never end up in a",
+            "committed or published track.",
+        ]
+    lines += [
         "",
-        "Expected .bin models for this build:",
+        "Every species listed here was VERIFIED to exist when this build was packaged — a species",
+        "whose model could not be found is dropped from trees.txt entirely rather than left dangling,",
+        "so this list and the config never disagree.",
+        "",
+        "Species referenced by this build:",
     ]
     if expected_species:
         lines += [f"  - {sp}" for sp in expected_species]
