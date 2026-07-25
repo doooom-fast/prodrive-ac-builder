@@ -275,7 +275,13 @@ def _bridge_detector(centerline_m: list[Vertex], natural_grid: list[list[Vertex]
             spans.append((st[i], st[j - 1]))
         i = j
     if not spans:
-        return None
+        # A NO-OP, not None — which is what this function's own docstring has always promised, and
+        # what its six call sites assume: they invoke bridge_of(...) unguarded. Returning None meant
+        # any track with no detected spans died with "'NoneType' object is not callable" deep in the
+        # ring construction. It never fired because every track built so far happened to have at
+        # least one span; the first genuinely bridge-free road found it.
+        _bridge_detector.last_spans = []
+        return lambda _station_m: False
     print(f"  bridge spans: {len(spans)} ({[f'{a:.0f}-{b:.0f}m' for a, b in spans]}) — deck+piers, no fill")
     _bridge_detector.last_spans = [(float(a), float(b)) for a, b in spans]   # for persistence
 
