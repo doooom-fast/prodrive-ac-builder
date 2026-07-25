@@ -94,8 +94,11 @@ def ui_track_json(cfg, layout: str, length_m: float, n_pits: int) -> dict:
         if freeroam else
         f"Real-world street circuit built from OpenStreetMap + USGS 3DEP by prodrive-ac-builder "
         f"({city}, {country}).")
-    tags = ["freeroam", "cruise", "street", "open-world", "real-roads"] if freeroam else \
-        ["street", "loop", "fictional", "real-roads"]
+    # `loop: false` alone does NOT mean freeroam — a point-to-point rally stage is also not a loop,
+    # and labelling it an open-world cruise is simply wrong. Let a track state its own tags.
+    tags = cfg.raw.get("ui_tags") or (
+        ["freeroam", "cruise", "street", "open-world", "real-roads"] if freeroam else
+        ["street", "loop", "fictional", "real-roads"])
     # per-layout label: use the layout's configured `name` (e.g. "Sand Creek Raceway") so each config
     # in the in-game dropdown reads as its actual track, not the raw id.
     lo_meta = next((lo for lo in (cfg.raw.get("layouts", []) or []) if lo.get("id") == layout), {})
