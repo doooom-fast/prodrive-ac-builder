@@ -2054,10 +2054,14 @@ def build(project_dir: str | Path) -> dict:
                       "uvs": list(shoulder.get("uvs", [])),
                       "tris": [(a, c, b) for a, b, c in shoulder["tris"]]}
 
-    dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3)
+    # loop=false is a point-to-point road (a rally stage): the grid goes at the start, AC_TIME_0 at
+    # the far end as the finish, and no gate wraps. See dummies.py.
+    is_loop = bool(cfg_raw.get("loop", True))
+    dummies = dummies_mod.place_dummies(centerline, widths, n_sectors=3, loop=is_loop)
     # REVERSE LAYOUT (Kevin: drive it both ways): same world, opposite travel — its own grid on
-    # the reversed lap's best straight, timing line armed in the reverse direction.
-    dummies_rev = dummies_mod.place_dummies(centerline[::-1], widths[::-1], n_sectors=3)
+    # the reversed lap's best straight, timing line armed in the reverse direction. On a stage this
+    # is the same road run the other way, start and finish swapping ends.
+    dummies_rev = dummies_mod.place_dummies(centerline[::-1], widths[::-1], n_sectors=3, loop=is_loop)
 
     # Persist the FINISHED centerline (corner-rounded, mirrored — the exact line the ribbon was
     # swept along) for the drive test: near sharp junctions it deviates metres from the raw local
