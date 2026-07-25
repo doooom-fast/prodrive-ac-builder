@@ -33,3 +33,8 @@ Building set — mined from Hamburg by 4r (nhh_detail.kn5) via scripts/modkit/ex
   roof_diffuse.jpg / roof_normal.jpg           material 'bluemetal'       (TCom_Roofing_PVC — flat membrane roof)
   brick_diffuse.jpg / brick_normal.jpg         material 'brickwall'       (TCom_Wall_BrickPlain1 — building variety)
   stucco_diffuse.jpg / stucco_normal.jpg       material 'redstucco'       (TCom_Wall_Stucco28 — building variety)
+
+gravel_road_diffuse.png + gravel_road_normal.png — graded high-desert dirt/gravel county road,
+  GENERATED procedurally by scripts/assets/make_gravel.py (deterministic, seed 20260724). Ours,
+  CC0 — unlike the mined textures above this one is safe to redistribute, which is the point: it
+  is what `road_surface: gravel` binds to 1ROAD/1RUNOFF on rally stages.
