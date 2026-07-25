@@ -1546,7 +1546,13 @@ def build(project_dir: str | Path) -> dict:
                 _col.append((_px, _gy17, _pz))
                 _py17 = _gy17
             _cols.append((_col, _kcut))
-        _pairs = [(_a, _a + 1) for _a in range(_m17 - 1)] + ([(_m17 - 1, 0)] if _m17 > 2 else [])
+        # The final pair closes the annulus from the last cross-section back to the first. On a lap
+        # those are neighbours. On an OPEN road they are the finish and the start — 17 km apart and
+        # 145 m apart vertically — and stitching them lays a grass strip across the whole map, over
+        # the start line. That strip is what stood above the deck in the first 20 m of the stage.
+        _pairs = [(_a, _a + 1) for _a in range(_m17 - 1)]
+        if _m17 > 2 and cfg_raw.get("loop", True):
+            _pairs.append((_m17 - 1, 0))
         for _a17, _b17 in _pairs:
             _ea, _eb = _cols[_a17], _cols[_b17]
             if _ea is None or _eb is None:
