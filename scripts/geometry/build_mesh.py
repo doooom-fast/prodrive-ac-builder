@@ -866,9 +866,34 @@ def build(project_dir: str | Path) -> dict:
         cm["vertices"] = [(x, y + ROAD_LIFT_M, z) for x, y, z in cm["vertices"]]
         conn_meshes.append((f"1ROAD_{name}", cm))
     conn_verts = [v for _n, cm in conn_meshes for v in cm["vertices"]]
+
+    # OPEN-ROAD END APRONS. clamp_terrain_below_road lets the allowed terrain height RECOVER with
+    # distance from the road, so the corridor rejoins the real ground instead of sitting in a shaved
+    # moat. On a lap "distance from the road" only ever grows sideways. On an OPEN road it also grows
+    # off the two TIPS — so the recovery ramp rises along the road's own axis right at the start and
+    # the finish, and the grid triangle spanning the first cross-section bridges up over the deck.
+    # That is the ground-through-lane cluster the drive test reported at station 0.
+    # Fix: hand the clamp a short apron of virtual road verts continuing past each open end, at the
+    # end's own deck height, so the terrain there is held under the deck plane like anywhere else.
+    _end_apron: list = []
+    if not cfg_raw.get("loop", True) and len(centerline) > 2:
+        for _tip, _inw in ((0, 1), (len(centerline) - 1, -2)):
+            _cx, _cy, _cz = centerline[_tip]
+            _px, _, _pz = centerline[_tip + _inw]
+            _tdx, _tdz = _cx - _px, _cz - _pz          # outward tangent at this tip
+            _tl = math.hypot(_tdx, _tdz) or 1.0
+            _tdx, _tdz = _tdx / _tl, _tdz / _tl
+            _hw = widths[_tip] / 2.0 + 1.0
+            for _step in range(1, 13):                 # 12 x 2.5 m = 30 m of apron past the tip
+                _ax, _az = _cx + _tdx * 2.5 * _step, _cz + _tdz * 2.5 * _step
+                for _lat in (-_hw, 0.0, _hw):
+                    _end_apron.append((_ax - _tdz * _lat, _cy, _az + _tdx * _lat))
+        print(f"  [end aprons] {len(_end_apron)} virtual verts past the two open ends "
+              f"(keeps the clamp's recovery ramp off the deck)")
     # ANTI-POKE pass 1: clamp the grid below the flat drivable ribbons (road + runoff + connectors) so the
     # graded grass surface is FINAL before the edge strips drape onto it. One-sided (natural dips survive).
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + conn_verts,
+    ribbon.clamp_terrain_below_road(grid_xyz,
+                                    road["vertices"] + runoff["vertices"] + conn_verts + _end_apron,
                                     clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]),
                                     foot_m=8.0, recover=0.35)
     # The finalized grass SURFACE (bilinear on the graded+clamped grid) — the single source of truth the
@@ -1053,7 +1078,7 @@ def build(project_dir: str | Path) -> dict:
     print(f"  [contact] bent {_bent} grid nodes through the shoulder meet line (they TOUCH)")
     # the bend seals seams but must NEVER raise ground through pavement — re-run the ROAD clamp
     # after it (audit B caught exactly one bent node poking +2.74 through a hairpin deck).
-    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"],
+    ribbon.clamp_terrain_below_road(grid_xyz, road["vertices"] + runoff["vertices"] + _end_apron,
                                     clear=GRASS_CLEARANCE_M, grid_spacing=float(meta["spacing_m"]),
                                     foot_m=8.0, recover=0.35)
     ribbon.clamp_terrain_below_road(grid_xyz, shoulder["vertices"] + kerb["vertices"], clear=0.05, reach=6.0,
