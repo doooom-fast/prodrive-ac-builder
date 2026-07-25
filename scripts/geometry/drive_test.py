@@ -179,6 +179,19 @@ def run(project_dir: str | Path) -> dict:
             for tri in grp["tris"]:
                 field.add(verts, tri, grp["name"])
 
+    # SANITY: there must BE a road. A build_mesh that dies mid-write (2.87 M grid verts ran the
+    # process out of memory) leaves a TRUNCATED track.obj holding only the 1GRASS chunks written so
+    # far — no 1ROAD at all. This gate then scored a world with no road in it: every wheel-path
+    # sample landed on grass, so it reported 159,635 "ground above the road" and 548 bumps/km and
+    # called it a surface problem. A gate that cannot tell a bad road from NO road is not a gate.
+    _road_groups = [g for objfile in ("track.obj",) if (data / objfile).exists()
+                    for g in _load_obj(data / objfile)[1] if g["name"].upper().startswith("1ROAD")]
+    if not _road_groups:
+        raise SystemExit(
+            "drive_test: track.obj contains no 1ROAD_* geometry — the mesh build did not finish "
+            "(check for a truncated OBJ / out-of-memory kill in build_mesh). Refusing to score a "
+            "track with no road surface.")
+
     # six wheel paths: wheel pair around center line + around left/right third lines
     n = len(pts)
     st = [0.0]
