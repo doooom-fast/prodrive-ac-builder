@@ -555,30 +555,7 @@ def build(project_dir: str | Path) -> dict:
     widths = local["widths_m"]
     origin = (local["origin"]["lon"], local["origin"]["lat"])
     elev0 = local["origin"]["elev_m"]
-    _lead_offset = 0.0        # metres of lead-in road prepended; config stations exclude it
 
-    # LEAD-IN / LEAD-OUT on an open road. A rally stage is a SEGMENT of a longer county road: the
-    # tarmac continues past the start line and past the flying finish, and the car reaches the start
-    # by driving, not by materialising on a cliff edge. Without it the ribbon simply stops at station
-    # 0, and the drive test's very first sample sits exactly on the boundary of the first triangle —
-    # degenerate, and it reported ground-through-lane there on every build.
-    # Flat continuation at each tip's own height and width, so it adds road without inventing terrain.
-    if not cfg_raw.get("loop", True) and len(raw_pts) > 2:
-        _lead_m, _lead_step = 30.0, 3.0
-        _n_lead = int(_lead_m / _lead_step)
-        _head, _tail = [], []
-        for _tip, _inw, _sink in ((0, 1, _head), (len(raw_pts) - 1, -2, _tail)):
-            _cx, _cy, _cz = raw_pts[_tip]
-            _px, _, _pz = raw_pts[_tip + _inw]
-            _dx, _dz = _cx - _px, _cz - _pz
-            _L = math.hypot(_dx, _dz) or 1.0
-            _dx, _dz = _dx / _L, _dz / _L
-            for _k in range(1, _n_lead + 1):
-                _sink.append((_cx + _dx * _lead_step * _k, _cy, _cz + _dz * _lead_step * _k))
-        raw_pts = list(reversed(_head)) + list(raw_pts) + _tail
-        widths = [widths[0]] * _n_lead + list(widths) + [widths[-1]] * _n_lead
-        _lead_offset = _lead_m
-        print(f"  [lead-in/out] {_n_lead} verts ({_lead_m:.0f} m) of road past each open end")
 
     # ROAD PROFILE: corner-round, mirror, and bake the hand-authored dip (the Sand Creek corkscrew) into
     # the centerline Y. Shared with build_env so the scenery anchors to the SAME road. dip_of/bank_at are
@@ -626,11 +603,7 @@ def build(project_dir: str | Path) -> dict:
         _i += 1
     _declared = []
     for _wc in (cfg_raw.get("route", {}) or {}).get("wide_corners", []) or []:
-        # +lead offset: config station_m is measured from the REAL stage start, not from the tip of
-        # the lead-in road. Without this, adding a 30 m lead-in silently slides every declared flare
-        # 30 m up the route.
-        _target = float(_wc["station_m"]) + _lead_offset
-        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - _target))
+        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - float(_wc["station_m"])))
         _declared.append(_si)
         if all(abs(_stp[_si] - _stp[a]) > 30.0 for a in _apexes):
             _apexes.append(_si)
@@ -653,8 +626,7 @@ def build(project_dir: str | Path) -> dict:
     # config fact, not an OSM-derived one; it must work on any track. A real graded switchback IS cut
     # wider at the apex than the road it joins, which is what makes a 150-degree hairpin drivable.
     for _wc in (cfg_raw.get("route", {}) or {}).get("wide_corners", []) or []:
-        _si = min(range(len(centerline)),
-                  key=lambda k: abs(_stp[k] - (float(_wc["station_m"]) + _lead_offset)))
+        _si = min(range(len(centerline)), key=lambda k: abs(_stp[k] - float(_wc["station_m"])))
         _tw = float(_wc.get("width_m", 14.0))
         for _i in range(len(widths)):
             _d = max(0.0, abs(_stp[_i] - _stp[_si]) - 18.0)   # full width over ±18 m, then taper

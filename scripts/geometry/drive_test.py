@@ -210,9 +210,18 @@ def run(project_dir: str | Path) -> dict:
     prev_h = [None] * 10
     prev_slope = [None] * 10
     obst_names = defaultdict(int)
-    s = 0.0
+    # On an OPEN road, station 0 and station `lap` are the mesh BOUNDARY: the sample sits exactly on
+    # the edge of the first/last road triangle, where the barycentric test is degenerate and the
+    # neighbouring grass triangle — which extends past the pavement — wins instead. That reported
+    # ground-through-lane at station 0.0 on every build. It is not a terrain defect: the car cannot
+    # be there (the grid spawns ~45 m in), and adding 30 m of lead-in road did NOT fix it, it merely
+    # relocated the boundary and the same hits reappeared at the new station 0. Start and finish
+    # half a step inside the mesh. A closed lap has no boundary, so it is swept from 0 as before.
+    _open = not bool(cfg.get("loop", True))
+    s = (STEP_M * 0.5) if _open else 0.0
+    _sweep_end = (lap - STEP_M * 0.5) if _open else lap
     i = 1
-    while s < lap:
+    while s < _sweep_end:
         while i < n - 1 and st[i] < s:
             i += 1
         t = (s - st[i - 1]) / max(st[i] - st[i - 1], 1e-9)
