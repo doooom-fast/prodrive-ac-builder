@@ -64,9 +64,11 @@ def _project(road_surface, edge_profile):
 
 
 def _fill_slope(off):
-    """A real graded shoulder: ~1.5 m of flat verge, then a 2:1 embankment falling away at 0.25 m
-    per 0.5 m step. This is what Dragon Tail actually measures — its worst drops sit at +/-9 m."""
-    return -0.5 * max(0.0, off - 5.0)
+    """A real graded shoulder: ~1.5 m of flat verge, then a 2:1 embankment that falls away and
+    DAYLIGHTS into the hillside after ~2 m — embankments stop when they meet natural ground, they
+    do not fall forever. This is the shape Dragon Tail measures; its worst drops sit at +/-9 m and
+    its fall across the swept band is under 2 m."""
+    return -min(2.0, 0.5 * max(0.0, off - 5.0))
 
 
 def _cliff(off):

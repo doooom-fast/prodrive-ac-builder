@@ -310,19 +310,19 @@ def run(project_dir: str | Path) -> dict:
     # the excursion count went 1,000 -> 1,041 — 4%, and the wrong way. Every worst offender sits at
     # +/-9 to 9.5 m, six metres beyond a 6.5 m carriageway, out on the fill slope.
     #
-    # So on an unpaved road three things still gate, all surface-independent:
+    # So on an unpaved road two things still gate, both surface-independent:
     #   * a FACE far steeper than an embankment. A 2:1 fill slope is 0.25 m per 0.5 m sample;
     #     1.0 m in one sample is four times that — a wall, not a slope.
-    #   * a total FALL across the band deeper than the parapet warrant. build_mesh builds a stone
-    #     parapet at fill edges dropping > 2 m and deliberately builds nothing below that, so a gate
-    #     demanding a wall below 2 m contradicts the builder. Measuring the cumulative fall (not the
+    #   * a total FALL from the pavement edge deeper than the parapet warrant. build_mesh builds a
+    #     stone parapet at fill edges dropping > 2 m and deliberately builds nothing below that, so a
+    #     gate demanding a wall below 2 m contradicts the builder. Measuring cumulative fall (not the
     #     per-sample delta) is what catches a real cliff that descends over several samples and so
     #     never shows its full height in any single one — the case a per-step threshold alone misses.
-    #   * a drop right at the pavement edge — leave the road and fall immediately.
     _unpaved = str(cfg.get("road_surface", "tarmac")) != "tarmac"
     UNPAVED_FACE_M = 1.0         # one-sample face 4x steeper than a 2:1 embankment
     UNPAVED_FALL_M = 3.0         # cumulative fall across the band (a 2:1 slope falls 2 m over 4 m)
-    UNPAVED_EDGE_M = 1.0         # within 1 m of built pavement = a ledge off the road itself
+    UNPAVED_LIP_M = 1.0          # ...of the CARRIAGEWAY edge, not the shoulder's outer lip
+    UNPAVED_LIP_DROP_M = 0.25    # a step that would catch a wheel as it leaves the driven surface
     excursions = []
     s2 = 0.0
     next_exc = 0.0
@@ -352,12 +352,19 @@ def run(project_dir: str | Path) -> dict:
             built_edge = None    # where BUILT pavement actually ends (surface-owner, not nominal width)
             miss_run = 0
             edge_y = None        # ground height where the pavement ends — the datum for total fall
+            carriage_edge = None # outer edge of the DRIVEN surface (excludes the shoulder)
             while off <= we + 9.0:   # FULLY exit the tarmac, past the hem onto raw world (Kevin)
                 exx, ezz = x0 + nxe * off * sgn, z0 + nze * off * sgn
                 ey, own = surface.top_at(exx, ezz, y0, 8.0)
                 if own is not None and str(own).upper().startswith(("1ROAD", "1KERB")):
                     built_edge = off
                     edge_y = ey        # keeps advancing while still on pavement -> the true edge
+                    # CARRIAGEWAY edge = where the surface you DRIVE on ends. The shoulder is also
+                    # named 1ROAD_*, so built_edge runs out to the shoulder's outer lip — which on a
+                    # graded road is exactly where the fill slope starts. Using that as "the pavement
+                    # edge" made an ordinary shoulder-to-slope transition look like a ledge, 719 times.
+                    if "SHOULDER" not in str(own).upper():
+                        carriage_edge = off
                 in_band = built_edge is not None and off <= built_edge + 4.0 and not in_flare
                 if ey is None:
                     # NO SURFACE mid-crossing = a hole in the world. The old sweep silently
@@ -385,12 +392,20 @@ def run(project_dir: str | Path) -> dict:
                             guarded = True
                             break
                     _drop = prev_y - ey
-                    _gated = in_band and not guarded
-                    if _gated and _unpaved:
-                        # sustained embankment slope is the surface here; a ledge is not
-                        _at_edge = built_edge is not None and off <= built_edge + UNPAVED_EDGE_M
+                    if _unpaved:
+                        # Gate on PHYSICAL DANGER, not on proximity to the pavement. Two reasons the
+                        # paved in-band test is wrong here: the shoulder counts as built pavement, so
+                        # "just past the edge" IS where a graded road's fill slope starts (that alone
+                        # gated 719 ordinary transitions); and `in_flare` excludes corner flares, which
+                        # is where the worst real drop on this stage lives — 3.12 m off the outside of
+                        # a flared switchback, waved through while shoulder slopes failed.
                         _fall = (edge_y - ey) if edge_y is not None else 0.0
-                        _gated = (_drop > UNPAVED_FACE_M or _fall > UNPAVED_FALL_M or _at_edge)
+                        _lip = (carriage_edge is not None and off <= carriage_edge + UNPAVED_LIP_M
+                                and _drop > UNPAVED_LIP_DROP_M)
+                        _gated = (not guarded) and (_drop > UNPAVED_FACE_M
+                                                    or _fall > UNPAVED_FALL_M or _lip)
+                    else:
+                        _gated = in_band and not guarded
                     excursions.append((round(s2, 1), round(off * sgn, 2), round(_drop, 2), _gated))
                 if ey is not None:
                     prev_y = ey
