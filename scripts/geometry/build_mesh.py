@@ -97,6 +97,21 @@ def write_obj(path: Path, mtl_name: str, groups: list[tuple[str, str, dict]]) ->
     return nv, nf
 
 
+def _chunk_suffix(i: int) -> str:
+    """Chunk suffix: a, b, ... z, aa, ab, ... — spreadsheet-column style.
+
+    A plain ``chr(ord('a') + i)`` runs off the end of the alphabet at the 27th chunk and starts
+    emitting punctuation and control characters ('1GRASS_{', '1GRASS_\\x7f'). Nothing had ever needed
+    more than 26 until a 25 km stage split its terrain into 34, and those names go straight into kn5
+    mesh + material names. Letters only, and unique for any count."""
+    s = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(ord("a") + r) + s
+    return s
+
+
 def split_mesh_under_cap(name: str, mat: str, mesh: dict, cap: int = 30000) -> list[tuple[str, str, dict]]:
     """Split a mesh into uniquely-named chunks under AC's 65,535 per-mesh vertex cap.
 
@@ -133,7 +148,7 @@ def split_mesh_under_cap(name: str, mat: str, mesh: dict, cap: int = 30000) -> l
         chunk = {"vertices": cv, "tris": ct}
         if uvs:
             chunk["uvs"] = cuv
-        out.append((f"{name}_{chr(ord('a') + len(out))}", mat, chunk))
+        out.append((f"{name}_{_chunk_suffix(len(out))}", mat, chunk))
     print(f"  [split] {name}: {len(mesh['vertices'])} verts > {cap} cap -> "
           f"{len(out)} uniquely-named meshes ({[g[0] for g in out]})")
     return out
@@ -292,13 +307,19 @@ def smooth_centerline(pts: list[Vertex], *, lam: float = 0.45, iterations: int =
     """Light GLOBAL Laplacian smoothing to kill the GPS-level wobble (3-15° per-vertex jogs in the
     OSM/KML centerline) that makes the road EDGES ripple on curves. Each vertex is pulled only a
     fraction toward its neighbours' midpoint, so straights stay straight and the route is preserved —
-    it just removes the high-frequency noise. Closed-loop aware; vertex count preserved."""
+    it just removes the high-frequency noise. Vertex count preserved.
+
+    On an OPEN road the ends have no neighbour to average with. Wrapping the index there (as this
+    did) pulls vertex 0 toward the midpoint of the LAST vertex and vertex 1 — on a 25 km
+    point-to-point stage that drags the two ends 17 km across the map toward each other and inflates
+    the route from 25 km to 38 km. Open curves pin their endpoints instead."""
     closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][2] - pts[-1][2]) < 1e-6
     P = [list(p) for p in (pts[:-1] if closed else pts)]
     m = len(P)
+    span = range(m) if closed else range(1, m - 1)
     for _ in range(iterations):
         new = [p[:] for p in P]
-        for i in range(m):
+        for i in span:
             a, b = P[(i - 1) % m], P[(i + 1) % m]
             for c in (0, 1, 2):
                 new[i][c] = P[i][c] + lam * ((a[c] + b[c]) / 2.0 - P[i][c])
@@ -314,10 +335,15 @@ def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
     """Round only the SHARP kinks (a hard ~90° street corner has no zero-radius point — real ones have
     a curb radius). Localized corner-cutting near kinks > ``angle_thr``; straights and gentle bends are
     untouched, so the route shape is preserved. Fixes the ribbon self-pinching + the stub kerbs at
-    corners. Closed-loop aware; vertex count (and the parallel widths) is preserved."""
+    corners. Vertex count (and the parallel widths) is preserved.
+
+    Like :func:`smooth_centerline`, an OPEN road's endpoints have no wrap-around neighbour — the
+    "corner" between the last vertex and the first is not a corner, it's the two ends of the road,
+    and cutting it drags them together. Open curves pin their endpoints."""
     closed = math.hypot(pts[0][0] - pts[-1][0], pts[0][2] - pts[-1][2]) < 1e-6
     P = [list(p) for p in (pts[:-1] if closed else pts)]
     m = len(P)
+    span = range(m) if closed else range(1, m - 1)
 
     def kink(Q: list, i: int) -> float:
         a, b, c = Q[(i - 1) % m], Q[i], Q[(i + 1) % m]
@@ -330,12 +356,13 @@ def round_sharp_corners(pts: list[Vertex], *, angle_thr: float = 28.0,
 
     for _ in range(iterations):
         mark = [False] * m
-        for i in range(m):
+        for i in span:
             if kink(P, i) > angle_thr:
                 for w in range(-window, window + 1):
-                    mark[(i + w) % m] = True
+                    if closed or 0 <= i + w < m:
+                        mark[(i + w) % m] = True
         new = [p[:] for p in P]
-        for i in range(m):
+        for i in span:
             if mark[i]:
                 a, b = P[(i - 1) % m], P[(i + 1) % m]
                 for c in (0, 1, 2):
