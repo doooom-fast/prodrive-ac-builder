@@ -30,15 +30,16 @@ can be checked. Companion docs: `V2-OPERATING-MODEL.md` (how we work now),
 - **Nothing was deleted, ever**: +157,061 / −3,005 lines across 90 commits. Four parallel build
   pipelines and three kn5 exporters accumulated; ~16% of `scripts/` is a second implementation of
   an existing job; ~9% is referenced by nothing at all.
-- **A licensing landmine is live**: ~15 textures mined from other authors' mods (LA Canyons,
-  Hamburg by 4r, a Colorado mod) are baked into all three shipped kn5s, while each generated
-  `LICENSES.md` claims "Every bundled binary asset is CC0-1.0". These tracks must not be
-  distributed publicly as-is.
+- **The license docs lie — a footnote, not a blocker**: ~15 textures mined from other authors'
+  mods are baked into all three shipped kn5s while each generated `LICENSES.md` claims "Every
+  bundled binary asset is CC0-1.0". Kevin's standing decision (2026-08-10): **personal use only,
+  distribution is a non-goal, kitbashing is the strategy** — so the only fix owed is to stop
+  generating the false CC0 claim (§6).
 - **What v2 keeps**: the core geometry/gps/elevation/environment/ac packages, the gate suite
   (with hardened process), `pbr.py` (the one well-factored shared library), the capture toolset,
-  and Kevin's newly-inventoried Dropbox 3D asset library. What v2 parks or kills: the network
-  fork, the unrunnable Blender-first fork, scs (stub), modkit (dead), game/app side-projects,
-  and ~2.1k LOC of orphan code.
+  `modkit` (revived as the kitbash miner), and Kevin's newly-inventoried Dropbox 3D asset
+  library. What v2 parks or kills: the network fork, the unrunnable Blender-first fork, scs
+  (stub), game/app side-projects, and ~2.1k LOC of orphan code.
 
 ---
 
@@ -69,8 +70,8 @@ circuits; a CSP TreeFX/GrassFX emitter.
 (the folder is generated *empty with a README* every build — `scripts/ac/track_folder.py:5`);
 a real minimap (`map.png` md5-identical across all 3 tracks) or CM `preview.png` for Sand
 Creek/Lake Murray; any resumable intermediate data (no `centerline.geojson`, `dem.tif`, or
-`heightfield.npy` exists in the repo — every build re-derives from live network calls); a track
-that can legally be shared (see §6).
+`heightfield.npy` exists in the repo — every build re-derives from live network calls); a
+truthful credits file (see §6).
 
 **Unresolved to this day:** `projects/sand-creek-raceway/BUILD-ON-WINDOWS.md:4` (Jun 23) states
 the Mac-native kn5 exporter "does **not** produce valid Assetto Corsa track surfaces — the ground
@@ -144,7 +145,7 @@ are 2–4-attempt HTTP backoffs on Overpass). The spend was *agent-shaped*:
    PNGs), a 36k-line capture JSON in `source/`, and giant generated files — expensive for any
    session that reads them.
 
-## 6. The licensing landmine
+## 6. The licensing footnote (resolved by decision)
 
 `assets/textures/SOURCES.txt` opens "Texture sources — all CC0 (public domain)" and then
 documents ~15 of ~30 textures as mined from **LA Canyons 1.2**, **Hamburg by 4r** (which itself
@@ -154,11 +155,11 @@ renders `CREDITS.txt`/`LICENSES.md` into every packed track — lists only the 1
 assets, so **every shipped track folder falsely asserts full CC0** while the kn5 has mod-derived
 textures baked in. `tracks/README.md` acknowledges the repo must stay private for this reason.
 
-**Consequences:** the three committed kn5s cannot be published, released, or shared beyond
-personal use; the documented "GitHub Release .zip" distribution model is void until assets are
-replaced. **Exit path:** Kevin's own Dropbox 3D library (inventoried 2026-08-10 — see
-`ASSET-LIBRARY.md`) + CC0 sources + purchased assets, each with a recorded license, replacing the
-mined set. This is a v2 milestone, not an afterthought.
+**Resolution (Kevin, 2026-08-10): personal use only — distribution is a non-goal.** The mined
+content stays, and kitbashing is the explicit v2 asset strategy (Dropbox library, mods archive,
+`modkit` extraction, purchases). What remains owed is honesty, not replacement: the pack stage
+must stop generating `LICENSES.md`/`CREDITS.txt` that claim "all CC0" when it isn't true — a
+generated doc that lies is the same disease as a gate that claims PASS (v2 backlog #4).
 
 ## 7. Distance to done — Sand Creek (pilot #1)
 
@@ -176,8 +177,8 @@ Honest remaining work to a track Kevin would call good, in order:
    `preview.png`; verify CM UI metadata. (~an evening of Kevin's time once the track is stable.)
 5. **Look & feel pass** driven by the dossier + owned assets (replace mined textures, place the
    barrier/sign/lamp/building models, verify "looks good in game" per asset).
-6. **License-clean release candidate** — `licenses.json` complete and truthful; only then does
-   distribution (even to friends) become possible.
+6. **Polish to T5** — dossier look-checks pass everywhere, stable frame rate, complete CM
+   assets; Kevin calls it finished. (Distribution is a non-goal — no release bar exists.)
 
 Steps 1–2 are one focused session + one Kevin evening. The loop in step 3 is where v1 died;
 v2's session rules exist precisely to keep it convergent. Lake Murray starts only after Sand
@@ -194,4 +195,5 @@ the existing 20.7 MB kn5 in-game.
 4. Code that duplicates a job is debt the moment it lands; deletion is progress.
 5. Confidence language ("done", "Kunos-grade", "verified") without an artifact is how a
    two-month hole gets dug. Claims now require artifacts.
-6. Assets without licenses are unshippable, no matter how good they look.
+6. Generated docs must tell the truth — a credits file claiming CC0 over mined content is the
+   same failure as a gate claiming PASS over broken geometry.

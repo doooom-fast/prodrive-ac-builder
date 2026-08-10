@@ -22,8 +22,8 @@ network pipeline) is **superseded** — do not extend it.
 2. Does `./scripts/build.sh projects/sand-creek-raceway` still complete from a clean checkout
    (T0 re-proof)? Front half re-derives via live Overpass/3DEP (no intermediates committed).
 3. All of T2–T5: install, laps, AI line (`ai/` holds only a README), real minimap
-   (placeholder `map.png`), CM preview (missing), license-clean assets (currently mined —
-   NOT distributable, see `docs/V1-AUTOPSY.md` §6).
+   (placeholder `map.png`), CM preview (missing), final polish pass. (Distribution is a
+   non-goal — kitbashed assets welcome; `docs/V1-AUTOPSY.md` §6.)
 
 ## Known defects & risks (from v1 record)
 - Fall-through recurred 6× in v1; treat any recurrence as gate/test gap first, mesh bug second.
@@ -39,7 +39,7 @@ network pipeline) is **superseded** — do not extend it.
    owned-asset plan (`docs/ASSET-LIBRARY.md`): jersey barriers, US sign pack, street lamps,
    containers, poplars.
 4. Owned-asset in-game proof → unlock Kevin's asset purchases.
-5. Iterate to T3 → AI-line evening (T4) → license-clean (T5).
+5. Iterate to T3 → AI-line evening (T4) → polish (T5).
 
 ## Session log
 - 2026-08-10 — v1 autopsy + v2 reboot; this ledger seeded. (This session changed docs/process

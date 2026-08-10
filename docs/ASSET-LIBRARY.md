@@ -1,15 +1,14 @@
 # Owned 3D Asset Library — Dropbox `/Blender`
 
 Inventoried **2026-08-10** from Kevin's Dropbox (all items downloaded 2026-07-21 → 07-24).
-This library is the **primary asset source** for v2 builds (CLAUDE.md rule 8) and the exit path
-from the v1 licensing landmine (`V1-AUTOPSY.md` §6). Per-location mapping happens in each
-dossier §8; this file is the master list.
+This library is the **primary asset source** for v2 builds (CLAUDE.md rule 8), alongside the
+wider kitbash pool: `/simracing/mods archive`, assets extracted from installed mods via
+`scripts/modkit`, and future purchases. Per-location mapping happens in each dossier §8; this
+file is the master list.
 
-**License status: ⚠ UNRECORDED for every item.** First use of any asset requires identifying
-its source store + license and adding it to `assets/licenses.json`. Kevin: if you remember where
-each came from (Sketchfab/CGTrader/TurboSquid/Poly Haven/etc.), note it — free downloads often
-allow personal use but not redistribution, which caps a track at DoD T4 until cleared or
-replaced by a purchased/CC0 equivalent.
+**License policy: none needed — personal use only.** Distribution is a non-goal (Kevin,
+2026-08-10), so kitbash freely from any source here. Provenance notes are welcome purely as
+"where did I get this" memory, never as a gate.
 
 ## Barriers & road furniture
 | Asset | Files | Notes |
@@ -53,8 +52,7 @@ replaced by a purchased/CC0 equivalent.
 3. Textures: power-of-two (build preflight enforces), EXR → PNG/JPG (AC has no EXR), normal-map
    G-channel convention checked (OpenGL vs DirectX), sensible resolution (≤2K for props).
 4. Materials: bind via `scripts/ac/pbr.py` table (name-prefix → texture set → shader).
-5. License entry in `assets/licenses.json` **before** the asset enters a build.
-6. Poly budget: props ≤10k tris preferred; decimate heavy models; AC's 65,535 verts/mesh cap
+5. Poly budget: props ≤10k tris preferred; decimate heavy models; AC's 65,535 verts/mesh cap
    is enforced by `verify_kn5`.
 
 ## Related Dropbox holdings (dossier inputs, not assets)

@@ -16,8 +16,7 @@ are **separate v1 experiments, all PARKED**; do not fold them in without Kevin.
 
 ## NOT verified — open questions
 1. Same as Sand Creek #1: does the kn5 load/render/collide in AC? Never attempted.
-2. T2–T5 all unattempted: no AI line, placeholder minimap, no preview.png, mined textures
-   (not distributable).
+2. T2–T5 all unattempted: no AI line, placeholder minimap, no preview.png.
 3. Route/layout itself unreviewed by Kevin against intent ("6 connector streets" suburb fill
    was v1 scope creep — PR #12; the v2 dossier decides what stays).
 

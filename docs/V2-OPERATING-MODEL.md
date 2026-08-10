@@ -64,19 +64,21 @@ The cycle repeats until DoD tiers advance. Sessions that discover scope creep pa
 - **CI** (`.github/workflows/tests.yml`): `python tests/run_tests.py` on every push/PR — the
   first machine check this repo has ever had. Keep it green; it runs in seconds.
 
-## Assets (Kevin's condition, encoded)
+## Assets (Kevin's conditions, encoded)
 
-1. **Primary source**: Kevin's Dropbox `/Blender` library — inventoried in `ASSET-LIBRARY.md`
-   (barriers, US traffic signs, street lamps, pylons, containers, modular buildings, fences,
-   poplar/pine trees, 4K PBR surface sets, HDRI sky).
-2. **Proof before purchase**: take 2–3 owned models (recommended: Concrete Barrier 4 MTS,
-   traffic-sign pack, a street lamp) end-to-end — convert (scale-to-meters, Y-up, PBR→AC
-   material via `pbr.py`, power-of-two, EXR→PNG/DDS), place at Sand Creek, Kevin verdicts
-   "looks good in game" in a drive-test report. **Only after that proof does Kevin start paying
-   for assets**, from dossier gap-lists with store links and prices he approves.
-3. **License ledger**: every asset gets an `assets/licenses.json` entry (source, license,
-   distribution rights) at import time. The mined v1 textures (autopsy §6) are retired as owned
-   replacements land; `SOURCES.txt` stays truthful meanwhile.
+**Personal use only — distribution is a non-goal** (Kevin, 2026-08-10). That unlocks full
+kitbashing: mine and adapt anything that makes a location look right — the Dropbox `/Blender`
+library (`ASSET-LIBRARY.md`: barriers, US traffic signs, street lamps, pylons, containers,
+modular buildings, fences, poplar/pine trees, 4K PBR sets, HDRI sky), the
+`/simracing/mods archive`, assets extracted from installed mods via `scripts/modkit`, purchased
+packs. No license ledger, no gate. The one honesty rule: generated credits files stop claiming
+"all CC0" when it isn't true — generated docs don't lie (backlog #4).
+
+**Proof before purchase** (unchanged): take 2–3 owned models (recommended: Concrete Barrier
+4 MTS, traffic-sign pack, a street lamp) end-to-end — convert (scale-to-meters, Y-up, PBR→AC
+material via `pbr.py`, power-of-two, EXR→PNG/DDS), place at Sand Creek, Kevin verdicts "looks
+good in game" in a drive-test report. **Only after that proof does Kevin start paying for
+assets**, from dossier gap-lists with store links and prices he approves.
 
 ## Cost controls
 
@@ -96,10 +98,11 @@ The cycle repeats until DoD tiers advance. Sessions that discover scope creep pa
 3. Gate hardening: delete bypass env vars; make `build_network.sh`'s inline 2-of-9 audit call
    the real module (or park the network path entirely); wire `render_drive_views.py` into the
    build as an artifact for drive-test prep.
-4. Owned-asset proof (§Assets) → then Kevin's first purchases.
-5. Drive-test iteration to T3, then T4 (AI line evening), then license-clean T5.
+4. Owned-asset proof (§Assets) → then Kevin's first purchases. Same pass: stop emitting the
+   false "all CC0" credits text from the pack stage (honesty fix, not a legal one).
+5. Drive-test iteration to T3, then T4 (AI line evening), then polish to T5.
 6. Refactor debt *as needed by the above, not speculatively*: split `build_mesh.build()` (1,739
    lines) along its stage seams the first time a change requires touching it.
-7. Deletions with Kevin's approval: `modkit`, orphan files (autopsy §4 list), `scs` stubs,
-   or their explicit PARKED retention.
+7. Deletions with Kevin's approval: orphan files (autopsy §4 list), `scs` stubs, or their
+   explicit PARKED retention. (`modkit` is revived — it's the kitbash miner.)
 8. Lake Murray dossier — only after Sand Creek T3.

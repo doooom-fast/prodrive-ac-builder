@@ -40,11 +40,12 @@ Detail: `docs/V2-OPERATING-MODEL.md`. Templates: `docs/templates/LOCATION-DOSSIE
    times because nothing locked the fix.
 7. **Sessions always land**: push the branch and update `STATE.md` (Verified / Claimed /
    Next) before ending — even mid-task. Unpushed work is money burned (Jul 25–Aug 10 taught this).
-8. **Assets must be licensed.** Every asset in a build has an entry in `assets/licenses.json`
-   proving distribution rights. Kevin's Dropbox 3D library (`docs/ASSET-LIBRARY.md`) is the
-   primary source; mined mod content is being retired (see autopsy §6) and must never be added.
-   New purchases only via a dossier "gap" list Kevin approves — after the owned-asset
-   look-good-in-game proof (`docs/V2-OPERATING-MODEL.md` §Assets).
+8. **Kitbash freely — personal use only.** Distribution is a non-goal (Kevin's standing
+   decision, 2026-08-10): tracks live on his machine, so mine, kitbash, and adapt whatever looks
+   right — the Dropbox library (`docs/ASSET-LIBRARY.md`), `/simracing/mods archive`, assets
+   extracted from installed mods (`scripts/modkit`), purchased packs. One honesty rule survives:
+   generated credits files must stop claiming "all CC0" — generated docs don't lie. Purchases
+   still gated on the owned-asset look-good-in-game proof (`docs/V2-OPERATING-MODEL.md` §Assets).
 
 ## First principles (unchanged from v1 — they held)
 
@@ -80,9 +81,9 @@ Anything the Mac side cannot verify (rendering, collision-in-game, look & feel, 
 | Status | Packages |
 |---|---|
 | **CORE** (canonical path) | `scripts/gps`, `elevation`, `geometry`, `environment`, `ac`, `vendor/io_import_accsv`, `tests` (`python tests/run_tests.py`, hermetic, CI-checked) |
-| **USEFUL** (situational) | `capture` (iPhone/dashcam ingest), `trace` (drawn-route matching), `aerial` (GPS-less circuits), `lighting` |
+| **USEFUL** (situational) | `capture` (iPhone/dashcam ingest), `trace` (drawn-route matching), `aerial` (GPS-less circuits), `lighting`, `modkit` (kitbash miner — kn5 → OBJ meshes/props from installed mods) |
 | **PARKED** (do not extend without Kevin) | `game` (UE5 seed), `apps/prodrive-scan`, `assets` (one-shot generators), network fork (`build_network.sh` + `*_network_*`), loop fork (`build_loop.sh`, unrunnable — no project has `loop.blend`) |
-| **STUB / DEAD** | `scs` (NotImplementedError×5), `modkit` (zero references) |
+| **STUB / DEAD** | `scs` (NotImplementedError×5) |
 
 **Canonical build:** `./scripts/build.sh projects/<slug> [start-stage]` — stages
 `gps elev project mesh env blend kn5 pack` with gates `drive`, `audit`, `verify`, `fidelity`
@@ -105,8 +106,8 @@ only, unwired parts noted in its SKILL.md), `lighting`, `ac-track-modding`, `mes
 ├── scripts/                     # the toolbox (see table above)
 ├── tests/                       # hermetic suite — python tests/run_tests.py (CI runs this)
 ├── .claude/skills/              # 11 skills
-├── assets/                      # shared textures/models + licenses.json (license landmine
-│                                # being retired — autopsy §6)
+├── assets/                      # shared textures/models — the kitbash pool (personal use;
+│                                # autopsy §6 — credits files must stop claiming CC0)
 ├── vendor/                      # GPL kn5 exporter addon (patched at clone time)
 ├── apps/prodrive-scan/          # PARKED iOS capture app
 ├── projects/<slug>/             # track.config.json, STATE.md, dossier.md, source/, data/, build/
