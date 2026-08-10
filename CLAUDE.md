@@ -1,148 +1,114 @@
-# Prodrive AC Builder
+# Prodrive AC Builder — v2
 
-Convert real-world road loops into playable Assetto Corsa (AC) tracks. Given a Google Maps
-screenshot, a location, and route notes, this project produces a complete, installable AC track
-folder — proper geometry, real elevation, accurate lighting, and multiple layout variants.
+Build **real places** as drivable Assetto Corsa tracks. One location at a time, deeply
+researched, customized per build. Everything before 2026-08 is **v1**; its full record — what
+worked, what looped, what it cost — is `docs/V1-AUTOPSY.md`. v2 exists to not repeat it.
 
-First target: **Sand Creek Raceway** — a street loop in Commerce City, Colorado (US), with optional alternate routes.
-
-> **Working on the Steam game (_1978_), not an AC track?** This repo's pipeline is also the *seed*
-> for a UE5 driving-as-art game — gritty autumn 1978, codename `Gala`. The game lives in its own
-> repo, **`k10-motorsports/k10-1978`** — its plan is the source of truth for the game; this file
-> governs the AC track pipeline it reuses. What this repo owes the game: the `projects/gala-seed/`
-> route project and a `scripts/game/export_seed.py` bundle exporter (contract in the game repo's
-> `PIPELINE_BRIDGE.md`).
+**Project order: 1) Sand Creek Raceway → 2) Lake Murray.** No work on the next location before
+the current one reaches DoD **T3** (Kevin-verified drivable — `docs/DEFINITION-OF-DONE.md`).
 
 ---
 
-## First principle
+## The v2 operating model
 
-> **The screenshot is a selection aid, not data.**
+**Claude is the orchestrator of a toolbox — there is no one-shot pipeline.** Each location gets:
 
-Precise geometry derives from **OpenStreetMap via the Overpass API**. Hand-drawn **KML** is used
-*only* where the intended route deliberately leaves the real road network (shortcuts, private land,
-connectors). A map screenshot tells us *which* roads to grab — it is never traced for coordinates.
+```
+LOCATION DOSSIER  →  BUILD PLAN  →  TOOLBOX RUNS + GATES  →  HANDOFF  →  KEVIN DRIVE-TESTS
+ (researched,        (Kevin           (Mac, scripted)        (zip +      (Windows, structured
+  Kevin reviews)      approves)                               notes)      report back)
+```
 
-## Reproducibility
+Detail: `docs/V2-OPERATING-MODEL.md`. Templates: `docs/templates/LOCATION-DOSSIER.md`,
+`docs/templates/DRIVE-TEST-REPORT.md`. Per-project ground truth: `projects/<slug>/STATE.md`.
 
-> **The whole pipeline is reproducible from `track.config.json`.**
+### Non-negotiable session rules (each traces to a v1 failure)
 
-Every track lives under `projects/<slug>/` and is fully described by its `track.config.json`.
-No hardcoded coordinates, widths, or rotations in scripts — read them from config, and write
-derived values (e.g. `true_north_rotation_deg`) back to it. A clean checkout plus the config plus
-the source screenshot must be enough to rebuild the track end to end.
+1. **One location, one goal per session.** State the goal in the first message of work; if it
+   isn't reached, say so plainly. A session never opens a second front.
+2. **Dossier before geometry.** No mesh work for a location until its dossier exists and Kevin
+   has approved it. The dossier decides customization on paper, where iteration is cheap.
+3. **Banned vocabulary:** "done", "complete", "verified", "ready to drive" — unless quoting a
+   `DRIVE-TEST-REPORT` or a DoD tier with its artifact linked. The honest formulation is
+   "gates pass; awaiting drive test."
+4. **Gates are law.** Never weaken a threshold, add a bypass, or skip a wired gate without an
+   entry in `docs/GATES-CHANGELOG.md` (measurement, rationale, Kevin's sign-off). Gate history
+   appends to `projects/<slug>/data/gate_history.jsonl` — numbers must be comparable over time.
+5. **No parallel implementations.** Extend or refactor the canonical path (`scripts/build.sh`);
+   never fork a `_v2`/`_network`/`_native` twin. Deleting code is a first-class contribution.
+6. **Every fixed bug gets a regression test** in the same commit. v1 fixed fall-through six
+   times because nothing locked the fix.
+7. **Sessions always land**: push the branch and update `STATE.md` (Verified / Claimed /
+   Next) before ending — even mid-task. Unpushed work is money burned (Jul 25–Aug 10 taught this).
+8. **Assets must be licensed.** Every asset in a build has an entry in `assets/licenses.json`
+   proving distribution rights. Kevin's Dropbox 3D library (`docs/ASSET-LIBRARY.md`) is the
+   primary source; mined mod content is being retired (see autopsy §6) and must never be added.
+   New purchases only via a dossier "gap" list Kevin approves — after the owned-asset
+   look-good-in-game proof (`docs/V2-OPERATING-MODEL.md` §Assets).
 
----
+## First principles (unchanged from v1 — they held)
+
+- **The screenshot is a selection aid, not data.** Geometry derives from OSM/Overpass; KML only
+  where the route deliberately leaves the road network; aerial tracing only when no OSM exists.
+- **Reproducible from `track.config.json`** — no hardcoded coordinates/widths/rotations in
+  scripts; derived values are written back to config. (v2 addendum: tuned *constants* belong in
+  config or a documented defaults table, not as magic numbers in code.)
 
 ## Build environment split
 
-| Platform | Role | Used for |
-|----------|------|----------|
-| **Mac** (headless) | Build engine | Data acquisition, geometry processing, Blender mesh building, kn5 export. Phases 1–5 are fully code-driven here. |
-| **Windows** | Drive & QA | AC + Content Manager + Custom Shaders Patch. Manual driving, AI line recording, visual QA. Phase 6 is the manual loop. |
+| Platform | Role |
+|---|---|
+| **Mac** (headless) | Data acquisition, geometry, Blender build, kn5 export, gates. Fully code-driven. |
+| **Windows** (Kevin) | The only ground truth: install via Content Manager, drive, record AI lane, screenshot. Structured feedback via `DRIVE-TEST-REPORT`. |
 
-`ac-track-modding` documents what it **can't own**: AI recording and in-game testing require the
-Windows GUI. Don't pretend those steps are scriptable on Mac.
+Anything the Mac side cannot verify (rendering, collision-in-game, look & feel, AI recording) is
+**by definition unverified** until the Windows loop says otherwise.
 
-## Coordinate & unit conventions
+## Conventions (enforced; unchanged)
 
-- **Units: meters.** Everything in the geometry/Blender/AC pipeline is metric.
-- **Up axis: Y-up** (AC / kn5 convention). Projection and mesh code target Y-up; convert once,
-  at the projection boundary, and stay consistent after.
-- **Origin:** set by `origin` in config (default `"centroid"` of the centerline). Project
-  `lat/lon/elev → local meters` relative to that origin.
-- **True north:** orient the mesh to true north so computed sun shadows align. The resolved
-  rotation is written back to `true_north_rotation_deg`.
+- **Meters, Y-up**, origin from config (`centroid` default), true north resolved and written
+  back to `true_north_rotation_deg`.
+- **Surface naming:** `1ROAD_*` drivable (keyed to `surfaces.ini`), `1KERB_*` kerbs, no numeric
+  prefix = visual-only. Dummies: `AC_START_0..N`, `AC_PIT_0..N`, `AC_TIME_0_L/R…`,
+  `AC_HOTLAP_START_0`.
+- **Elevation source priority:** USGS 3DEP 1 m → OpenTopography → SRTM 30 m; smooth along the
+  racing line.
+- **Textures:** power-of-two dimensions (build preflight enforces; violations hard-crash AC/CSP).
 
-## Surface naming (AC convention — enforced by `ac-track-modding`)
+## The toolbox (v1 code, curated — see autopsy §4 for the map)
 
-| Mesh prefix | Meaning |
-|-------------|---------|
-| `1ROAD_*` | Drivable physical surface, keyed to `surfaces.ini` |
-| `1KERB_*` | Kerb geometry / material |
-| *(no numeric prefix)* | Visual-only geometry (no physics) |
+| Status | Packages |
+|---|---|
+| **CORE** (canonical path) | `scripts/gps`, `elevation`, `geometry`, `environment`, `ac`, `vendor/io_import_accsv`, `tests` (`python tests/run_tests.py`, hermetic, CI-checked) |
+| **USEFUL** (situational) | `capture` (iPhone/dashcam ingest), `trace` (drawn-route matching), `aerial` (GPS-less circuits), `lighting` |
+| **PARKED** (do not extend without Kevin) | `game` (UE5 seed), `apps/prodrive-scan`, `assets` (one-shot generators), network fork (`build_network.sh` + `*_network_*`), loop fork (`build_loop.sh`, unrunnable — no project has `loop.blend`) |
+| **STUB / DEAD** | `scs` (NotImplementedError×5), `modkit` (zero references) |
 
-**Required dummy objects:**
-- Start / pit: `AC_START_0..N`, `AC_PIT_0..N`
-- Timing: `AC_TIME_0_L` / `AC_TIME_0_R` (start-finish), `AC_TIME_1_L/R…` (one pair per sector)
-- Hotlap: `AC_HOTLAP_START_0`
+**Canonical build:** `./scripts/build.sh projects/<slug> [start-stage]` — stages
+`gps elev project mesh env blend kn5 pack` with gates `drive`, `audit`, `verify`, `fidelity`
+wired in. Requires Blender 4.x via `scripts/bootstrap_blender.sh` (or `KN5_WRITER=native` —
+experimental, see autopsy §2 open question).
 
-**Materials:** `ksGrass` for grass, a road shader for `1ROAD_*`, assigned via the AC Blender Tools
-addon's `settings.json`.
+## Skills (11)
 
-## Elevation source priority
+`gps-extraction`, `aerial-tracing`, `route-tracing`, `elevation`, `track-grading` (racetracks
+only, unwired parts noted in its SKILL.md), `lighting`, `ac-track-modding`, `mesh-audit`,
+`drive-test`, `road-grounding`, `scs-extraction` (stub). Statuses per SKILL.md are authoritative
+— several honestly admit gaps; keep it that way.
 
-1. **USGS 3DEP 1 m** — preferred for US locations (free, high resolution). Primary for Commerce City.
-2. **OpenTopography** — fallback / non-US coverage.
-3. **SRTM 30 m** — last-resort global fallback.
-
-Smooth aggressively *along the racing line* to avoid stepping. Commerce City is gentle terrain —
-expect mild grades, not big elevation.
-
----
-
-## Build pipeline
-
-| Phase | Task | Where | Skill |
-|-------|------|-------|-------|
-| 0 | Provide screenshot, location, route notes | Claude Code | — |
-| 1 | Identify roads → Overpass/KML → resampled centerline | Mac | `gps-extraction` |
-| 1-alt | **No GPS/OSM data** (private circuit)? Trace the asphalt off an aerial screenshot → georeferenced centerline | Mac | `aerial-tracing` |
-| 2 | Sample USGS 3DEP elevation + margin grid, smooth | Mac | `elevation` |
-| 3 | Project lat/lon/elev → local meters, set origin + true north | Mac | `geometry` / `lighting` |
-| 4 | Road ribbon (`1ROAD`) + grass heightfield (`GRASS`) + dummies | Mac | `geometry` / `ac` |
-| 5 | Material JSON → headless Blender → kn5 + track config | Mac | `ac` / `lighting` |
-| 6 | Install (`scripts.ac.install` — optional, auto-finds AC tracks dir), drive, record AI lines, QA | **Windows** | `ac` |
-| 7+ | Objects: barriers, kerbs, trees, buildings — iterative passes | Mac → Win | `ac` |
-
-Phases 1–5 are fully code-driven. Phase 6 is the manual loop on Windows.
-
-## Skills
-
-Specialized capabilities live in `.claude/skills/`. Reach for them by name:
-
-- **`gps-extraction`** — region + rough route → clean ordered centerline (Overpass, KML, resample, width tags).
-- **`aerial-tracing`** — aerial/satellite screenshot of a circuit with no GPS/OSM data → asphalt traced + georeferenced to real lon/lat → the same `centerline.geojson` (so it stays elevation-correct).
-- **`elevation`** — sample real terrain along the line, smooth, emit a heightfield.
-- **`lighting`** — solar position, true-north orientation, CSP/Sol lighting config.
-- **`ac-track-modding`** — AC conventions, surface naming, dummies, headless Blender build & kn5 export, track folder layout.
-
-## Layouts
-
-A `track.config.json` `layouts[]` entry is a route variant. All layouts **share one kn5 model**
-and differ only in AC configuration (which connectors they use, which AI line, etc.). Express
-variants as separate AC configs over a single mesh — never rebuild the mesh per layout.
-
----
-
-## Repo layout
+## Repo layout (truthful as of 2026-08-10)
 
 ```
-prodrive-ac-builder/
-├── CLAUDE.md                  # this file — conventions & pipeline
-├── README.md
-├── pyproject.toml
-├── .claude/skills/            # gps-extraction, aerial-tracing, elevation, lighting, ac-track-modding
-├── scripts/
-│   ├── gps/                   # overpass query, kml parse, resample, width tagging
-│   ├── aerial/               # aerial-screenshot front-end: asphalt detect, skeleton, georef → centerline
-│   ├── elevation/             # USGS 3DEP fetch, sample-along-path, heightfield, smooth
-│   ├── geometry/              # projection, road ribbon mesh, grass heightfield, dummies
-│   ├── lighting/              # solar position, true-north orient, CSP config emit
-│   └── ac/                    # blender headless build, material json, track config gen
-└── projects/
-    └── sand-creek-raceway/
-        ├── source/            # screenshot, any KML, route notes
-        ├── data/              # centerline.geojson, dem.tif, heightfield.npy, splines
-        ├── blender/           # working .blend
-        ├── build/             # fbx, kn5, full installable track folder
-        └── track.config.json  # source of truth
+├── CLAUDE.md                    # this file — v2 constitution
+├── docs/                        # V1-AUTOPSY, V2-OPERATING-MODEL, DEFINITION-OF-DONE,
+│                                # GATES-CHANGELOG, ASSET-LIBRARY, templates/
+├── scripts/                     # the toolbox (see table above)
+├── tests/                       # hermetic suite — python tests/run_tests.py (CI runs this)
+├── .claude/skills/              # 11 skills
+├── assets/                      # shared textures/models + licenses.json (license landmine
+│                                # being retired — autopsy §6)
+├── vendor/                      # GPL kn5 exporter addon (patched at clone time)
+├── apps/prodrive-scan/          # PARKED iOS capture app
+├── projects/<slug>/             # track.config.json, STATE.md, dossier.md, source/, data/, build/
+└── tracks/<slug>/               # last shipped installable folders (Jul 1; no AI lines yet)
 ```
-
-## Headless Blender export
-
-```bash
-blender --background --python scripts/ac/build_kn5.py -- projects/sand-creek-raceway
-```
-
-Requires **Blender 4.x** with the **AC Blender Tools** (kn5 export) addon installed.
